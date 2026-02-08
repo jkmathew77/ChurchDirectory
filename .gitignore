@@ -1,0 +1,24 @@
+# Build artifacts
+plugin/community-directory.zip
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment / secrets
+.env
+*.log
+client_secret_*.json
+
+# Node (if added later)
+node_modules/
+
+# WordPress (not part of plugin)
+wp-config.php
