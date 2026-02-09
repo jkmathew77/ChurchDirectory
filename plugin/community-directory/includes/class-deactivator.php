@@ -11,6 +11,7 @@ class CD_Deactivator {
 
     public static function deactivate() {
         // Unschedule all plugin cron jobs
+        // Must match the hook names in class-activator.php
         $hooks = array(
             'cd_expire_invites',
             'cd_audit_log_cleanup',
@@ -19,7 +20,6 @@ class CD_Deactivator {
             'cd_archive_unverified',
             'cd_transient_cleanup',
             'cd_google_contact_retry',
-            'cd_google_sync_auto',
         );
 
         foreach ( $hooks as $hook ) {

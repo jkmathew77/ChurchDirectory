@@ -103,14 +103,15 @@ $wpdb->query(
 ); // phpcs:ignore WordPress.DB.PreparedSQL
 
 // ─── 5. Clear scheduled cron events ───
+// Must match the hook names in class-activator.php
 $cron_hooks = array(
-    'cd_cleanup_expired_tokens',
-    'cd_cleanup_expired_invites',
-    'cd_process_deletion_requests',
-    'cd_google_sync',
-    'cd_cleanup_audit_log',
-    'cd_check_incomplete_profiles',
-    'cd_session_cleanup',
+    'cd_expire_invites',
+    'cd_audit_log_cleanup',
+    'cd_expire_reset_tokens',
+    'cd_data_retention_check',
+    'cd_archive_unverified',
+    'cd_transient_cleanup',
+    'cd_google_contact_retry',
 );
 
 foreach ( $cron_hooks as $hook ) {

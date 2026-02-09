@@ -1,6 +1,9 @@
 <?php
 /**
  * Migration 001 — Initial schema: all 14 database tables.
+ *
+ * NOTE: All indexed VARCHAR columns use 191 max to stay within MySQL's
+ * 767-byte InnoDB index limit with utf8mb4 (191 × 4 = 764 bytes).
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -34,7 +37,7 @@ function cd_migration_001() {
     // 1. Applications
     $sql[] = "CREATE TABLE {$applications} (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-        email VARCHAR(255) NOT NULL,
+        email VARCHAR(191) NOT NULL,
         first_name VARCHAR(100) NOT NULL,
         last_name VARCHAR(100) NOT NULL,
         form_data {$json_type} DEFAULT NULL,
@@ -65,8 +68,8 @@ function cd_migration_001() {
         activated_at DATETIME DEFAULT NULL,
         deactivated_at DATETIME DEFAULT NULL,
         deactivation_reason VARCHAR(100) DEFAULT NULL,
-        google_id VARCHAR(255) DEFAULT NULL,
-        google_contact_id VARCHAR(255) DEFAULT NULL,
+        google_id VARCHAR(191) DEFAULT NULL,
+        google_contact_id VARCHAR(191) DEFAULT NULL,
         passkey_credential_id VARCHAR(512) DEFAULT NULL,
         member_since DATE DEFAULT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -146,7 +149,7 @@ function cd_migration_001() {
     $sql[] = "CREATE TABLE {$invites} (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         application_id BIGINT UNSIGNED NOT NULL,
-        email VARCHAR(255) NOT NULL,
+        email VARCHAR(191) NOT NULL,
         token_hash VARCHAR(64) NOT NULL,
         expires_at DATETIME NOT NULL,
         used_at DATETIME DEFAULT NULL,
@@ -194,7 +197,7 @@ function cd_migration_001() {
     $sql[] = "CREATE TABLE {$officers} (
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         member_id BIGINT UNSIGNED NOT NULL,
-        email VARCHAR(255) NOT NULL,
+        email VARCHAR(191) NOT NULL,
         title VARCHAR(100) DEFAULT NULL,
         term_label VARCHAR(100) DEFAULT NULL,
         added_by BIGINT UNSIGNED DEFAULT NULL,
@@ -211,8 +214,8 @@ function cd_migration_001() {
         id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
         member_id BIGINT UNSIGNED NOT NULL,
         endpoint TEXT NOT NULL,
-        p256dh_key VARCHAR(255) NOT NULL,
-        auth_key VARCHAR(255) NOT NULL,
+        p256dh_key VARCHAR(191) NOT NULL,
+        auth_key VARCHAR(191) NOT NULL,
         user_agent VARCHAR(500) DEFAULT NULL,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         last_used_at DATETIME DEFAULT NULL,

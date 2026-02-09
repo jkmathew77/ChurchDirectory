@@ -31,9 +31,9 @@ class CD_Capabilities {
      */
     public static function add_caps() {
         $admin_role = get_role( 'administrator' );
-        if ( $admin_role ) {
+        if ( ! empty( $admin_role ) && is_object( $admin_role ) ) {
             foreach ( array_keys( self::CAPS ) as $cap ) {
-                $admin_role->add_cap( $cap );
+                $admin_role->add_cap( $cap, true );
             }
         }
     }
