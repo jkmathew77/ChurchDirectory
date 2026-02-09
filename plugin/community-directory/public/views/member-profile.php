@@ -2,6 +2,8 @@
 /**
  * Community Directory — View Member Profile.
  * Stub for Phase 3.
+ * Rendered inside the active WordPress theme via get_header/get_footer.
+ * Member UUID is passed to JS via wp_add_inline_script in class-plugin.php.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -10,42 +12,27 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 $base_slug     = get_option( 'cd_base_slug', 'community' );
 $directory_url = home_url( $base_slug . '/directory/' );
-$member_uuid   = get_query_var( 'cd_member_uuid', '' );
-?>
-<!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo( 'charset' ); ?>">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo esc_html( get_bloginfo( 'name' ) ); ?> — <?php esc_html_e( 'Member Profile', 'community-directory' ); ?></title>
-    <?php wp_head(); ?>
-</head>
-<body class="cd-page cd-member-profile" x-data="cdMemberProfile()">
 
+get_header();
+?>
+
+<div class="cd-wrap cd-member-profile" x-data="cdMemberProfile()">
     <div class="cd-container">
-        <header class="cd-header">
+        <div class="cd-page-header">
             <a href="<?php echo esc_url( $directory_url ); ?>" class="cd-back-link">
                 &larr; <?php esc_html_e( 'Directory', 'community-directory' ); ?>
             </a>
             <h1 class="cd-title"><?php esc_html_e( 'Member Profile', 'community-directory' ); ?></h1>
-        </header>
+        </div>
 
-        <main class="cd-main">
+        <div class="cd-main">
             <div class="cd-card">
                 <p class="cd-text-muted cd-text-center">
                     <?php esc_html_e( 'Member profiles will be available in Phase 3.', 'community-directory' ); ?>
                 </p>
             </div>
-        </main>
-
-        <footer class="cd-footer">
-            <p>&copy; <?php echo esc_html( date( 'Y' ) ); ?> <?php echo esc_html( get_bloginfo( 'name' ) ); ?></p>
-        </footer>
+        </div>
     </div>
+</div>
 
-    <script>
-        window.cdMemberUuid = <?php echo wp_json_encode( $member_uuid ); ?>;
-    </script>
-    <?php wp_footer(); ?>
-</body>
-</html>
+<?php get_footer(); ?>

@@ -34,22 +34,19 @@
     --cd-container-wide: 960px;
 }
 
-/* ─── Reset for plugin pages ─── */
-.cd-page {
-    margin: 0;
-    padding: 0;
+/* ─── Wrapper for plugin content within theme ─── */
+.cd-wrap {
     font-family: var(--cd-font);
     font-size: 16px;
     line-height: 1.6;
     color: var(--cd-text);
-    background: var(--cd-bg);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
 
-.cd-page *,
-.cd-page *::before,
-.cd-page *::after {
+.cd-wrap *,
+.cd-wrap *::before,
+.cd-wrap *::after {
     box-sizing: border-box;
 }
 
@@ -57,45 +54,30 @@
 .cd-container {
     max-width: var(--cd-container-width);
     margin: 0 auto;
-    padding: 24px 16px;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
+    padding: 32px 16px;
 }
 
 .cd-directory .cd-container {
     max-width: var(--cd-container-wide);
 }
 
-.cd-main {
-    flex: 1;
-}
-
-/* ─── Header ─── */
-.cd-header {
+/* ─── Page Header ─── */
+.cd-page-header {
     text-align: center;
     margin-bottom: 32px;
 }
 
-.cd-header-app {
+.cd-page-header-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     text-align: left;
+    margin-bottom: 32px;
 }
 
-.cd-header-app .cd-title {
+.cd-page-header-row .cd-title {
     font-size: 1.25rem;
     margin: 0;
-}
-
-.cd-logo {
-    display: block;
-    width: 80px;
-    height: 80px;
-    margin: 0 auto 16px;
-    border-radius: 50%;
-    object-fit: cover;
 }
 
 .cd-title {
@@ -103,12 +85,6 @@
     font-weight: 700;
     margin: 0 0 4px;
     color: var(--cd-text);
-}
-
-.cd-subtitle {
-    font-size: 0.95rem;
-    color: var(--cd-text-muted);
-    margin: 0;
 }
 
 .cd-back-link {
@@ -667,19 +643,6 @@
     display: none !important;
 }
 
-/* ─── Footer ─── */
-.cd-footer {
-    text-align: center;
-    padding-top: 32px;
-    margin-top: auto;
-    font-size: 0.8rem;
-    color: var(--cd-text-light);
-}
-
-.cd-footer p {
-    margin: 0;
-}
-
 /* ─── Responsive ─── */
 @media (max-width: 480px) {
     .cd-container {
@@ -701,7 +664,7 @@
         flex: none;
     }
 
-    .cd-header-app {
+    .cd-page-header-row {
         flex-direction: column;
         gap: 12px;
         text-align: center;

@@ -2,27 +2,22 @@
 /**
  * Community Directory — Members-Only Directory View.
  * Stub for Phase 3.
+ * Rendered inside the active WordPress theme via get_header/get_footer.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-$base_slug  = get_option( 'cd_base_slug', 'community' );
+$base_slug   = get_option( 'cd_base_slug', 'community' );
 $profile_url = home_url( $base_slug . '/profile/' );
-?>
-<!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo( 'charset' ); ?>">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo esc_html( get_bloginfo( 'name' ) ); ?> — <?php esc_html_e( 'Directory', 'community-directory' ); ?></title>
-    <?php wp_head(); ?>
-</head>
-<body class="cd-page cd-directory" x-data="cdDirectory()">
 
+get_header();
+?>
+
+<div class="cd-wrap cd-directory" x-data="cdDirectory()">
     <div class="cd-container">
-        <header class="cd-header cd-header-app">
+        <div class="cd-page-header cd-page-header-row">
             <h1 class="cd-title"><?php esc_html_e( 'Community Directory', 'community-directory' ); ?></h1>
             <nav class="cd-nav">
                 <a href="<?php echo esc_url( $profile_url ); ?>" class="cd-btn cd-btn-sm cd-btn-secondary">
@@ -32,9 +27,9 @@ $profile_url = home_url( $base_slug . '/profile/' );
                     <?php esc_html_e( 'Log Out', 'community-directory' ); ?>
                 </button>
             </nav>
-        </header>
+        </div>
 
-        <main class="cd-main">
+        <div class="cd-main">
             <!-- Search -->
             <div class="cd-search-bar">
                 <input
@@ -52,13 +47,8 @@ $profile_url = home_url( $base_slug . '/profile/' );
                     <?php esc_html_e( 'The directory will be available once member profiles are set up. Check back soon!', 'community-directory' ); ?>
                 </p>
             </div>
-        </main>
-
-        <footer class="cd-footer">
-            <p>&copy; <?php echo esc_html( date( 'Y' ) ); ?> <?php echo esc_html( get_bloginfo( 'name' ) ); ?></p>
-        </footer>
+        </div>
     </div>
+</div>
 
-    <?php wp_footer(); ?>
-</body>
-</html>
+<?php get_footer(); ?>

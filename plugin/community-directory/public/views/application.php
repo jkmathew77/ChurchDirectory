@@ -2,6 +2,7 @@
 /**
  * Community Directory Application Form.
  * Multi-step wizard for new member applications.
+ * Rendered inside the active WordPress theme via get_header/get_footer.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -11,26 +12,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 $base_slug   = get_option( 'cd_base_slug', 'community' );
 $landing_url = home_url( $base_slug . '/' );
 $login_url   = home_url( $base_slug . '/login/' );
-?>
-<!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo( 'charset' ); ?>">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo esc_html( get_bloginfo( 'name' ) ); ?> — <?php esc_html_e( 'Become a Member', 'community-directory' ); ?></title>
-    <?php wp_head(); ?>
-</head>
-<body class="cd-page cd-application" x-data="cdApplication()">
 
+get_header();
+?>
+
+<div class="cd-wrap cd-application" x-data="cdApplication()">
     <div class="cd-container">
-        <header class="cd-header">
+        <div class="cd-page-header">
             <a href="<?php echo esc_url( $landing_url ); ?>" class="cd-back-link">
                 &larr; <?php esc_html_e( 'Back', 'community-directory' ); ?>
             </a>
             <h1 class="cd-title"><?php esc_html_e( 'Become a Member', 'community-directory' ); ?></h1>
-        </header>
+        </div>
 
-        <main class="cd-main">
+        <div class="cd-main">
             <!-- Success state — application submitted -->
             <template x-if="submitted">
                 <div class="cd-card">
@@ -327,13 +322,8 @@ $login_url   = home_url( $base_slug . '/login/' );
                     </div>
                 </div>
             </template>
-        </main>
-
-        <footer class="cd-footer">
-            <p>&copy; <?php echo esc_html( date( 'Y' ) ); ?> <?php echo esc_html( get_bloginfo( 'name' ) ); ?></p>
-        </footer>
+        </div>
     </div>
+</div>
 
-    <?php wp_footer(); ?>
-</body>
-</html>
+<?php get_footer(); ?>

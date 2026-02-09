@@ -2,35 +2,30 @@
 /**
  * Community Directory Login Page.
  * Email/password login + Google OAuth.
+ * Rendered inside the active WordPress theme via get_header/get_footer.
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-$base_slug  = get_option( 'cd_base_slug', 'community' );
+$base_slug   = get_option( 'cd_base_slug', 'community' );
 $landing_url = home_url( $base_slug . '/' );
 $apply_url   = home_url( $base_slug . '/apply/' );
-?>
-<!DOCTYPE html>
-<html <?php language_attributes(); ?>>
-<head>
-    <meta charset="<?php bloginfo( 'charset' ); ?>">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?php echo esc_html( get_bloginfo( 'name' ) ); ?> — <?php esc_html_e( 'Login', 'community-directory' ); ?></title>
-    <?php wp_head(); ?>
-</head>
-<body class="cd-page cd-login" x-data="cdLogin()">
 
+get_header();
+?>
+
+<div class="cd-wrap cd-login" x-data="cdLogin()">
     <div class="cd-container">
-        <header class="cd-header">
+        <div class="cd-page-header">
             <a href="<?php echo esc_url( $landing_url ); ?>" class="cd-back-link">
                 &larr; <?php esc_html_e( 'Back', 'community-directory' ); ?>
             </a>
             <h1 class="cd-title"><?php esc_html_e( 'Member Login', 'community-directory' ); ?></h1>
-        </header>
+        </div>
 
-        <main class="cd-main">
+        <div class="cd-main">
             <div class="cd-card">
                 <!-- Success message -->
                 <template x-if="successMessage">
@@ -192,13 +187,8 @@ $apply_url   = home_url( $base_slug . '/apply/' );
                     </div>
                 </div>
             </template>
-        </main>
-
-        <footer class="cd-footer">
-            <p>&copy; <?php echo esc_html( date( 'Y' ) ); ?> <?php echo esc_html( get_bloginfo( 'name' ) ); ?></p>
-        </footer>
+        </div>
     </div>
+</div>
 
-    <?php wp_footer(); ?>
-</body>
-</html>
+<?php get_footer(); ?>

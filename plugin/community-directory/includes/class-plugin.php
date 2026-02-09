@@ -96,11 +96,14 @@ class CD_Plugin {
     private function load_public() {
         add_action( 'init', array( $this, 'register_rewrite_rules' ) );
         add_filter( 'query_vars', array( $this, 'register_query_vars' ) );
-        add_action( 'template_redirect', array( $this, 'handle_community_pages' ) );
+        add_action( 'template_redirect', array( $this, 'handle_community_redirects' ) );
+        add_filter( 'template_include', array( $this, 'load_community_template' ) );
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_public_assets' ) );
+        add_filter( 'body_class', array( $this, 'add_body_classes' ) );
+        add_filter( 'document_title_parts', array( $this, 'filter_page_title' ) );
 
-        // Menu visibility filter
-        add_filter( 'wp_nav_menu_items', array( $this, 'filter_community_menu_item' ), 10, 2 );
+        // Inject Community link into site navigation
+        add_filter( 'wp_nav_menu_items', array( $this, 'inject_community_menu_item' ), 10, 2 );
     }
 
     /**
@@ -157,74 +160,118 @@ class CD_Plugin {
     }
 
     /**
-     * Handle front-end page routing.
+     * Handle auth redirects only — template loading is done via template_include.
      */
-    public function handle_community_pages() {
+    public function handle_community_redirects() {
         $page = get_query_var( 'cd_page' );
         if ( empty( $page ) ) {
             return;
         }
 
-        // Security headers for all community pages
+        $base_slug = get_option( 'cd_base_slug', 'community' );
+
+        // Logged-in members skip landing/login and go to directory
+        if ( in_array( $page, array( 'landing', 'login' ), true ) ) {
+            if ( is_user_logged_in() && current_user_can( 'cd_member' ) ) {
+                wp_safe_redirect( home_url( $base_slug . '/directory/' ) );
+                exit;
+            }
+        }
+
+        // Protected pages require cd_member capability
+        if ( in_array( $page, array( 'directory', 'member', 'profile' ), true ) ) {
+            if ( ! is_user_logged_in() || ! current_user_can( 'cd_member' ) ) {
+                wp_safe_redirect( home_url( $base_slug . '/login/' ) );
+                exit;
+            }
+        }
+
+        // Tell WordPress this is a valid page, not a 404
+        global $wp_query;
+        $wp_query->is_404 = false;
+        $wp_query->is_page = true;
+        status_header( 200 );
+    }
+
+    /**
+     * Load the correct plugin template for community pages.
+     * Uses template_include so pages render inside the active theme.
+     */
+    public function load_community_template( $template ) {
+        $page = get_query_var( 'cd_page' );
+        if ( empty( $page ) ) {
+            return $template;
+        }
+
+        // Send security headers
         $this->send_security_headers();
 
-        $template_dir = CD_PLUGIN_DIR . 'public/views/';
+        $templates = array(
+            'landing'     => 'landing.php',
+            'login'       => 'login.php',
+            'application' => 'application.php',
+            'directory'   => 'directory.php',
+            'member'      => 'member-profile.php',
+            'profile'     => 'edit-profile.php',
+            'verify'      => 'verify.php',
+        );
 
-        switch ( $page ) {
-            case 'landing':
-                if ( is_user_logged_in() && current_user_can( 'cd_member' ) ) {
-                    wp_safe_redirect( home_url( get_option( 'cd_base_slug', 'community' ) . '/directory/' ) );
-                    exit;
-                }
-                include $template_dir . 'landing.php';
-                exit;
-
-            case 'login':
-                if ( is_user_logged_in() && current_user_can( 'cd_member' ) ) {
-                    wp_safe_redirect( home_url( get_option( 'cd_base_slug', 'community' ) . '/directory/' ) );
-                    exit;
-                }
-                include $template_dir . 'login.php';
-                exit;
-
-            case 'application':
-                include $template_dir . 'application.php';
-                exit;
-
-            case 'directory':
-                if ( ! is_user_logged_in() || ! current_user_can( 'cd_member' ) ) {
-                    wp_safe_redirect( home_url( get_option( 'cd_base_slug', 'community' ) . '/login/' ) );
-                    exit;
-                }
-                include $template_dir . 'directory.php';
-                exit;
-
-            case 'member':
-                if ( ! is_user_logged_in() || ! current_user_can( 'cd_member' ) ) {
-                    wp_safe_redirect( home_url( get_option( 'cd_base_slug', 'community' ) . '/login/' ) );
-                    exit;
-                }
-                include $template_dir . 'member-profile.php';
-                exit;
-
-            case 'profile':
-                if ( ! is_user_logged_in() || ! current_user_can( 'cd_member' ) ) {
-                    wp_safe_redirect( home_url( get_option( 'cd_base_slug', 'community' ) . '/login/' ) );
-                    exit;
-                }
-                include $template_dir . 'edit-profile.php';
-                exit;
-
-            case 'verify':
-                include $template_dir . 'verify.php';
-                exit;
+        if ( isset( $templates[ $page ] ) ) {
+            $plugin_template = CD_PLUGIN_DIR . 'public/views/' . $templates[ $page ];
+            if ( file_exists( $plugin_template ) ) {
+                return $plugin_template;
+            }
         }
+
+        return $template;
+    }
+
+    /**
+     * Add body classes for community pages (used by theme's body_class()).
+     */
+    public function add_body_classes( $classes ) {
+        $page = get_query_var( 'cd_page' );
+        if ( ! empty( $page ) ) {
+            $classes[] = 'cd-page';
+            $classes[] = 'cd-page-' . sanitize_html_class( $page );
+        }
+        return $classes;
+    }
+
+    /**
+     * Filter the document title for community pages.
+     */
+    public function filter_page_title( $title_parts ) {
+        $page = get_query_var( 'cd_page' );
+        if ( empty( $page ) ) {
+            return $title_parts;
+        }
+
+        $titles = array(
+            'landing'     => __( 'Community Directory', 'community-directory' ),
+            'login'       => __( 'Login', 'community-directory' ),
+            'application' => __( 'Become a Member', 'community-directory' ),
+            'directory'   => __( 'Directory', 'community-directory' ),
+            'member'      => __( 'Member Profile', 'community-directory' ),
+            'profile'     => __( 'Edit Profile', 'community-directory' ),
+            'verify'      => __( 'Email Verification', 'community-directory' ),
+        );
+
+        if ( isset( $titles[ $page ] ) ) {
+            $title_parts['title'] = $titles[ $page ];
+        }
+
+        return $title_parts;
     }
 
     /**
      * Send HTTP security headers on community pages.
      */
     private function send_security_headers() {
+        if ( headers_sent() ) {
+            return;
+        }
+
         header( 'X-Content-Type-Options: nosniff' );
         header( 'X-Frame-Options: DENY' );
         header( 'Referrer-Policy: no-referrer' );
@@ -272,6 +319,17 @@ class CD_Plugin {
             'isLoggedIn' => is_user_logged_in(),
         ) );
 
+        // Pass page-specific data via inline script
+        $token = get_query_var( 'cd_token', '' );
+        if ( ! empty( $token ) ) {
+            wp_add_inline_script( 'community-directory', 'window.cdVerifyToken = ' . wp_json_encode( $token ) . ';', 'before' );
+        }
+
+        $member_uuid = get_query_var( 'cd_member_uuid', '' );
+        if ( ! empty( $member_uuid ) ) {
+            wp_add_inline_script( 'community-directory', 'window.cdMemberUuid = ' . wp_json_encode( $member_uuid ) . ';', 'before' );
+        }
+
         // Plugin CSS
         wp_enqueue_style(
             'community-directory',
@@ -282,16 +340,38 @@ class CD_Plugin {
     }
 
     /**
-     * Filter community menu item visibility based on admin toggle.
+     * Inject Community menu item into site navigation.
      */
-    public function filter_community_menu_item( $items, $args ) {
+    public function inject_community_menu_item( $items, $args ) {
         $menu_visible = get_option( 'cd_menu_visible', '1' );
-        if ( '0' === $menu_visible ) {
-            // Remove community menu item by filtering it out
-            $base_slug = get_option( 'cd_base_slug', 'community' );
-            $pattern = '/<li[^>]*>.*?<a[^>]*href=["\'][^"\']*\/' . preg_quote( $base_slug, '/' ) . '\/?["\'][^>]*>.*?<\/a>.*?<\/li>/is';
-            $items = preg_replace( $pattern, '', $items );
+        if ( '1' !== $menu_visible ) {
+            return $items;
         }
+
+        // Only inject into primary/main menu locations
+        $primary_locations = array(
+            'primary', 'main', 'main-menu', 'primary-menu',
+            'header-menu', 'menu-1', 'primary_navigation',
+            'header', 'top', 'top-menu',
+        );
+        if ( ! empty( $args->theme_location ) && ! in_array( $args->theme_location, $primary_locations, true ) ) {
+            return $items;
+        }
+
+        $base_slug  = get_option( 'cd_base_slug', 'community' );
+        $menu_label = get_option( 'cd_menu_label', 'Community' );
+        $url        = home_url( $base_slug . '/' );
+
+        $active_class = '';
+        $page = get_query_var( 'cd_page' );
+        if ( ! empty( $page ) ) {
+            $active_class = ' current-menu-item current_page_item';
+        }
+
+        $items .= '<li class="menu-item menu-item-community-directory' . $active_class . '">'
+                . '<a href="' . esc_url( $url ) . '">' . esc_html( $menu_label ) . '</a>'
+                . '</li>';
+
         return $items;
     }
 
