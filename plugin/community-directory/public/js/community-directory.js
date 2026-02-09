@@ -146,7 +146,7 @@ function cdLogin() {
 function cdApplication() {
     return {
         step: 0,
-        steps: ['Personal Info', 'Details', 'Family', 'Review'],
+        steps: ['Personal Info', 'Address & Background', 'Family', 'Interests & Review'],
         loading: false,
         submitted: false,
         errorMessage: '',
@@ -154,6 +154,7 @@ function cdApplication() {
         agreedToTerms: false,
         form: {
             first_name: '',
+            middle_initial: '',
             last_name: '',
             email: '',
             phone: '',
@@ -162,10 +163,23 @@ function cdApplication() {
             state: '',
             zip: '',
             date_of_birth: '',
+            date_of_baptism: '',
+            profession: '',
+            prior_parishes: '',
+            marital_status: '',
+            date_of_marriage: '',
+            marriage_registered_at: '',
             spouse_first_name: '',
+            spouse_middle_initial: '',
             spouse_last_name: '',
             spouse_email: '',
+            spouse_phone: '',
+            spouse_date_of_birth: '',
+            spouse_date_of_baptism: '',
+            spouse_relationship: '',
             children: [],
+            ministry_interests: [],
+            ministry_other: '',
         },
 
         nextStep() {
@@ -203,12 +217,26 @@ function cdApplication() {
         addChild() {
             this.form.children.push({
                 first_name: '',
+                middle_initial: '',
+                last_name: '',
+                relationship: '',
                 date_of_birth: '',
+                date_of_baptism: '',
+                email: '',
             });
         },
 
         removeChild(index) {
             this.form.children.splice(index, 1);
+        },
+
+        toggleMinistry(value) {
+            const idx = this.form.ministry_interests.indexOf(value);
+            if (idx === -1) {
+                this.form.ministry_interests.push(value);
+            } else {
+                this.form.ministry_interests.splice(idx, 1);
+            }
         },
 
         isValidEmail(email) {
@@ -226,21 +254,37 @@ function cdApplication() {
 
             // Build form_data (additional details beyond the core fields)
             const formData = {};
+            if (this.form.middle_initial) formData.middle_initial = this.form.middle_initial;
             if (this.form.address_line_1) formData.address_line_1 = this.form.address_line_1;
             if (this.form.city) formData.city = this.form.city;
             if (this.form.state) formData.state = this.form.state;
             if (this.form.zip) formData.zip = this.form.zip;
             if (this.form.date_of_birth) formData.date_of_birth = this.form.date_of_birth;
+            if (this.form.date_of_baptism) formData.date_of_baptism = this.form.date_of_baptism;
+            if (this.form.profession) formData.profession = this.form.profession;
+            if (this.form.prior_parishes) formData.prior_parishes = this.form.prior_parishes;
+            if (this.form.marital_status) formData.marital_status = this.form.marital_status;
+            if (this.form.date_of_marriage) formData.date_of_marriage = this.form.date_of_marriage;
+            if (this.form.marriage_registered_at) formData.marriage_registered_at = this.form.marriage_registered_at;
             if (this.hasSpouse && this.form.spouse_first_name) {
                 formData.spouse = {
                     first_name: this.form.spouse_first_name,
+                    middle_initial: this.form.spouse_middle_initial,
                     last_name: this.form.spouse_last_name,
                     email: this.form.spouse_email,
+                    phone: this.form.spouse_phone,
+                    relationship: this.form.spouse_relationship,
+                    date_of_birth: this.form.spouse_date_of_birth,
+                    date_of_baptism: this.form.spouse_date_of_baptism,
                 };
             }
             if (this.form.children.length > 0) {
                 formData.children = this.form.children.filter(c => c.first_name);
             }
+            if (this.form.ministry_interests.length > 0) {
+                formData.ministry_interests = this.form.ministry_interests;
+            }
+            if (this.form.ministry_other) formData.ministry_other = this.form.ministry_other;
 
             try {
                 await cdApi.post('/applications', {
@@ -284,6 +328,98 @@ function cdVerify() {
                 this.errorMessage = err.message;
             } finally {
                 this.loading = false;
+            }
+        },
+    };
+}
+
+/* ─── Invite Acceptance ─── */
+function cdInvite() {
+    return {
+        loading: true,
+        tokenValid: false,
+        success: false,
+        errorMessage: '',
+        applicantName: '',
+        email: '',
+        password: '',
+        passwordConfirm: '',
+        creating: false,
+
+        async init() {
+            // Read base64-encoded email from URL path
+            const encodedEmail = window.cdInviteEmail;
+            if (!encodedEmail) {
+                this.loading = false;
+                this.errorMessage = 'Invalid invitation link.';
+                return;
+            }
+
+            try {
+                this.email = atob(encodedEmail);
+            } catch (e) {
+                this.loading = false;
+                this.errorMessage = 'Invalid invitation link.';
+                return;
+            }
+
+            // Get token from URL query params
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token');
+            if (!token) {
+                this.loading = false;
+                this.errorMessage = 'No invitation token provided.';
+                return;
+            }
+
+            // Validate the invite token
+            try {
+                const result = await cdApi.get(
+                    '/invites/validate?token=' + encodeURIComponent(token) +
+                    '&email=' + encodeURIComponent(this.email)
+                );
+                this.applicantName = result.data.name || '';
+                this.tokenValid = true;
+            } catch (err) {
+                this.errorMessage = err.message;
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        async createAccount() {
+            this.errorMessage = '';
+
+            if (!this.password || this.password.length < 8) {
+                this.errorMessage = 'Password must be at least 8 characters.';
+                return;
+            }
+            if (this.password !== this.passwordConfirm) {
+                this.errorMessage = 'Passwords do not match.';
+                return;
+            }
+
+            this.creating = true;
+
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token');
+
+            try {
+                await cdApi.post('/invites/accept', {
+                    token: token,
+                    email: this.email,
+                    password: this.password,
+                });
+
+                this.success = true;
+                // Redirect to directory after brief delay
+                setTimeout(() => {
+                    window.location.href = cdConfig.baseUrl + '/directory/';
+                }, 2000);
+            } catch (err) {
+                this.errorMessage = err.message;
+            } finally {
+                this.creating = false;
             }
         },
     };

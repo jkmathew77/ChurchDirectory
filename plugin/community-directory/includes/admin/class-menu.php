@@ -141,6 +141,53 @@ class CD_Admin_Menu {
             'sanitize_callback' => 'sanitize_text_field',
             'default'           => '1',
         ) );
+
+        // Google Contacts settings
+        register_setting( 'cd_general_settings', 'cd_google_client_id', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default'           => '',
+        ) );
+        register_setting( 'cd_general_settings', 'cd_google_client_secret_raw', array(
+            'type'              => 'string',
+            'sanitize_callback' => array( $this, 'sanitize_google_client_secret' ),
+            'default'           => '',
+        ) );
+        register_setting( 'cd_general_settings', 'cd_google_sync_enabled', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default'           => '0',
+        ) );
+        register_setting( 'cd_general_settings', 'cd_google_export_on_approval', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default'           => '1',
+        ) );
+        register_setting( 'cd_general_settings', 'cd_google_contact_group', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default'           => 'St. Thekla Members',
+        ) );
+    }
+
+    /**
+     * Encrypt the Google client secret before storage.
+     * The raw value comes from the form field name "cd_google_client_secret_raw".
+     * We encrypt it and store it in "cd_google_client_secret".
+     *
+     * @param string $value The raw client secret from the form.
+     * @return string Empty string — we handle storage ourselves.
+     */
+    public function sanitize_google_client_secret( $value ) {
+        $value = sanitize_text_field( $value );
+
+        // Only update if a new value was entered (blank means keep existing)
+        if ( ! empty( $value ) ) {
+            update_option( 'cd_google_client_secret', CD_Encryption::encrypt( $value ) );
+        }
+
+        // Return empty so the _raw option itself stays empty (secret is in cd_google_client_secret)
+        return '';
     }
 
     /**
@@ -161,11 +208,11 @@ class CD_Admin_Menu {
     }
 
     public function render_registrations_page() {
-        echo '<div class="wrap"><h1>' . esc_html__( 'Registrations', 'community-directory' ) . '</h1><p>Coming in Phase 1.</p></div>';
+        include CD_PLUGIN_DIR . 'includes/admin/views/registrations.php';
     }
 
     public function render_applications_page() {
-        echo '<div class="wrap"><h1>' . esc_html__( 'Applications', 'community-directory' ) . '</h1><p>Coming in Phase 2.</p></div>';
+        include CD_PLUGIN_DIR . 'includes/admin/views/applications.php';
     }
 
     public function render_members_page() {
@@ -173,7 +220,7 @@ class CD_Admin_Menu {
     }
 
     public function render_officers_page() {
-        echo '<div class="wrap"><h1>' . esc_html__( 'Officers Group', 'community-directory' ) . '</h1><p>Coming in Phase 2.</p></div>';
+        include CD_PLUGIN_DIR . 'includes/admin/views/officers.php';
     }
 
     public function render_whatsapp_page() {
@@ -181,7 +228,7 @@ class CD_Admin_Menu {
     }
 
     public function render_import_page() {
-        echo '<div class="wrap"><h1>' . esc_html__( 'Import Members', 'community-directory' ) . '</h1><p>Coming in Phase 2.</p></div>';
+        include CD_PLUGIN_DIR . 'includes/admin/views/google-sync.php';
     }
 
     public function render_reports_page() {

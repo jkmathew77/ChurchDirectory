@@ -33,8 +33,15 @@ class CD_Plugin {
         $this->load_api();
         $this->load_public();
 
-        // Register cron schedules
+        // Register cron schedules and callbacks
         add_filter( 'cron_schedules', array( $this, 'register_cron_schedules' ) );
+        CD_Cron::init();
+
+        // Google Contacts OAuth callback
+        CD_Google_Contacts::register_ajax();
+
+        // Flush rewrite rules once after plugin update adds new routes
+        $this->maybe_flush_rewrites();
     }
 
     /**
@@ -88,6 +95,9 @@ class CD_Plugin {
 
         $admin_api = new CD_API_Admin();
         $admin_api->register_routes();
+
+        $invites_api = new CD_API_Invites();
+        $invites_api->register_routes();
     }
 
     /**
@@ -147,6 +157,11 @@ class CD_Plugin {
             'index.php?cd_page=verify&cd_token=$matches[1]',
             'top'
         );
+        add_rewrite_rule(
+            '^' . $base_slug . '/invite/([A-Za-z0-9+/=]+)/?$',
+            'index.php?cd_page=invite&cd_invite_email=$matches[1]',
+            'top'
+        );
     }
 
     /**
@@ -156,6 +171,7 @@ class CD_Plugin {
         $vars[] = 'cd_page';
         $vars[] = 'cd_member_uuid';
         $vars[] = 'cd_token';
+        $vars[] = 'cd_invite_email';
         return $vars;
     }
 
@@ -214,6 +230,7 @@ class CD_Plugin {
             'member'      => 'member-profile.php',
             'profile'     => 'edit-profile.php',
             'verify'      => 'verify.php',
+            'invite'      => 'invite.php',
         );
 
         if ( isset( $templates[ $page ] ) ) {
@@ -255,6 +272,7 @@ class CD_Plugin {
             'member'      => __( 'Member Profile', 'community-directory' ),
             'profile'     => __( 'Edit Profile', 'community-directory' ),
             'verify'      => __( 'Email Verification', 'community-directory' ),
+            'invite'      => __( 'Accept Invitation', 'community-directory' ),
         );
 
         if ( isset( $titles[ $page ] ) ) {
@@ -330,6 +348,11 @@ class CD_Plugin {
             wp_add_inline_script( 'community-directory', 'window.cdMemberUuid = ' . wp_json_encode( $member_uuid ) . ';', 'before' );
         }
 
+        $invite_email = get_query_var( 'cd_invite_email', '' );
+        if ( ! empty( $invite_email ) ) {
+            wp_add_inline_script( 'community-directory', 'window.cdInviteEmail = ' . wp_json_encode( $invite_email ) . ';', 'before' );
+        }
+
         // Plugin CSS
         wp_enqueue_style(
             'community-directory',
@@ -384,5 +407,21 @@ class CD_Plugin {
             'display'  => __( 'Twice Daily', 'community-directory' ),
         );
         return $schedules;
+    }
+
+    /**
+     * Flush rewrite rules once when new routes are added in a plugin update.
+     * Checks a stored version and flushes if it's behind.
+     */
+    private function maybe_flush_rewrites() {
+        $current_rewrite_version = 2; // Bump this when adding new rewrite rules
+        $stored = (int) get_option( 'cd_rewrite_version', 1 );
+
+        if ( $stored < $current_rewrite_version ) {
+            add_action( 'admin_init', function () use ( $current_rewrite_version ) {
+                flush_rewrite_rules();
+                update_option( 'cd_rewrite_version', $current_rewrite_version );
+            } );
+        }
     }
 }
