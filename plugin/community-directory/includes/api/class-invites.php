@@ -155,8 +155,13 @@ class CD_API_Invites extends CD_API_Base {
             'email' => $email,
         ) );
 
+        // Redirect to profile edit so new member can complete their profile
+        $base_slug = get_option( 'cd_base_slug', 'community' );
+        $redirect  = home_url( $base_slug . '/profile/edit/' );
+
         return $this->success( array(
-            'message' => __( 'Account created successfully! Redirecting to directory...', 'community-directory' ),
+            'message'  => __( 'Account created successfully! Let\'s complete your profile...', 'community-directory' ),
+            'redirect' => $redirect,
         ), array(), 201 );
     }
 

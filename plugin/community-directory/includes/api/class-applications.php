@@ -84,6 +84,28 @@ class CD_API_Applications extends CD_API_Base {
         $applications_table = CD_Database::table( 'applications' );
         $members_table = CD_Database::table( 'members' );
 
+        // Check re-application cooldown (30 days default)
+        $cooldown_days = (int) get_option( 'cd_reapplication_cooldown', 30 );
+        $existing_rejected = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$applications_table}
+             WHERE email = %s AND status = 'not_approved'
+             AND reviewed_at > DATE_SUB(%s, INTERVAL %d DAY)
+             LIMIT 1",
+            $email,
+            current_time( 'mysql' ),
+            $cooldown_days
+        ) );
+
+        if ( $existing_rejected ) {
+            return $this->error(
+                'cooldown_active',
+                sprintf(
+                    __( 'A previous application was recently reviewed. Please wait %d days before reapplying, or contact the church office.', 'community-directory' ),
+                    $cooldown_days
+                )
+            );
+        }
+
         // Check if email already belongs to an active member
         $existing_member = $wpdb->get_var( $wpdb->prepare(
             "SELECT id FROM {$members_table} WHERE id IN (

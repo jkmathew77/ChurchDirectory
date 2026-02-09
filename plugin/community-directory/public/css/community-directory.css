@@ -302,7 +302,8 @@
     cursor: not-allowed;
 }
 
-.cd-help-text {
+.cd-help-text,
+.cd-form-hint {
     font-size: 0.8rem;
     color: var(--cd-text-muted);
     margin: 4px 0 0;

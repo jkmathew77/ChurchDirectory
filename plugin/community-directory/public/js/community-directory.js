@@ -64,11 +64,43 @@ function cdLogin() {
         successMessage: '',
         showForgotPassword: false,
         showForgotEmail: false,
+        showResetConfirm: false,
         resetEmail: '',
         resetSent: false,
+        resetToken: '',
+        newPassword: '',
+        newPasswordConfirm: '',
+        resetConfirmed: false,
         lookupName: '',
         lookupPhone: '',
         emailLookupSent: false,
+
+        init() {
+            const params = new URLSearchParams(window.location.search);
+
+            // Handle password reset token from email link
+            const resetToken = params.get('reset_token');
+            if (resetToken) {
+                this.resetToken = resetToken;
+                this.showResetConfirm = true;
+            }
+
+            // Handle Google OAuth errors
+            const error = params.get('error');
+            if (error) {
+                const errorMessages = {
+                    'no_account': 'No directory account is associated with this Google account. Please log in with email/password or apply for membership.',
+                    'invalid_state': 'Google sign-in session expired. Please try again.',
+                    'token_exchange_failed': 'Could not connect to Google. Please try again.',
+                };
+                this.errorMessage = errorMessages[error] || 'Sign-in error: ' + error;
+            }
+
+            // Handle logged_out message
+            if (params.get('logged_out')) {
+                this.successMessage = 'You have been logged out.';
+            }
+        },
 
         async loginWithEmail() {
             this.errorMessage = '';
@@ -87,7 +119,11 @@ function cdLogin() {
                 });
 
                 // Redirect to directory on success
-                window.location.href = cdConfig.baseUrl + '/directory/';
+                if (result.data && result.data.redirect) {
+                    window.location.href = result.data.redirect;
+                } else {
+                    window.location.href = cdConfig.baseUrl + '/directory/';
+                }
             } catch (err) {
                 this.errorMessage = err.message;
             } finally {
@@ -100,7 +136,6 @@ function cdLogin() {
             this.loading = true;
 
             try {
-                // Get the Google OAuth URL from our API
                 const result = await cdApi.get('/auth/google');
                 if (result.data && result.data.auth_url) {
                     window.location.href = result.data.auth_url;
@@ -118,9 +153,39 @@ function cdLogin() {
                     email: this.resetEmail,
                 });
             } catch (err) {
-                // Don't reveal whether the email exists — always show success
+                // Don't reveal whether the email exists
             } finally {
                 this.resetSent = true;
+                this.loading = false;
+            }
+        },
+
+        async confirmPasswordReset() {
+            this.errorMessage = '';
+
+            if (!this.newPassword || this.newPassword.length < 8) {
+                this.errorMessage = 'Password must be at least 8 characters.';
+                return;
+            }
+            if (this.newPassword !== this.newPasswordConfirm) {
+                this.errorMessage = 'Passwords do not match.';
+                return;
+            }
+
+            this.loading = true;
+            try {
+                await cdApi.post('/auth/password-reset/confirm', {
+                    token: this.resetToken,
+                    password: this.newPassword,
+                });
+                this.resetConfirmed = true;
+                this.showResetConfirm = false;
+                this.successMessage = 'Your password has been reset. You can now log in.';
+                // Clean up URL
+                window.history.replaceState({}, '', window.location.pathname);
+            } catch (err) {
+                this.errorMessage = err.message;
+            } finally {
                 this.loading = false;
             }
         },
@@ -405,16 +470,19 @@ function cdInvite() {
             const token = params.get('token');
 
             try {
-                await cdApi.post('/invites/accept', {
+                const result = await cdApi.post('/invites/accept', {
                     token: token,
                     email: this.email,
                     password: this.password,
                 });
 
                 this.success = true;
-                // Redirect to directory after brief delay
+                // Redirect to profile edit for completion (or directory as fallback)
+                const redirectUrl = (result.data && result.data.redirect)
+                    ? result.data.redirect
+                    : cdConfig.baseUrl + '/profile/edit/';
                 setTimeout(() => {
-                    window.location.href = cdConfig.baseUrl + '/directory/';
+                    window.location.href = redirectUrl;
                 }, 2000);
             } catch (err) {
                 this.errorMessage = err.message;

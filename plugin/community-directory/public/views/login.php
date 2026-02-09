@@ -16,7 +16,7 @@ $apply_url   = home_url( $base_slug . '/apply/' );
 get_header();
 ?>
 
-<div class="cd-wrap cd-login" x-data="cdLogin()">
+<div class="cd-wrap cd-login" x-data="cdLogin()" x-init="init()">
     <div class="cd-container">
         <div class="cd-page-header">
             <a href="<?php echo esc_url( $landing_url ); ?>" class="cd-back-link">
@@ -139,6 +139,55 @@ get_header();
 
                         <button class="cd-btn cd-btn-text" @click="showForgotPassword = false; resetSent = false">
                             <?php esc_html_e( 'Close', 'community-directory' ); ?>
+                        </button>
+                    </div>
+                </div>
+            </template>
+
+            <!-- Password Reset Confirmation Modal (from email link) -->
+            <template x-if="showResetConfirm">
+                <div class="cd-modal-backdrop">
+                    <div class="cd-card cd-modal">
+                        <h2><?php esc_html_e( 'Set New Password', 'community-directory' ); ?></h2>
+                        <p><?php esc_html_e( 'Enter your new password below.', 'community-directory' ); ?></p>
+
+                        <template x-if="errorMessage">
+                            <div class="cd-alert cd-alert-error" x-text="errorMessage"></div>
+                        </template>
+
+                        <form @submit.prevent="confirmPasswordReset()">
+                            <div class="cd-form-group">
+                                <label for="cd-new-password"><?php esc_html_e( 'New Password', 'community-directory' ); ?></label>
+                                <input
+                                    type="password"
+                                    id="cd-new-password"
+                                    x-model="newPassword"
+                                    required
+                                    autocomplete="new-password"
+                                    minlength="8"
+                                    :disabled="loading"
+                                >
+                                <small class="cd-form-hint"><?php esc_html_e( 'Must be at least 8 characters.', 'community-directory' ); ?></small>
+                            </div>
+                            <div class="cd-form-group">
+                                <label for="cd-new-password-confirm"><?php esc_html_e( 'Confirm Password', 'community-directory' ); ?></label>
+                                <input
+                                    type="password"
+                                    id="cd-new-password-confirm"
+                                    x-model="newPasswordConfirm"
+                                    required
+                                    autocomplete="new-password"
+                                    :disabled="loading"
+                                >
+                            </div>
+                            <button type="submit" class="cd-btn cd-btn-primary cd-btn-full" :disabled="loading">
+                                <span x-show="!loading"><?php esc_html_e( 'Reset Password', 'community-directory' ); ?></span>
+                                <span x-show="loading" class="cd-spinner"></span>
+                            </button>
+                        </form>
+
+                        <button class="cd-btn cd-btn-text" @click="showResetConfirm = false; window.history.replaceState({}, '', window.location.pathname)">
+                            <?php esc_html_e( 'Cancel', 'community-directory' ); ?>
                         </button>
                     </div>
                 </div>

@@ -3,7 +3,7 @@
  * Plugin Name: Community Directory
  * Plugin URI:  https://sttheklachurch.org
  * Description: A secure, members-only church community directory with application workflow, Google OAuth, household management, and PWA support.
- * Version:     1.0.0
+ * Version:     0.2.1
  * Author:      St. Thekla Church
  * Author URI:  https://sttheklachurch.org
  * Text Domain: community-directory
@@ -19,8 +19,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'CD_VERSION', '1.0.0' );
-define( 'CD_DB_VERSION', '001' );
+define( 'CD_VERSION', '0.2.1' );
+define( 'CD_DB_VERSION', '002' );
 define( 'CD_PLUGIN_FILE', __FILE__ );
 define( 'CD_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CD_PLUGIN_URL', plugin_dir_url( __FILE__ ) );

@@ -185,6 +185,71 @@ class CD_Email_Templates {
     }
 
     /**
+     * Send a password reset email.
+     *
+     * @param string $email Recipient email.
+     * @param string $name  Recipient display name.
+     * @param string $token Raw reset token (unhashed).
+     * @return bool Whether wp_mail succeeded.
+     */
+    public static function send_password_reset( $email, $name, $token ) {
+        $base_slug = get_option( 'cd_base_slug', 'community' );
+        $reset_url = home_url( $base_slug . '/login/?reset_token=' . $token );
+
+        $subject = __( 'Password Reset — St. Thekla Community Directory', 'community-directory' );
+
+        $message = sprintf(
+            __(
+                "Hello %1\$s,\n\n" .
+                "We received a request to reset your password for the St. Thekla Community Directory.\n\n" .
+                "Click here to reset your password:\n%2\$s\n\n" .
+                "This link will expire in 1 hour.\n\n" .
+                "If you did not request this, you can safely ignore this email.\n\n" .
+                "God bless,\n" .
+                "St. Thekla Malankara Orthodox Church",
+                'community-directory'
+            ),
+            esc_html( $name ),
+            esc_url( $reset_url )
+        );
+
+        return wp_mail( $email, $subject, $message );
+    }
+
+    /**
+     * Send an email hint to help a member recover their login email.
+     *
+     * @param string $email      Recipient email.
+     * @param string $first_name Recipient first name.
+     * @param string $masked     Masked email (e.g., "jo***@gmail.com").
+     * @return bool Whether wp_mail succeeded.
+     */
+    public static function send_email_hint( $email, $first_name, $masked ) {
+        $base_slug = get_option( 'cd_base_slug', 'community' );
+        $login_url = home_url( $base_slug . '/login/' );
+
+        $subject = __( 'Your Account Email — St. Thekla Community Directory', 'community-directory' );
+
+        $message = sprintf(
+            __(
+                "Hello %1\$s,\n\n" .
+                "You requested help finding your account email for the St. Thekla Community Directory.\n\n" .
+                "Your account email is: %2\$s\n\n" .
+                "You can log in here: %3\$s\n\n" .
+                "If you did not request this, you can safely ignore this email.\n\n" .
+                "God bless,\n" .
+                "St. Thekla Malankara Orthodox Church",
+                'community-directory'
+            ),
+            esc_html( $first_name ),
+            $masked,
+            esc_url( $login_url )
+        );
+
+        return wp_mail( $email, $subject, $message );
+    }
+
+    /**
      * Notify officers about a newly approved member (after invite is sent).
      *
      * @param array $member_data Member info: first_name, last_name, email.
