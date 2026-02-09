@@ -2,6 +2,9 @@
 community-directory.zip
 plugin/community-directory.zip
 
+# Deploy config (server-specific)
+.deploy-config
+
 # OS files
 .DS_Store
 Thumbs.db
