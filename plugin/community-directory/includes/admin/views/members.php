@@ -377,6 +377,17 @@ $nonce    = wp_create_nonce( 'wp_rest' );
         }
         html += '</div>';
 
+        // Household
+        html += '<h4>' + esc(<?php echo wp_json_encode( __( 'Household', 'community-directory' ) ); ?>) + '</h4>';
+        html += '<div class="cd-detail-grid">';
+        if (row.household_name) {
+            html += '<div class="cd-detail-field"><span class="cd-label">Household:</span> <span class="cd-value">' + esc(row.household_name) + '</span></div>';
+            html += '<div class="cd-detail-field"><span class="cd-label">Role:</span> <span class="cd-value">' + esc(row.household_role_label || row.household_role || '—') + '</span></div>';
+        } else {
+            html += '<div class="cd-detail-field"><span class="cd-value" style="color:#646970;">Not part of a household</span></div>';
+        }
+        html += '</div>';
+
         // Personal Details
         html += '<h4>' + esc(<?php echo wp_json_encode( __( 'Personal Details', 'community-directory' ) ); ?>) + '</h4>';
         html += '<div class="cd-detail-grid">';
@@ -690,46 +701,84 @@ $nonce    = wp_create_nonce( 'wp_rest' );
         updatePagination();
     }
 
-    function renderRows(rows) {
-        var html = '';
-        rows.forEach(function(row) {
-            // Robust initials extraction
-            var parts = name.split(/\s+/).filter(function(s){return s.length > 0;});
-            var init = '';
-            if (parts.length > 0) init += parts[0].charAt(0);
-            if (parts.length > 1) init += parts[parts.length-1].charAt(0);
-            init = init.toUpperCase();
-            
-            // Dynamic background color
-            var bgColors = ['#d32f2f', '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#1976d2', '#0288d1', '#0097a7', '#00796b', '#388e3c', '#afb42b', '#fbc02d', '#ffa000', '#f57c00', '#e64a19', '#5d4037', '#616161'];
-            var colorIndex = (name.length + (name.charCodeAt(0) || 0)) % bgColors.length;
-            var bgColor = bgColors[colorIndex];
-            
-            var fallback = '<div class="cd-avatar-fallback" style="width:32px;height:32px;border-radius:50%;background:' + bgColor + ';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;color:#fff;">' + init + '</div>';
-            
-            var avatar = row.avatar_url 
-                ? '<img src="' + esc(row.avatar_url) + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">' + 
-                  '<div class="cd-avatar-fallback" style="display:none;width:32px;height:32px;border-radius:50%;background:' + bgColor + ';align-items:center;justify-content:center;font-size:13px;font-weight:bold;color:#fff;">' + init + '</div>'
-                : fallback;
+    function buildAvatarHtml(name, avatarUrl) {
+        var parts = name.split(/\s+/).filter(function(s){return s.length > 0;});
+        var init = '';
+        if (parts.length > 0) init += parts[0].charAt(0);
+        if (parts.length > 1) init += parts[parts.length-1].charAt(0);
+        init = init.toUpperCase();
 
-            html += '<tr>';
-            html += '<td>' + avatar + '</td>';
-            html += '<td><strong>' + name + '</strong></td>';
-            html += '<td>' + esc(row.primary_email || '—') + '</td>';
-            html += '<td>' + esc(row.primary_phone || '—') + '</td>';
-            html += '<td><span class="cd-badge cd-badge-' + esc(row.status) + '">' + esc(row.status) + '</span></td>';
-            html += '<td>' + formatDate(row.member_since || row.created_at) + '</td>';
-            html += '<td>';
-            html += '<button type="button" class="button button-small cd-view-member" data-id="' + row.id + '">' + esc(<?php echo wp_json_encode( __( 'View', 'community-directory' ) ); ?>) + '</button> ';
-            // html += '<button type="button" class="button button-small">Edit</button>';
-            html += '</td>';
-            html += '</tr>';
-            
-            /* Hidden detail row */
-            html += '<tr class="cd-detail-row" id="cd-detail-' + row.id + '" style="display:none;">';
-            html += '<td colspan="7">' + buildDetailPanel(row) + '</td>';
-            html += '</tr>';
+        var bgColors = ['#d32f2f', '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#1976d2', '#0288d1', '#0097a7', '#00796b', '#388e3c', '#afb42b', '#fbc02d', '#ffa000', '#f57c00', '#e64a19', '#5d4037', '#616161'];
+        var colorIndex = (name.length + (name.charCodeAt(0) || 0)) % bgColors.length;
+        var bgColor = bgColors[colorIndex];
+
+        var fallback = '<div class="cd-avatar-fallback" style="width:32px;height:32px;border-radius:50%;background:' + bgColor + ';display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:bold;color:#fff;">' + init + '</div>';
+
+        if (avatarUrl) {
+            return '<img src="' + esc(avatarUrl) + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\';">' +
+                  '<div class="cd-avatar-fallback" style="display:none;width:32px;height:32px;border-radius:50%;background:' + bgColor + ';align-items:center;justify-content:center;font-size:13px;font-weight:bold;color:#fff;">' + init + '</div>';
+        }
+        return fallback;
+    }
+
+    function buildMemberRow(row, indent) {
+        var name = ((row.first_name || '') + ' ' + (row.last_name || '')).trim() || '(No Name)';
+        var avatar = buildAvatarHtml(name, row.avatar_url);
+        var nameCol = indent
+            ? '<span style="margin-left:24px;color:#646970;">└ </span>' + esc(name) + ' <span style="color:#888;font-size:12px;">(' + esc(row.household_role_label || row.household_role || '') + ')</span>'
+            : '<strong>' + esc(name) + '</strong>' + (row.household_name ? ' <span style="color:#888;font-size:12px;">(' + esc(row.household_role_label || 'Primary') + ')</span>' : '');
+
+        var html = '<tr' + (indent ? ' style="background:#f9f9f9;"' : '') + '>';
+        html += '<td>' + avatar + '</td>';
+        html += '<td>' + nameCol + '</td>';
+        html += '<td>' + esc(row.primary_email || '—') + '</td>';
+        html += '<td>' + esc(row.primary_phone || '—') + '</td>';
+        html += '<td><span class="cd-badge cd-badge-' + esc(row.status) + '">' + esc(row.status) + '</span></td>';
+        html += '<td>' + formatDate(row.member_since || row.created_at) + '</td>';
+        html += '<td>';
+        html += '<button type="button" class="button button-small cd-view-member" data-id="' + row.id + '">' + esc(<?php echo wp_json_encode( __( 'View', 'community-directory' ) ); ?>) + '</button> ';
+        html += '</td>';
+        html += '</tr>';
+
+        /* Hidden detail row */
+        html += '<tr class="cd-detail-row" id="cd-detail-' + row.id + '" style="display:none;">';
+        html += '<td colspan="7">' + buildDetailPanel(row) + '</td>';
+        html += '</tr>';
+        return html;
+    }
+
+    function renderRows(rows) {
+        // Group members by household: heads first, then their household members underneath
+        // Members without a household just appear normally
+        var rendered = {};  // track member IDs we've already rendered
+        var html = '';
+
+        // Build household groups: { household_id: [members] }
+        var hhGroups = {};
+        rows.forEach(function(row) {
+            if (row.household_id) {
+                if (!hhGroups[row.household_id]) hhGroups[row.household_id] = [];
+                hhGroups[row.household_id].push(row);
+            }
         });
+
+        rows.forEach(function(row) {
+            if (rendered[row.id]) return;
+            rendered[row.id] = true;
+
+            // Render this member
+            html += buildMemberRow(row, false);
+
+            // If this member is a household head, render other household members indented below
+            if (row.household_id && row.household_role === 'head' && hhGroups[row.household_id]) {
+                hhGroups[row.household_id].forEach(function(hm) {
+                    if (hm.id === row.id || rendered[hm.id]) return;
+                    rendered[hm.id] = true;
+                    html += buildMemberRow(hm, true);
+                });
+            }
+        });
+
         elTbody.innerHTML = html;
         elTable.style.display = '';
     }

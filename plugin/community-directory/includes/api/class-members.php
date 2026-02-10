@@ -232,9 +232,60 @@ class CD_API_Members extends CD_API_Base {
             $row->emergency_contact_phone = '';
         }
 
+        // Fetch household data for this member
+        $household = null;
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+        $hm_profiles_table = CD_Database::table( 'directory_profiles' );
+        $hm_members_table  = CD_Database::table( 'members' );
+
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT hm.household_id, hm.role, h.name AS household_name, h.primary_address
+             FROM {$hm_table} hm
+             JOIN {$households_table} h ON hm.household_id = h.id
+             WHERE hm.member_id = %d AND hm.left_at IS NULL AND h.status = 'active'",
+            $member_id_for_check
+        ) );
+
+        if ( $hm ) {
+            $hh_members = $wpdb->get_results( $wpdb->prepare(
+                "SELECT hm2.member_id, hm2.role,
+                        p.first_name, p.last_name, p.avatar_url,
+                        m2.uuid
+                 FROM {$hm_table} hm2
+                 JOIN {$hm_members_table} m2 ON hm2.member_id = m2.id
+                 LEFT JOIN {$hm_profiles_table} p ON hm2.member_id = p.member_id
+                 WHERE hm2.household_id = %d AND hm2.left_at IS NULL
+                 ORDER BY FIELD(hm2.role, 'head', 'spouse', 'child', 'other'), p.first_name ASC",
+                $hm->household_id
+            ) );
+
+            $members_list = array();
+            foreach ( $hh_members as $hh_m ) {
+                $members_list[] = array(
+                    'uuid'       => $hh_m->uuid,
+                    'first_name' => $hh_m->first_name,
+                    'last_name'  => $hh_m->last_name,
+                    'avatar_url' => $hh_m->avatar_url,
+                    'role'       => $hh_m->role,
+                    'role_label' => CD_API_Households::role_label( $hh_m->role ),
+                    'is_self'    => ( (int) $hh_m->member_id === (int) $member_id_for_check ),
+                );
+            }
+
+            $household = array(
+                'id'      => (int) $hm->household_id,
+                'name'    => $hm->household_name,
+                'address' => CD_API_Households::decrypt_address( $hm->primary_address ),
+                'my_role' => $hm->role,
+                'members' => $members_list,
+            );
+        }
+
         return $this->success( array(
             'member'         => $row,
             'is_own_profile' => $is_own_profile,
+            'household'      => $household,
         ) );
     }
 

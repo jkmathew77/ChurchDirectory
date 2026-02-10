@@ -141,6 +141,41 @@ get_header();
                     </div>
                 </div>
 
+                <!-- Household -->
+                <div class="cd-card" x-show="household">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Household', 'community-directory' ); ?></h3>
+                    <div class="cd-hh-profile-header">
+                        <span class="cd-hh-profile-name" x-text="household ? household.name : ''"></span>
+                    </div>
+                    <div class="cd-hh-profile-members">
+                        <template x-for="hm in (household ? household.members : [])" :key="hm.uuid">
+                            <a
+                                :href="hm.is_self ? 'javascript:void(0)' : ('<?php echo esc_url( home_url( $base_slug . '/member/' ) ); ?>' + hm.uuid + '/')"
+                                class="cd-hh-profile-card"
+                                :class="{ 'cd-hh-profile-card-self': hm.is_self }"
+                            >
+                                <div class="cd-hh-profile-card-avatar">
+                                    <template x-if="hm.avatar_url">
+                                        <img :src="hm.avatar_url" :alt="hm.first_name" class="cd-avatar-sm-img">
+                                    </template>
+                                    <template x-if="!hm.avatar_url">
+                                        <div
+                                            class="cd-avatar-sm"
+                                            :style="'background-color: ' + getAvatarColor((hm.first_name || '') + ' ' + (hm.last_name || ''))"
+                                        >
+                                            <span x-text="getInitials(hm.first_name, hm.last_name)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="cd-hh-profile-card-info">
+                                    <span class="cd-hh-profile-card-name" x-text="hm.first_name + ' ' + hm.last_name"></span>
+                                    <span class="cd-badge cd-badge-role-sm" x-text="hm.role_label"></span>
+                                </div>
+                            </a>
+                        </template>
+                    </div>
+                </div>
+
                 <!-- Bio -->
                 <div class="cd-card" x-show="member.bio">
                     <h3 class="cd-section-title"><?php esc_html_e( 'About', 'community-directory' ); ?></h3>

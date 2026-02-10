@@ -210,20 +210,28 @@ class CD_API_Admin extends CD_API_Base {
             $profile_update = array();
             $profile_format = array();
 
-            // All allowed string fields
-            $fields = array(
+            // Plain-text string fields (not encrypted)
+            $plain_fields = array(
                 'first_name', 'last_name', 'bio', 'occupation', 'employer',
-                'baptism_date', 'wedding_anniversary', 'date_of_birth',
-                'address_home', 'address_mailing', 'name_day',
+                'baptism_date', 'wedding_anniversary', 'name_day',
                 'address_line_1', 'address_line_2', 'city', 'state', 'zip_code', 'country',
-                'emergency_contact_name', 'emergency_contact_phone',
                 'preferred_contact_method', 'preferred_language',
                 'avatar_url'
             );
 
-            foreach ( $fields as $key ) {
+            foreach ( $plain_fields as $key ) {
                 if ( isset( $params[ $key ] ) ) {
                     $profile_update[ $key ] = sanitize_text_field( $params[ $key ] );
+                    $profile_format[] = '%s';
+                }
+            }
+
+            // Encrypted PII fields
+            $encrypted_fields = array( 'date_of_birth', 'address_home', 'address_mailing', 'emergency_contact_name', 'emergency_contact_phone' );
+            foreach ( $encrypted_fields as $key ) {
+                if ( isset( $params[ $key ] ) ) {
+                    $val = sanitize_text_field( $params[ $key ] );
+                    $profile_update[ $key ] = ! empty( $val ) ? CD_Encryption::encrypt( $val ) : '';
                     $profile_format[] = '%s';
                 }
             }
@@ -265,65 +273,8 @@ class CD_API_Admin extends CD_API_Base {
                 $profile_format[] = '%s';
             }
             
-            // Auto-derive Avatar URL if not strictly provided
-            // We'll prioritize: 1. Gravatar (reliable). 
-            // Note: Facebook Graph API requires access tokens for user pictures now, so we removed the auto-fetcher to avoid errors.
-            // Google Profiles are captured on Login (see class-auth.php).
-            
-            $email_for_avatar = isset( $params['email'] ) ? $params['email'] : '';
-            $new_avatar = null;
-            
-            // Only try to set if we don't already have one? 
-            // The frontend doesn't send 'avatar_url' unless it's an edit of that specific field (which we removed).
-            // But if the user edits the email, we might want to update the avatar.
-            
-            // Check if we already have an avatar in DB? No, too expensive to query every time?
-            // Actually, we should only generate a default if one isn't passed/set.
-            // Since we removed the input field, the user can't "unset" it easily except via this logic.
-            
-            if ( ! empty( $email_for_avatar ) ) {
-                 // Always offer Gravatar as an option/fallback
-                 // We apply this if no avatar exists? Or we can just let the frontend handle the fallback?
-                 // The user specifically asked for "retrievable".
-                 // Let's generate the Gravatar URL.
-                 $hash = md5( strtolower( trim( $email_for_avatar ) ) );
-                 $new_avatar = "https://www.gravatar.com/avatar/{$hash}?d=404";
-            }
-            
-            // If we have a new avatar string *and* the user didn't manually provide one (field hidden/removed),
-            // update it. But wait, if we overwrite every time, we lose the Google one.
-            // Logic: ONLY update avatar_url if the current one is empty? 
-            // We can't check "current" easily without a query. 
-            // BUT, `update_member` is a full patch? No, it's specific fields.
-            // Let's check `avatar_url` param. If it's passed (from a hidden field or future UI), use it.
-            // If NOT passed, and we have email, SHOULD we force Gravatar?
-            // Safeguard: Only set if we really think we should.
-            // For now: Let's NOT force overwrite if not sure.
-            // BETTER: If the user saves, and we have an email, we can save the Gravatar URL *if* we assume that's desired.
-            // However, that overwrites Google.
-            
-            // COMPROMISE: We will NOT auto-update avatar_url here blindly.
-            // The frontend handles fallback to initials.
-            // If the user wants Gravatar, they can just rely on the frontend or we can add a "Reset Avatar" button later.
-            // BUT the user said "I didn't see the avatar update". They EXPECT an update.
-            // So: If email is present, we set it to Gravatar? 
-            // To respect Google: We should only set it if it's currently null?
-            // Effectively: We'll skip the auto-update here to prevent overwriting Google photos, 
-            // UNLESS we confirm it's empty.
-            
-            // QUERY checking is safer.
-            global $wpdb;
-            $profiles_table = CD_Database::table( 'directory_profiles' );
-            $current_avatar = $wpdb->get_var( $wpdb->prepare( "SELECT avatar_url FROM {$profiles_table} WHERE member_id = %d", $member_id ) );
-            
-            if ( empty( $current_avatar ) && ! empty( $email_for_avatar ) ) {
-                 $hash = md5( strtolower( trim( $email_for_avatar ) ) );
-                 $profile_update['avatar_url'] = "https://www.gravatar.com/avatar/{$hash}?d=404";
-                 $profile_format[] = '%s';
-            }
-            
+            // Avatar: only update if explicitly provided by the admin
             if ( isset( $params['avatar_url'] ) ) {
-                 // If explicitly passed (e.g. from future UI), use it
                  $profile_update['avatar_url'] = sanitize_url( $params['avatar_url'] );
                  $profile_format[] = '%s';
             }
@@ -451,16 +402,54 @@ class CD_API_Admin extends CD_API_Base {
             $row->social_links = json_decode( $row->social_links, true );
             $row->ministry_tags = json_decode( $row->ministry_tags, true );
             $row->privacy_settings = json_decode( $row->privacy_settings, true );
-            
+
+            // Decrypt sensitive PII fields
+            $encrypted_fields = array( 'date_of_birth', 'address_home', 'address_mailing', 'emergency_contact_name', 'emergency_contact_phone' );
+            foreach ( $encrypted_fields as $ef ) {
+                if ( ! empty( $row->$ef ) ) {
+                    $decrypted = CD_Encryption::decrypt( $row->$ef );
+                    if ( $decrypted !== false ) {
+                        $row->$ef = $decrypted;
+                    }
+                }
+            }
+
             // Get primary email/phone
             $row->primary_email = '';
             if ( ! empty( $row->emails ) && is_array( $row->emails ) ) {
                 $row->primary_email = $row->emails[0]['value'] ?? '';
             }
-            
+
             $row->primary_phone = '';
             if ( ! empty( $row->phones ) && is_array( $row->phones ) ) {
                  $row->primary_phone = $row->phones[0]['value'] ?? '';
+            }
+        }
+
+        // Attach household info for each member
+        $hm_table = CD_Database::table( 'household_members' );
+        $households_table = CD_Database::table( 'households' );
+        $role_labels = CD_API_Households::role_options();
+
+        foreach ( $rows as $row ) {
+            $hh = $wpdb->get_row( $wpdb->prepare(
+                "SELECT hm.role, h.id AS household_id, h.name AS household_name
+                 FROM {$hm_table} hm
+                 JOIN {$households_table} h ON hm.household_id = h.id
+                 WHERE hm.member_id = %d AND hm.left_at IS NULL
+                 LIMIT 1",
+                $row->id
+            ) );
+            if ( $hh ) {
+                $row->household_id   = (int) $hh->household_id;
+                $row->household_name = $hh->household_name;
+                $row->household_role = $hh->role;
+                $row->household_role_label = isset( $role_labels[ $hh->role ] ) ? $role_labels[ $hh->role ] : $hh->role;
+            } else {
+                $row->household_id   = null;
+                $row->household_name = null;
+                $row->household_role = null;
+                $row->household_role_label = null;
             }
         }
 

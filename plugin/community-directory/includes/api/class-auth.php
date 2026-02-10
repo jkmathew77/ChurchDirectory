@@ -162,7 +162,10 @@ class CD_API_Auth extends CD_API_Base {
     }
 
     /**
-     * Return the Google OAuth URL for member login.
+     * Return the Google OAuth URL for member login (or invite acceptance).
+     *
+     * Optional params: invite_token, invite_email — when present, the callback
+     * will handle invite acceptance instead of normal login.
      */
     public function google_auth_url( WP_REST_Request $request ) {
         $client_id = get_option( 'cd_google_client_id', '' );
@@ -171,6 +174,17 @@ class CD_API_Auth extends CD_API_Base {
         }
 
         $redirect_uri = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
+        $nonce = wp_create_nonce( 'cd_google_login' );
+
+        // If invite params are passed, store them in a transient keyed by nonce
+        $invite_token = sanitize_text_field( $request->get_param( 'invite_token' ) ?: '' );
+        $invite_email = sanitize_email( $request->get_param( 'invite_email' ) ?: '' );
+        if ( ! empty( $invite_token ) && ! empty( $invite_email ) ) {
+            set_transient( 'cd_google_invite_' . $nonce, array(
+                'token' => $invite_token,
+                'email' => $invite_email,
+            ), 600 ); // 10 minutes
+        }
 
         $params = array(
             'client_id'     => $client_id,
@@ -178,7 +192,7 @@ class CD_API_Auth extends CD_API_Base {
             'response_type' => 'code',
             'scope'         => 'openid email profile',
             'access_type'   => 'online',
-            'state'         => wp_create_nonce( 'cd_google_login' ),
+            'state'         => $nonce,
         );
 
         return $this->success( array(
@@ -262,6 +276,14 @@ class CD_API_Auth extends CD_API_Base {
 
         global $wpdb;
         $members_table = CD_Database::table( 'members' );
+
+        // ── Invite flow: check if this Google login was initiated from the invite page ──
+        $invite_context = get_transient( 'cd_google_invite_' . $state );
+        if ( $invite_context && ! empty( $invite_context['token'] ) && ! empty( $invite_context['email'] ) ) {
+            delete_transient( 'cd_google_invite_' . $state );
+            $this->handle_google_invite_accept( $invite_context, $google_email, $google_id, $payload, $base_slug );
+            exit;
+        }
 
         // Find member by google_id
         $member = $wpdb->get_row( $wpdb->prepare(
@@ -469,6 +491,152 @@ class CD_API_Auth extends CD_API_Base {
         }
 
         return $this->success( array( 'message' => __( 'If a matching account was found, a hint has been sent.', 'community-directory' ) ) );
+    }
+
+    /**
+     * Handle invite acceptance via Google OAuth.
+     * Called from google_callback() when invite context transient exists.
+     */
+    private function handle_google_invite_accept( $invite_context, $google_email, $google_id, $payload, $base_slug ) {
+        global $wpdb;
+
+        $invite_token = $invite_context['token'];
+        $invite_email = $invite_context['email'];
+        $login_url    = home_url( $base_slug . '/login/' );
+
+        // Validate the invite token
+        $token_hash    = hash( 'sha256', $invite_token );
+        $invites_table = CD_Database::table( 'invites' );
+
+        $invite = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$invites_table} WHERE token_hash = %s AND used_at IS NULL",
+            $token_hash
+        ) );
+
+        if ( ! $invite ) {
+            wp_safe_redirect( $login_url . '?error=' . urlencode( 'This invitation has already been used or is invalid.' ) );
+            return;
+        }
+
+        if ( strtolower( $invite->email ) !== strtolower( $invite_email ) ) {
+            wp_safe_redirect( $login_url . '?error=' . urlencode( 'Invitation email mismatch.' ) );
+            return;
+        }
+
+        if ( strtotime( $invite->expires_at ) < time() ) {
+            wp_safe_redirect( $login_url . '?error=' . urlencode( 'This invitation has expired.' ) );
+            return;
+        }
+
+        // Atomically mark invite as used
+        $marked = $wpdb->query( $wpdb->prepare(
+            "UPDATE {$invites_table} SET used_at = %s WHERE id = %d AND used_at IS NULL",
+            current_time( 'mysql' ),
+            $invite->id
+        ) );
+        if ( 0 === $marked ) {
+            wp_safe_redirect( $login_url . '?error=' . urlencode( 'This invitation has already been used.' ) );
+            return;
+        }
+
+        $members_table  = CD_Database::table( 'members' );
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+
+        // Find the member to link
+        $member_id_to_link = null;
+        if ( ! empty( $invite->member_id ) ) {
+            $member_id_to_link = (int) $invite->member_id;
+        } elseif ( ! empty( $invite->application_id ) ) {
+            $app_member = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id FROM {$members_table} WHERE application_id = %d",
+                $invite->application_id
+            ) );
+            if ( $app_member ) {
+                $member_id_to_link = (int) $app_member->id;
+            }
+        }
+
+        // Create or find WP user by Google email
+        $existing_user = get_user_by( 'email', $google_email );
+        $wp_user_id    = 0;
+
+        // Get display name from profile or payload
+        $display_name = '';
+        $first_name   = $payload['given_name'] ?? '';
+        $last_name    = $payload['family_name'] ?? '';
+
+        if ( $member_id_to_link ) {
+            $profile = $wpdb->get_row( $wpdb->prepare(
+                "SELECT first_name, last_name FROM {$profiles_table} WHERE member_id = %d",
+                $member_id_to_link
+            ) );
+            if ( $profile ) {
+                $first_name   = $profile->first_name ?: $first_name;
+                $last_name    = $profile->last_name ?: $last_name;
+            }
+        }
+        $display_name = trim( $first_name . ' ' . $last_name ) ?: $google_email;
+
+        if ( $existing_user ) {
+            $wp_user_id = $existing_user->ID;
+        } else {
+            $random_password = wp_generate_password( 24, true, true );
+            $wp_user_id = wp_create_user( $google_email, $random_password, $google_email );
+            if ( is_wp_error( $wp_user_id ) ) {
+                // Undo the used_at mark
+                $wpdb->update( $invites_table, array( 'used_at' => null ), array( 'id' => $invite->id ) );
+                wp_safe_redirect( $login_url . '?error=' . urlencode( 'Account creation failed: ' . $wp_user_id->get_error_message() ) );
+                return;
+            }
+
+            wp_update_user( array(
+                'ID'           => $wp_user_id,
+                'display_name' => $display_name,
+                'first_name'   => $first_name,
+                'last_name'    => $last_name,
+            ) );
+        }
+
+        // Grant cd_member capability
+        CD_Capabilities::grant_cap( $wp_user_id, 'cd_member' );
+
+        // Link member record to WP user and Google ID
+        if ( $member_id_to_link ) {
+            $wpdb->update( $members_table, array(
+                'wp_user_id'   => $wp_user_id,
+                'google_id'    => $google_id,
+                'activated_at' => current_time( 'mysql' ),
+            ), array( 'id' => $member_id_to_link ), array( '%d', '%s', '%s' ), array( '%d' ) );
+
+            // Set avatar from Google if profile has no avatar
+            if ( ! empty( $payload['picture'] ) ) {
+                $has_avatar = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT avatar_url FROM {$profiles_table} WHERE member_id = %d",
+                    $member_id_to_link
+                ) );
+                if ( empty( $has_avatar ) ) {
+                    $wpdb->update(
+                        $profiles_table,
+                        array( 'avatar_url' => esc_url_raw( $payload['picture'] ), 'avatar_source' => 'google' ),
+                        array( 'member_id' => $member_id_to_link ),
+                        array( '%s', '%s' ),
+                        array( '%d' )
+                    );
+                }
+            }
+        }
+
+        // Auto-login
+        wp_set_current_user( $wp_user_id );
+        wp_set_auth_cookie( $wp_user_id, true );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::MEMBER_ACTIVATED, $wp_user_id, $member_id_to_link, array(
+            'email'  => $google_email,
+            'method' => 'google_invite',
+        ) );
+
+        // Redirect to profile edit
+        wp_safe_redirect( home_url( $base_slug . '/profile/edit/' ) );
     }
 
     /**

@@ -250,6 +250,58 @@ class CD_Email_Templates {
     }
 
     /**
+     * Send a household invite email — someone was added to a household and
+     * needs to create their own account.
+     *
+     * @param string $email     Recipient email.
+     * @param string $first_name Recipient first name.
+     * @param string $token     Raw invite token (unhashed).
+     * @param object $inviter   Member record of the person who added them.
+     * @return bool Whether wp_mail succeeded.
+     */
+    public static function send_household_invite( $email, $first_name, $token, $inviter = null ) {
+        $base_slug  = get_option( 'cd_base_slug', 'community' );
+        $invite_url = home_url( $base_slug . '/invite/' . rawurlencode( base64_encode( $email ) ) . '/?token=' . $token );
+        $expiry     = (int) get_option( 'cd_invite_expiry', 14 );
+
+        // Get inviter name
+        $inviter_name = 'a member of St. Thekla Church';
+        if ( $inviter ) {
+            global $wpdb;
+            $profiles_table = CD_Database::table( 'directory_profiles' );
+            $profile = $wpdb->get_row( $wpdb->prepare(
+                "SELECT first_name, last_name FROM {$profiles_table} WHERE member_id = %d",
+                $inviter->id
+            ) );
+            if ( $profile ) {
+                $inviter_name = trim( $profile->first_name . ' ' . $profile->last_name );
+            }
+        }
+
+        $subject = __( 'You\'ve Been Added to a Household — St. Thekla Community Directory', 'community-directory' );
+
+        $message = sprintf(
+            __(
+                "Hello %1\$s,\n\n" .
+                "%2\$s has added you to their household in the St. Thekla Community Directory.\n\n" .
+                "Please click the link below to create your account and manage your own profile:\n\n" .
+                "%3\$s\n\n" .
+                "This invitation link will expire in %4\$d days.\n\n" .
+                "If you have any questions, please contact the church office.\n\n" .
+                "God bless,\n" .
+                "St. Thekla Malankara Orthodox Church",
+                'community-directory'
+            ),
+            esc_html( $first_name ),
+            esc_html( $inviter_name ),
+            esc_url( $invite_url ),
+            $expiry
+        );
+
+        return wp_mail( $email, $subject, $message );
+    }
+
+    /**
      * Notify officers about a newly approved member (after invite is sent).
      *
      * @param array $member_data Member info: first_name, last_name, email.

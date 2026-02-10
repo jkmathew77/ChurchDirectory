@@ -458,6 +458,30 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        async signUpWithGoogle() {
+            this.errorMessage = '';
+            this.creating = true;
+
+            const params = new URLSearchParams(window.location.search);
+            const token = params.get('token');
+
+            try {
+                const result = await cdApi.get(
+                    '/auth/google?invite_token=' + encodeURIComponent(token) +
+                    '&invite_email=' + encodeURIComponent(this.email)
+                );
+                if (result.data && result.data.auth_url) {
+                    window.location.href = result.data.auth_url;
+                } else {
+                    this.errorMessage = 'Google sign-in is not configured. Please create a password instead.';
+                    this.creating = false;
+                }
+            } catch (err) {
+                this.errorMessage = err.message;
+                this.creating = false;
+            }
+        },
+
         async createAccount() {
             this.errorMessage = '';
 
@@ -581,6 +605,7 @@ document.addEventListener('alpine:init', () => {
         loading: true,
         errorMessage: '',
         isOwnProfile: false,
+        household: null,
 
         async init() {
             const uuid = window.cdMemberUuid;
@@ -594,6 +619,7 @@ document.addEventListener('alpine:init', () => {
                 const result = await cdApi.get('/members/' + uuid);
                 this.member = result.data.member;
                 this.isOwnProfile = result.data.is_own_profile || false;
+                this.household = result.data.household || null;
             } catch (err) {
                 this.errorMessage = err.message;
             } finally {
@@ -664,15 +690,37 @@ document.addEventListener('alpine:init', () => {
         errorMessage: '',
         successMessage: '',
         uploadingAvatar: false,
+        showCamera: false,
+        cameraStream: null,
         showPrivacyModal: false,
+
+        // Household state
+        household: null,
+        householdLoading: true,
+        householdSaving: false,
+        householdMessage: '',
+        householdError: '',
+        showCreateHousehold: false,
+        showEditHousehold: false,
+        showAddMember: false,
+        newHouseholdName: '',
+        newHouseholdAddr: { line_1: '', line_2: '', city: '', state: '', zip: '' },
+        hhInheritAddress: false,
+        editHouseholdName: '',
+        editHouseholdAddr: { line_1: '', line_2: '', city: '', state: '', zip: '' },
+        addMemberForm: { first_name: '', last_name: '', email: '', role: 'child' },
 
         async init() {
             const uuid = cdConfig.currentMemberUuid;
             if (!uuid) {
                 this.errorMessage = 'Could not identify member profile.';
                 this.loading = false;
+                this.householdLoading = false;
                 return;
             }
+
+            // Load profile and household in parallel
+            this.loadHousehold();
 
             try {
                 const result = await cdApi.get('/members/' + uuid);
@@ -806,6 +854,114 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        async startCamera() {
+            this.errorMessage = '';
+
+            // getUserMedia requires HTTPS (secure context)
+            if (window.isSecureContext === false) {
+                this.errorMessage = 'Camera requires a secure (HTTPS) connection. Please access this site via HTTPS.';
+                return;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                this.errorMessage = 'Camera is not supported on this device or browser. Make sure you are using HTTPS.';
+                return;
+            }
+
+            try {
+                this.cameraStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
+                    audio: false,
+                });
+                this.showCamera = true;
+                this.$nextTick(() => {
+                    const video = this.$refs.cameraVideo;
+                    if (video) {
+                        video.srcObject = this.cameraStream;
+                    }
+                });
+            } catch (err) {
+                console.error('CD Camera Error:', err.name, err.message);
+                if (err.name === 'NotAllowedError') {
+                    this.errorMessage = 'Camera access was denied. Please allow camera access in your browser settings and try again.';
+                } else if (err.name === 'NotFoundError') {
+                    this.errorMessage = 'No camera found on this device.';
+                } else if (err.name === 'NotReadableError') {
+                    this.errorMessage = 'Camera is already in use by another application.';
+                } else if (err.name === 'OverconstrainedError') {
+                    // Try again without constraints
+                    try {
+                        this.cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                        this.showCamera = true;
+                        this.$nextTick(() => {
+                            const video = this.$refs.cameraVideo;
+                            if (video) video.srcObject = this.cameraStream;
+                        });
+                        return;
+                    } catch (e2) {
+                        this.errorMessage = 'Could not access camera: ' + e2.message;
+                    }
+                } else {
+                    this.errorMessage = 'Could not access camera: ' + (err.message || err.name);
+                }
+            }
+        },
+
+        capturePhoto() {
+            const video = this.$refs.cameraVideo;
+            const canvas = this.$refs.cameraCanvas;
+            if (!video || !canvas) return;
+
+            // Square crop: use the smaller dimension
+            const size = Math.min(video.videoWidth, video.videoHeight);
+            canvas.width = size;
+            canvas.height = size;
+            const ctx = canvas.getContext('2d');
+            const sx = (video.videoWidth - size) / 2;
+            const sy = (video.videoHeight - size) / 2;
+            ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+
+            this.stopCamera();
+
+            // Convert canvas to blob and upload
+            canvas.toBlob((blob) => {
+                if (!blob) return;
+                this.uploadingAvatar = true;
+                const formData = new FormData();
+                formData.append('file', blob, 'camera-photo.jpg');
+
+                const url = cdConfig.apiUrl + '/members/avatar';
+                fetch(url, {
+                    method: 'POST',
+                    headers: { 'X-WP-Nonce': cdConfig.nonce },
+                    body: formData,
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.data && data.data.url) {
+                            this.form.avatar_url = data.data.url;
+                            this.successMessage = 'Photo captured and uploaded.';
+                        } else {
+                            throw new Error(data.message || 'Upload failed');
+                        }
+                    })
+                    .catch(err => {
+                        this.errorMessage = err.message;
+                    })
+                    .finally(() => {
+                        this.uploadingAvatar = false;
+                    });
+            }, 'image/jpeg', 0.9);
+        },
+
+        stopCamera() {
+            if (this.cameraStream) {
+                this.cameraStream.getTracks().forEach(track => track.stop());
+                this.cameraStream = null;
+            }
+            this.showCamera = false;
+        },
+
         // Avatar helpers
         getAvatarColor(name) {
             const colors = ['#d32f2f', '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#1976d2', '#0288d1', '#0097a7', '#00796b', '#388e3c', '#afb42b', '#fbc02d', '#ffa000', '#f57c00', '#e64a19', '#5d4037', '#616161'];
@@ -835,6 +991,132 @@ document.addEventListener('alpine:init', () => {
             // But since this is inside Alpine, standard wp.i18n isn't always available without setup.
             return (this.form.privacy_settings[field] === 'visible') ? 'Visible to Members' : 'Hidden';
         },
+
+        // ── Household Methods ──
+
+        async loadHousehold() {
+            this.householdLoading = true;
+            try {
+                const result = await cdApi.get('/members/me/household');
+                this.household = result.data.household || null;
+            } catch (err) {
+                // Not critical — just means no household
+                this.household = null;
+            } finally {
+                this.householdLoading = false;
+            }
+        },
+
+        async createHousehold() {
+            if (!this.newHouseholdName.trim()) {
+                this.householdError = 'Please enter a household name.';
+                return;
+            }
+            this.householdSaving = true;
+            this.householdError = '';
+            try {
+                // Build address — either inherit from profile or use typed values
+                let addr = this.newHouseholdAddr;
+                if (this.hhInheritAddress) {
+                    addr = {
+                        line_1: this.form.address_line_1 || '',
+                        line_2: this.form.address_line_2 || '',
+                        city: this.form.city || '',
+                        state: this.form.state || '',
+                        zip: this.form.zip || '',
+                    };
+                }
+                const result = await cdApi.post('/members/me/household', {
+                    name: this.newHouseholdName.trim(),
+                    address: addr,
+                });
+                this.householdMessage = result.data.message;
+                this.showCreateHousehold = false;
+                this.newHouseholdName = '';
+                this.newHouseholdAddr = { line_1: '', line_2: '', city: '', state: '', zip: '' };
+                this.hhInheritAddress = false;
+                await this.loadHousehold();
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.householdSaving = false;
+            }
+        },
+
+        async updateHousehold() {
+            this.householdSaving = true;
+            this.householdError = '';
+            try {
+                await cdApi.put('/members/me/household', {
+                    name: this.editHouseholdName.trim(),
+                    address: this.editHouseholdAddr,
+                });
+                this.householdMessage = 'Household updated.';
+                this.showEditHousehold = false;
+                await this.loadHousehold();
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.householdSaving = false;
+            }
+        },
+
+        async addHouseholdMember() {
+            const f = this.addMemberForm;
+            if (!f.first_name.trim() || !f.last_name.trim()) {
+                this.householdError = 'First name and last name are required.';
+                return;
+            }
+            this.householdSaving = true;
+            this.householdError = '';
+            try {
+                const result = await cdApi.post('/members/me/household/members', {
+                    first_name: f.first_name.trim(),
+                    last_name: f.last_name.trim(),
+                    email: f.email.trim(),
+                    role: f.role,
+                });
+                this.householdMessage = result.data.message;
+                this.showAddMember = false;
+                this.addMemberForm = { first_name: '', last_name: '', email: '', role: 'spouse' };
+                await this.loadHousehold();
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.householdSaving = false;
+            }
+        },
+
+        async removeHouseholdMember(memberId, firstName) {
+            if (!confirm('Remove ' + firstName + ' from your household?')) return;
+            this.householdError = '';
+            try {
+                await cdApi.request('/members/me/household/members/' + memberId, { method: 'DELETE' });
+                this.householdMessage = firstName + ' has been removed.';
+                await this.loadHousehold();
+            } catch (err) {
+                this.householdError = err.message;
+            }
+        },
+
+        // Populate edit household modal when opened
+        $watch: {
+            showEditHousehold(val) {
+                if (val && this.household) {
+                    this.editHouseholdName = this.household.name || '';
+                    const a = this.household.address || {};
+                    this.editHouseholdAddr = {
+                        line_1: a.line_1 || '',
+                        line_2: a.line_2 || '',
+                        city: a.city || '',
+                        state: a.state || '',
+                        zip: a.zip || '',
+                    };
+                }
+            },
+        },
+
+        // ── Profile Save ──
 
         async saveProfile() {
             this.errorMessage = '';
