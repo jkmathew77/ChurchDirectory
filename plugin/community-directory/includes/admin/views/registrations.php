@@ -318,11 +318,22 @@ $nonce    = wp_create_nonce( 'wp_rest' );
                 var name = escapeHtml((row.first_name || '') + ' ' + (row.last_name || '')).trim() || '—';
                 var badge = '<span class="cd-badge cd-badge-' + escapeHtml(row.status) + '">' + escapeHtml(statusLabels[row.status] || row.status) + '</span>';
                 var verified = row.verified_at ? formatDate(row.verified_at) : '—';
+                
+                // Distinguish App vs Member Invite
+                var isMemberInvite = (row.type === 'member_invite');
+                if (isMemberInvite) {
+                    badge += ' <small style="display:block;margin-top:2px;font-size:10px;opacity:0.8;color:inherit;">Invited Member</small>';
+                }
 
                 var actions = '';
                 if (row.status === 'pending_verification') {
-                    actions = '<button type="button" class="button button-small cd-resend-btn" data-id="' + row.id + '">' +
-                              escapeHtml(<?php echo wp_json_encode( __( 'Resend Verification', 'community-directory' ) ); ?>) + '</button>';
+                    if (isMemberInvite) {
+                         actions = '<button type="button" class="button button-small cd-resend-btn" data-id="' + row.id + '" data-type="member_invite">' +
+                                  escapeHtml(<?php echo wp_json_encode( __( 'Resend Invite', 'community-directory' ) ); ?>) + '</button>';
+                    } else {
+                         actions = '<button type="button" class="button button-small cd-resend-btn" data-id="' + row.id + '" data-type="application">' +
+                                  escapeHtml(<?php echo wp_json_encode( __( 'Resend Verification', 'community-directory' ) ); ?>) + '</button>';
+                    }
                 }
 
                 html += '<tr>' +
@@ -359,10 +370,17 @@ $nonce    = wp_create_nonce( 'wp_rest' );
         var btn = e.target.closest('.cd-resend-btn');
         if (!btn) return;
         var id = btn.getAttribute('data-id');
+        var type = btn.getAttribute('data-type') || 'application'; // Default to app
+        
         btn.disabled = true;
         btn.textContent = <?php echo wp_json_encode( __( 'Sending...', 'community-directory' ) ); ?>;
 
-        fetch(API_BASE + '/admin/registrations/' + id + '/resend-verification', {
+        // Route based on type
+        var endpoint = (type === 'member_invite') 
+            ? '/admin/members/' + id + '/resend-invite'
+            : '/admin/registrations/' + id + '/resend-verification';
+
+        fetch(API_BASE + endpoint, {
             method: 'POST',
             headers: {
                 'X-WP-Nonce': NONCE,
@@ -374,17 +392,22 @@ $nonce    = wp_create_nonce( 'wp_rest' );
         .then(function(resp) { return resp.json(); })
         .then(function(json) {
             if (json.success) {
-                showNotice(json.data.message || 'Verification email resent.', 'success');
+                showNotice(json.data.message || 'Email resent.', 'success');
             } else {
                 showNotice(json.error ? json.error.message : 'Failed to resend.', 'error');
             }
             btn.disabled = false;
-            btn.textContent = <?php echo wp_json_encode( __( 'Resend Verification', 'community-directory' ) ); ?>;
+            // Restore original text logic? Simplified:
+            btn.textContent = (type === 'member_invite') 
+                ? <?php echo wp_json_encode( __( 'Resend Invite', 'community-directory' ) ); ?>
+                : <?php echo wp_json_encode( __( 'Resend Verification', 'community-directory' ) ); ?>;
         })
         .catch(function(err) {
             showNotice('Network error: ' + err.message, 'error');
             btn.disabled = false;
-            btn.textContent = <?php echo wp_json_encode( __( 'Resend Verification', 'community-directory' ) ); ?>;
+            btn.textContent = (type === 'member_invite') 
+                ? <?php echo wp_json_encode( __( 'Resend Invite', 'community-directory' ) ); ?>
+                : <?php echo wp_json_encode( __( 'Resend Verification', 'community-directory' ) ); ?>;
         });
     });
 

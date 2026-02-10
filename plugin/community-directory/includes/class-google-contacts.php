@@ -111,7 +111,8 @@ class CD_Google_Contacts {
      */
     public static function get_auth_url() {
         $client_id    = self::get_client_id();
-        $redirect_uri = admin_url( 'admin-ajax.php?action=cd_google_callback' );
+        $redirect_uri = rest_url( 'community-directory/v1/admin/google/callback' );
+        error_log( 'CD_Google_Contacts Debug: Generated Redirect URI: ' . $redirect_uri );
 
         $params = array(
             'client_id'     => $client_id,
@@ -135,8 +136,9 @@ class CD_Google_Contacts {
     public static function exchange_code( $code ) {
         $client_id     = self::get_client_id();
         $client_secret = self::get_client_secret();
-        $redirect_uri  = admin_url( 'admin-ajax.php?action=cd_google_callback' );
+        $redirect_uri  = rest_url( 'community-directory/v1/admin/google/callback' );
 
+        error_log( 'CD_Google_Contacts Debug: Exchanging code...' );
         $response = wp_remote_post( self::TOKEN_URL, array(
             'body' => array(
                 'code'          => $code,
@@ -149,22 +151,34 @@ class CD_Google_Contacts {
         ) );
 
         if ( is_wp_error( $response ) ) {
+            error_log( 'CD_Google_Contacts Debug: Token Request Failed: ' . $response->get_error_message() );
             return $response;
         }
 
         $body = json_decode( wp_remote_retrieve_body( $response ), true );
+        error_log( 'CD_Google_Contacts Debug: Token Response: ' . print_r( $body, true ) );
 
         if ( ! empty( $body['error'] ) ) {
+            error_log( 'CD_Google_Contacts Debug: Google API Error: ' . ($body['error_description'] ?? $body['error']) );
             return new WP_Error( 'oauth_error', $body['error_description'] ?? $body['error'] );
         }
 
-        if ( empty( $body['refresh_token'] ) ) {
-            return new WP_Error( 'no_refresh_token', __( 'No refresh token received. Try revoking access and reconnecting.', 'community-directory' ) );
+        // Store encrypted refresh token only if we received one
+        if ( ! empty( $body['refresh_token'] ) ) {
+            error_log( 'CD_Google_Contacts Debug: Refresh token received. Updating option.' );
+            update_option( 'cd_google_refresh_token', CD_Encryption::encrypt( $body['refresh_token'] ) );
+        } else {
+            error_log( 'CD_Google_Contacts Debug: NO refresh token in response.' );
         }
-
-        // Store encrypted refresh token
-        update_option( 'cd_google_refresh_token', CD_Encryption::encrypt( $body['refresh_token'] ) );
-
+        
+        // If we don't have a refresh token now (and didn't have one before), it's an error
+        if ( ! self::get_refresh_token() ) {
+             error_log( 'CD_Google_Contacts Debug: Critical - No refresh token available after exchange.' );
+             return new WP_Error( 'no_refresh_token', __( 'No refresh token received. Please revoke access in your Google Account and try again.', 'community-directory' ) );
+        }
+        
+        error_log( 'CD_Google_Contacts Debug: Token exchange successful.' );
+        
         // Cache the access token
         if ( ! empty( $body['access_token'] ) ) {
             $expires_in = isset( $body['expires_in'] ) ? (int) $body['expires_in'] - 60 : 3500;

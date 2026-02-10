@@ -27,6 +27,10 @@ class CD_Plugin {
         // Check and run database migrations if needed
         $this->check_db_version();
 
+        // Load dependencies
+        require_once CD_PLUGIN_DIR . 'includes/class-email-templates.php';
+        require_once CD_PLUGIN_DIR . 'includes/class-encryption.php';
+
         // Load components
         $this->load_capabilities();
         $this->load_admin();
@@ -149,6 +153,11 @@ class CD_Plugin {
         );
         add_rewrite_rule(
             '^' . $base_slug . '/profile/?$',
+            'index.php?cd_page=profile',
+            'top'
+        );
+        add_rewrite_rule(
+            '^' . $base_slug . '/profile/edit/?$',
             'index.php?cd_page=profile',
             'top'
         );
@@ -311,30 +320,42 @@ class CD_Plugin {
             return;
         }
 
-        // Alpine.js (vendored)
-        wp_enqueue_script(
-            'alpinejs',
-            CD_PLUGIN_URL . 'public/js/alpine.min.js',
-            array(),
-            '3.14.3',
-            array( 'strategy' => 'defer' )
-        );
-
-        // Plugin JS
+        // Plugin JS (Load BEFORE Alpine so it can catch alpine:init)
         wp_enqueue_script(
             'community-directory',
             CD_PLUGIN_URL . 'public/js/community-directory.js',
-            array( 'alpinejs' ),
+            array(), // No dependencies, must load first
             CD_VERSION,
             true
         );
 
+        // Alpine.js (vendored) - Depends on community-directory to ensure it loads AFTER
+        wp_enqueue_script(
+            'alpinejs',
+            CD_PLUGIN_URL . 'public/js/alpine.min.js',
+            array( 'community-directory' ),
+            '3.14.3',
+            array( 'strategy' => 'defer' )
+        );
+
         // Localize script with API config
+        $current_member_uuid = '';
+        if ( is_user_logged_in() && current_user_can( 'cd_member' ) ) {
+            $member_id = CD_Members::get_member_id_by_user_id( get_current_user_id() );
+            if ( $member_id ) {
+                $member = CD_Members::get_member( $member_id );
+                if ( $member ) {
+                    $current_member_uuid = $member->uuid;
+                }
+            }
+        }
+
         wp_localize_script( 'community-directory', 'cdConfig', array(
             'apiUrl'   => esc_url_raw( rest_url( CD_API_NAMESPACE ) ),
             'nonce'    => wp_create_nonce( 'wp_rest' ),
             'baseUrl'  => esc_url( home_url( get_option( 'cd_base_slug', 'community' ) ) ),
             'isLoggedIn' => is_user_logged_in(),
+            'currentMemberUuid' => $current_member_uuid,
         ) );
 
         // Pass page-specific data via inline script
@@ -414,7 +435,7 @@ class CD_Plugin {
      * Checks a stored version and flushes if it's behind.
      */
     private function maybe_flush_rewrites() {
-        $current_rewrite_version = 2; // Bump this when adding new rewrite rules
+        $current_rewrite_version = 3; // Bump this when adding new rewrite rules
         $stored = (int) get_option( 'cd_rewrite_version', 1 );
 
         if ( $stored < $current_rewrite_version ) {

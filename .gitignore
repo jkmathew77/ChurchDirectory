@@ -1,6 +1,7 @@
 # Build artifacts
 community-directory.zip
 plugin/community-directory.zip
+plugin/community-directory-*.zip
 
 # Deploy config (server-specific)
 .deploy-config
@@ -20,6 +21,15 @@ Desktop.ini
 .env
 *.log
 client_secret_*.json
+*.lnk
+
+# Temp / debug directories
+plugin/debug_extract/
+plugin/temp_verify_2/
+nul
+
+# Claude Code
+.claude/
 
 # Node (if added later)
 node_modules/

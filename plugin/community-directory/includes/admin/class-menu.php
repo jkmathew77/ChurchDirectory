@@ -13,6 +13,7 @@ class CD_Admin_Menu {
         add_action( 'admin_menu', array( $this, 'register_menus' ) );
         add_action( 'admin_init', array( $this, 'register_settings' ) );
         add_action( 'admin_notices', array( $this, 'show_admin_notices' ) );
+        add_action( 'admin_post_cd_download_csv_template', array( $this, 'download_csv_template' ) );
     }
 
     /**
@@ -216,7 +217,7 @@ class CD_Admin_Menu {
     }
 
     public function render_members_page() {
-        echo '<div class="wrap"><h1>' . esc_html__( 'Members', 'community-directory' ) . '</h1><p>Coming in Phase 3.</p></div>';
+        include CD_PLUGIN_DIR . 'includes/admin/views/members.php';
     }
 
     public function render_officers_page() {
@@ -237,5 +238,52 @@ class CD_Admin_Menu {
 
     public function render_settings_page() {
         include CD_PLUGIN_DIR . 'includes/admin/views/settings.php';
+    }
+
+    /**
+     * Download CSV template for member import.
+     */
+    public function download_csv_template() {
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_die( __( 'Unauthorized', 'community-directory' ) );
+        }
+
+        $filename = 'member_import_template.csv';
+        header( 'Content-Type: text/csv; charset=utf-8' );
+        header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+
+        $fp = fopen( 'php://output', 'w' );
+        
+        // UTF-8 BOM for Excel compatibility
+        fputs( $fp, "\xEF\xBB\xBF" );
+
+        $headers = array(
+            'First Name',
+            'Last Name',
+            'Email',
+            'Phone',
+            'Address Line 1',
+            'City',
+            'State',
+            'Zip',
+            'Date of Birth (YYYY-MM-DD)',
+        );
+        fputcsv( $fp, $headers );
+        
+        // Example row
+        fputcsv( $fp, array(
+            'John',
+            'Doe',
+            'john.doe@example.com',
+            '555-123-4567',
+            '123 Main St',
+            'New York',
+            'NY',
+            '10001',
+            '1980-01-01',
+        ) );
+        
+        fclose( $fp );
+        exit;
     }
 }

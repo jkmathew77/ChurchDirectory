@@ -54,9 +54,11 @@ const cdApi = {
     },
 };
 
-/* ─── Login Page ─── */
-function cdLogin() {
-    return {
+/* ─── Initialize Alpine Components ─── */
+document.addEventListener('alpine:init', () => {
+
+    /* ─── Login Page ─── */
+    Alpine.data('cdLogin', () => ({
         email: '',
         password: '',
         loading: false,
@@ -132,15 +134,25 @@ function cdLogin() {
         },
 
         async loginWithGoogle() {
+            console.log('CD Debug: loginWithGoogle clicked');
             this.errorMessage = '';
             this.loading = true;
 
             try {
+                console.log('CD Debug: Requesting auth URL from /auth/google');
                 const result = await cdApi.get('/auth/google');
+                console.log('CD Debug: API Response', result);
+
                 if (result.data && result.data.auth_url) {
+                    console.log('CD Debug: Redirecting to', result.data.auth_url);
                     window.location.href = result.data.auth_url;
+                } else {
+                    console.error('CD Debug: No auth_url in response');
+                    this.errorMessage = 'Configuration error: No Auth URL returned.';
+                    this.loading = false;
                 }
             } catch (err) {
+                console.error('CD Debug: API Error', err);
                 this.errorMessage = err.message;
                 this.loading = false;
             }
@@ -204,12 +216,10 @@ function cdLogin() {
                 this.loading = false;
             }
         },
-    };
-}
+    }));
 
-/* ─── Application Form ─── */
-function cdApplication() {
-    return {
+    /* ─── Application Form ─── */
+    Alpine.data('cdApplication', () => ({
         step: 0,
         steps: ['Personal Info', 'Address & Background', 'Family', 'Interests & Review'],
         loading: false,
@@ -368,12 +378,10 @@ function cdApplication() {
                 this.loading = false;
             }
         },
-    };
-}
+    }));
 
-/* ─── Email Verification ─── */
-function cdVerify() {
-    return {
+    /* ─── Email Verification ─── */
+    Alpine.data('cdVerify', () => ({
         loading: true,
         success: false,
         errorMessage: '',
@@ -395,12 +403,10 @@ function cdVerify() {
                 this.loading = false;
             }
         },
-    };
-}
+    }));
 
-/* ─── Invite Acceptance ─── */
-function cdInvite() {
-    return {
+    /* ─── Invite Acceptance ─── */
+    Alpine.data('cdInvite', () => ({
         loading: true,
         tokenValid: false,
         success: false,
@@ -490,30 +496,87 @@ function cdInvite() {
                 this.creating = false;
             }
         },
-    };
-}
+    }));
 
-/* ─── Directory (Phase 3 stub) ─── */
-function cdDirectory() {
-    return {
+    /* ─── Directory (Phase 3 stub) ─── */
+    Alpine.data('cdDirectory', () => ({
         searchQuery: '',
         members: [],
         loading: false,
+        page: 1,
+        perPage: 24,
+        totalPages: 1,
+        totalMembers: 0,
+
+        init() {
+            this.loadMembers();
+        },
+
+        async loadMembers() {
+            this.loading = true;
+            try {
+                let url = '/directory?page=' + this.page + '&per_page=' + this.perPage;
+                if (this.searchQuery) {
+                    url += '&search=' + encodeURIComponent(this.searchQuery);
+                }
+
+                const result = await cdApi.get(url);
+                this.members = result.data.members || [];
+
+                if (result.meta) {
+                    this.totalPages = result.meta.pages;
+                    this.totalMembers = result.meta.total;
+                }
+            } catch (err) {
+                console.error('Directory load error:', err);
+                // toast error?
+            } finally {
+                this.loading = false;
+            }
+        },
 
         search() {
-            // Phase 3 implementation
+            this.page = 1;
+            this.loadMembers();
+        },
+
+        nextPage() {
+            if (this.page < this.totalPages) {
+                this.page++;
+                this.loadMembers();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        },
+
+        prevPage() {
+            if (this.page > 1) {
+                this.page--;
+                this.loadMembers();
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
         },
 
         logout() {
-            // Use WP logout URL
             window.location.href = cdConfig.baseUrl + '/login/?logged_out=1';
         },
-    };
-}
 
-/* ─── Member Profile View (Phase 3 stub) ─── */
-function cdMemberProfile() {
-    return {
+        // Helper for avatar background color
+        getAvatarColor(name) {
+            const colors = ['#d32f2f', '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#1976d2', '#0288d1', '#0097a7', '#00796b', '#388e3c', '#afb42b', '#fbc02d', '#ffa000', '#f57c00', '#e64a19', '#5d4037', '#616161'];
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) {
+                hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            return colors[Math.abs(hash) % colors.length];
+        },
+
+        getInitials(first, last) {
+            return (first.charAt(0) + last.charAt(0)).toUpperCase();
+        }
+    }));
+
+    /* ─── Member Profile View (Phase 3 stub) ─── */
+    Alpine.data('cdMemberProfile', () => ({
         member: null,
         loading: true,
 
@@ -521,18 +584,205 @@ function cdMemberProfile() {
             // Phase 3: fetch member by UUID from window.cdMemberUuid
             this.loading = false;
         },
-    };
-}
+    }));
 
-/* ─── Edit Profile (Phase 3 stub) ─── */
-function cdEditProfile() {
-    return {
-        form: {},
+    /* ─── Edit Profile (Phase 3 stub) ─── */
+    /* ─── Edit Profile ─── */
+    Alpine.data('cdEditProfile', () => ({
+        form: {
+            first_name: '',
+            last_name: '',
+            bio: '',
+            emails: [],
+            phones: [],
+            social_links: [],
+            address_home: '',
+            city: '',
+            address_home: '',
+            address_mailing: '',
+            city: '',
+            state: '',
+            zip: '',
+            occupation: '',
+            employer: '',
+            date_of_birth: '',
+            baptism_date: '',
+            wedding_anniversary: '',
+            name_day: '',
+            emergency_contact_name: '',
+            emergency_contact_phone: '',
+            preferred_contact_method: 'email',
+            preferred_language: 'en',
+            privacy_settings: {},
+        },
         loading: true,
+        saving: false,
+        errorMessage: '',
+        successMessage: '',
+        uploadingAvatar: false,
+        showPrivacyModal: false,
 
         async init() {
-            // Phase 3: load current user's profile for editing
-            this.loading = false;
+            // Get current user UUID from config
+            const uuid = cdConfig.currentMemberUuid;
+            if (!uuid) {
+                this.errorMessage = 'Could not identify member profile.';
+                this.loading = false;
+                return;
+            }
+
+            try {
+                const result = await cdApi.get('/members/' + uuid);
+                const data = result.data.member;
+
+                // Populate form
+                this.form.first_name = data.first_name || '';
+                this.form.last_name = data.last_name || '';
+                this.form.avatar_url = data.avatar_url || '';
+                this.form.bio = data.bio || '';
+                this.form.address_home = data.address_home || '';
+                this.form.city = data.city || '';
+                this.form.state = data.state || '';
+                this.form.zip = data.zip || '';
+                this.form.occupation = data.occupation || '';
+                this.form.employer = data.employer || '';
+                this.form.date_of_birth = data.date_of_birth || '';
+
+                // Ensure emails/phones/socials are arrays
+                this.form.emails = Array.isArray(data.emails) ? data.emails : [];
+                this.form.phones = Array.isArray(data.phones) ? data.phones : [];
+                this.form.social_links = Array.isArray(data.social_links) ? data.social_links : [];
+
+                // Minimum 1 empty email slot if empty
+                if (this.form.emails.length === 0) {
+                    this.form.emails.push({ type: 'personal', value: '' });
+                }
+
+            } catch (err) {
+                this.errorMessage = err.message;
+            } finally {
+                this.loading = false;
+            }
         },
-    };
-}
+
+        addEmail() {
+            this.form.emails.push({ type: 'personal', value: '' });
+        },
+
+        removeEmail(index) {
+            this.form.emails.splice(index, 1);
+        },
+
+        addPhone() {
+            this.form.phones.push({ type: 'mobile', value: '' });
+        },
+
+        removePhone(index) {
+            this.form.phones.splice(index, 1);
+        },
+
+        addSocial() {
+            this.form.social_links.push({ platform: 'facebook', url: '' });
+        },
+
+        removeSocial(index) {
+            this.form.social_links.splice(index, 1);
+        },
+
+        uploadAvatar(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            this.uploadingAvatar = true;
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Use fetch directly for file upload to handle FormData correctly if cdApi wrapper doesn't support it easily
+            // But cdApi should support it if we pass body as FormData.
+            // Let's use cdApi.request with custom options
+
+            const url = cdConfig.apiUrl + '/members/avatar';
+
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'X-WP-Nonce': cdConfig.nonce,
+                },
+                body: formData
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.data && data.data.url) {
+                        this.form.avatar_url = data.data.url;
+                        this.successMessage = 'Avatar uploaded successfully.';
+                    } else {
+                        throw new Error(data.message || 'Upload failed');
+                    }
+                })
+                .catch(err => {
+                    this.errorMessage = err.message;
+                })
+                .finally(() => {
+                    this.uploadingAvatar = false;
+                });
+        },
+
+        async deleteAvatar() {
+            if (!confirm('Are you sure you want to remove your profile picture?')) return;
+
+            this.uploadingAvatar = true;
+            try {
+                await cdApi.request('/members/avatar', { method: 'DELETE' });
+                this.form.avatar_url = '';
+                this.successMessage = 'Avatar removed.';
+            } catch (err) {
+                this.errorMessage = err.message;
+            } finally {
+                this.uploadingAvatar = false;
+            }
+        },
+
+        // Privacy Modals
+        togglePrivacy(field) {
+            const current = this.form.privacy_settings[field];
+            this.form.privacy_settings[field] = (current === 'visible') ? 'hidden' : 'visible';
+        },
+
+        getPrivacyIcon(field) {
+            return (this.form.privacy_settings[field] === 'visible') ? 'dashicons-visibility' : 'dashicons-hidden';
+        },
+
+        getPrivacyLabel(field) {
+            // Using generic English here, assuming localization is handled via PHP or simple maps if needed in JS.
+            // But since this is inside Alpine, standard wp.i18n isn't always available without setup.
+            return (this.form.privacy_settings[field] === 'visible') ? 'Visible to Members' : 'Hidden';
+        },
+
+        async saveProfile() {
+            this.errorMessage = '';
+            this.successMessage = '';
+            this.saving = true;
+
+            try {
+                // Filter empty entries
+                const payload = {
+                    ...this.form,
+                    emails: this.form.emails.filter(e => e.value.trim() !== ''),
+                    phones: this.form.phones.filter(p => p.value.trim() !== ''),
+                };
+
+                await cdApi.put('/members/me', payload);
+
+                this.successMessage = 'Profile updated successfully.';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            } catch (err) {
+                this.errorMessage = err.message;
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } finally {
+                this.saving = false;
+            }
+        },
+    }));
+
+});

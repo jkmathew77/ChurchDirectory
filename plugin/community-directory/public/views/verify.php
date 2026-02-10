@@ -16,7 +16,7 @@ $landing_url = home_url( $base_slug . '/' );
 get_header();
 ?>
 
-<div class="cd-wrap cd-verify" x-data="cdVerify()">
+<div class="cd-wrap cd-verify" x-data="cdVerify">
     <div class="cd-container">
         <div class="cd-page-header">
             <h1 class="cd-title"><?php esc_html_e( 'Email Verification', 'community-directory' ); ?></h1>

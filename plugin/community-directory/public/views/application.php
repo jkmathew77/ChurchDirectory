@@ -17,7 +17,7 @@ $login_url   = home_url( $base_slug . '/login/' );
 get_header();
 ?>
 
-<div class="cd-wrap cd-application" x-data="cdApplication()">
+<div class="cd-wrap cd-application" x-data="cdApplication">
     <div class="cd-container">
         <div class="cd-page-header">
             <a href="<?php echo esc_url( $landing_url ); ?>" class="cd-back-link">

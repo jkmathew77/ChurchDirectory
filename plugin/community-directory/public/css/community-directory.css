@@ -57,7 +57,8 @@
     padding: 32px 16px;
 }
 
-.cd-directory .cd-container {
+.cd-directory .cd-container,
+.cd-edit-profile .cd-container {
     max-width: var(--cd-container-wide);
 }
 
@@ -73,6 +74,10 @@
     justify-content: space-between;
     text-align: left;
     margin-bottom: 32px;
+}
+
+[x-cloak] {
+    display: none !important;
 }
 
 .cd-page-header-row .cd-title {
@@ -257,8 +262,116 @@
 }
 
 /* ─── Forms ─── */
+.cd-form-responsive {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.cd-form-responsive .cd-form-section {
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.cd-form-responsive .cd-form-section:last-child {
+    border-bottom: none;
+}
+
+.cd-grid-2 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+.cd-grid-3 {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+.cd-grid-address {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+@media (min-width: 600px) {
+    .cd-grid-2 {
+        grid-template-columns: 1fr 1fr;
+    }
+
+    .cd-grid-3 {
+        grid-template-columns: 1fr 1fr 1fr;
+    }
+
+    .cd-grid-address {
+        grid-template-columns: 2fr 1fr 1fr;
+        /* City wider than State/Zip */
+    }
+}
+
 .cd-form-group {
-    margin-bottom: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.cd-dynamic-row {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+    align-items: flex-start;
+}
+
+.cd-dynamic-row .cd-input {
+    flex: 2;
+}
+
+.cd-dynamic-row .cd-select {
+    flex: 1;
+}
+
+/* Avatar Upload & Profile Header */
+.cd-profile-header {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 2rem;
+}
+
+.cd-avatar-upload {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+}
+
+.cd-avatar-preview {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #fff;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    background-color: #eee;
+}
+
+.cd-avatar-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.cd-spinner-sm {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-top-color: var(--cd-primary-color);
+    animation: cd-spin 1s ease-in-out infinite;
 }
 
 .cd-form-group label {
@@ -585,7 +698,7 @@
 }
 
 /* ─── Modal ─── */
-.cd-modal-backdrop {
+.cd-modal-overlay {
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.5);
@@ -594,17 +707,85 @@
     justify-content: center;
     z-index: 9999;
     padding: 16px;
+    backdrop-filter: blur(2px);
 }
 
 .cd-modal {
-    max-width: 420px;
+    background: var(--cd-bg-white);
+    max-width: 480px;
     width: 100%;
+    border-radius: var(--cd-radius-lg);
+    box-shadow: var(--cd-shadow-lg);
+    display: flex;
+    flex-direction: column;
     max-height: 90vh;
+    animation: cd-slide-up 0.2s ease-out;
+}
+
+@keyframes cd-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.cd-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--cd-border);
+}
+
+.cd-modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.cd-modal-body {
+    padding: 24px;
     overflow-y: auto;
 }
 
-.cd-modal h2 {
-    margin-top: 0;
+.cd-modal-footer {
+    padding: 16px 24px;
+    border-top: 1px solid var(--cd-border);
+    text-align: right;
+    background: var(--cd-bg);
+    border-radius: 0 0 var(--cd-radius-lg) var(--cd-radius-lg);
+}
+
+.cd-privacy-options {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.cd-checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius);
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+
+.cd-checkbox-label:hover {
+    background-color: var(--cd-primary-light);
+    border-color: var(--cd-primary);
+}
+
+.cd-checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--cd-primary);
 }
 
 /* ─── Spinner ─── */
@@ -628,7 +809,9 @@
 }
 
 @keyframes cd-spin {
-    to { transform: rotate(360deg); }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* ─── Utility ─── */
@@ -815,6 +998,7 @@
 
 /* ─── Print ─── */
 @media print {
+
     .cd-btn,
     .cd-search-bar,
     .cd-nav,

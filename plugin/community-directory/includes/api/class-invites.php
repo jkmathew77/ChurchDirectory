@@ -44,14 +44,24 @@ class CD_API_Invites extends CD_API_Base {
             return $this->error( $invite->get_error_code(), $invite->get_error_message() );
         }
 
-        // Get the applicant name
-        $applications_table = CD_Database::table( 'applications' );
-        $app = $wpdb->get_row( $wpdb->prepare(
-            "SELECT first_name, last_name FROM {$applications_table} WHERE id = %d",
-            $invite->application_id
-        ) );
-
-        $name = $app ? trim( $app->first_name . ' ' . $app->last_name ) : '';
+        // Get the applicant name from Application OR Member Profile
+        $name = '';
+        
+        if ( ! empty( $invite->application_id ) ) {
+            $applications_table = CD_Database::table( 'applications' );
+            $app = $wpdb->get_row( $wpdb->prepare(
+                "SELECT first_name, last_name FROM {$applications_table} WHERE id = %d",
+                $invite->application_id
+            ) );
+            $name = $app ? trim( $app->first_name . ' ' . $app->last_name ) : '';
+        } elseif ( ! empty( $invite->member_id ) ) {
+            $profiles_table = CD_Database::table( 'directory_profiles' );
+            $profile = $wpdb->get_row( $wpdb->prepare(
+                "SELECT first_name, last_name FROM {$profiles_table} WHERE member_id = %d",
+                $invite->member_id
+            ) );
+            $name = $profile ? trim( $profile->first_name . ' ' . $profile->last_name ) : '';
+        }
 
         return $this->success( array(
             'valid' => true,
@@ -96,17 +106,33 @@ class CD_API_Invites extends CD_API_Base {
             return $this->error( 'invite_used', __( 'This invitation has already been used.', 'community-directory' ) );
         }
 
-        // Get application data for display name
-        $applications_table = CD_Database::table( 'applications' );
-        $app = $wpdb->get_row( $wpdb->prepare(
-            "SELECT first_name, last_name FROM {$applications_table} WHERE id = %d",
-            $invite->application_id
-        ) );
+        // Get display name (from App or Profile)
+        $display_name = $email;
+        $first_name   = '';
+        $last_name    = '';
 
-        $display_name = $app ? trim( $app->first_name . ' ' . $app->last_name ) : $email;
+        if ( ! empty( $invite->application_id ) ) {
+            $applications_table = CD_Database::table( 'applications' );
+            $app = $wpdb->get_row( $wpdb->prepare( "SELECT first_name, last_name FROM {$applications_table} WHERE id = %d", $invite->application_id ) );
+            if ( $app ) {
+                $first_name = $app->first_name;
+                $last_name  = $app->last_name;
+                $display_name = trim( $first_name . ' ' . $last_name );
+            }
+        } elseif ( ! empty( $invite->member_id ) ) {
+            $profiles_table = CD_Database::table( 'directory_profiles' );
+            $profile = $wpdb->get_row( $wpdb->prepare( "SELECT first_name, last_name FROM {$profiles_table} WHERE member_id = %d", $invite->member_id ) );
+            if ( $profile ) {
+                $first_name = $profile->first_name;
+                $last_name  = $profile->last_name;
+                $display_name = trim( $first_name . ' ' . $last_name );
+            }
+        }
 
         // Check if WP user already exists
         $existing_user = get_user_by( 'email', $email );
+        $wp_user_id = 0;
+
         if ( $existing_user ) {
             $wp_user_id = $existing_user->ID;
             // Update password
@@ -127,8 +153,8 @@ class CD_API_Invites extends CD_API_Base {
             wp_update_user( array(
                 'ID'           => $wp_user_id,
                 'display_name' => $display_name,
-                'first_name'   => $app ? $app->first_name : '',
-                'last_name'    => $app ? $app->last_name : '',
+                'first_name'   => $first_name,
+                'last_name'    => $last_name,
             ) );
         }
 
@@ -137,21 +163,29 @@ class CD_API_Invites extends CD_API_Base {
 
         // Link member record to WP user
         $members_table = CD_Database::table( 'members' );
-        $wpdb->update( $members_table, array(
-            'wp_user_id'   => $wp_user_id,
-            'activated_at' => current_time( 'mysql' ),
-        ), array( 'application_id' => $invite->application_id ), array( '%d', '%s' ), array( '%d' ) );
+        
+        // Find which member to link
+        $member_id_to_link = null;
+        if ( ! empty( $invite->member_id ) ) {
+            $member_id_to_link = $invite->member_id;
+        } elseif ( ! empty( $invite->application_id ) ) {
+             $member = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM {$members_table} WHERE application_id = %d", $invite->application_id ) );
+             if ( $member ) $member_id_to_link = $member->id;
+        }
+
+        if ( $member_id_to_link ) {
+            $wpdb->update( $members_table, array(
+                'wp_user_id'   => $wp_user_id,
+                'activated_at' => current_time( 'mysql' ),
+            ), array( 'id' => $member_id_to_link ), array( '%d', '%s' ), array( '%d' ) );
+        }
 
         // Auto-login
         wp_set_current_user( $wp_user_id );
         wp_set_auth_cookie( $wp_user_id, true );
 
         // Audit log
-        $member = $wpdb->get_row( $wpdb->prepare(
-            "SELECT id FROM {$members_table} WHERE application_id = %d",
-            $invite->application_id
-        ) );
-        CD_Audit_Logger::log( CD_Audit_Logger::MEMBER_ACTIVATED, $wp_user_id, $member ? $member->id : null, array(
+        CD_Audit_Logger::log( CD_Audit_Logger::MEMBER_ACTIVATED, $wp_user_id, $member_id_to_link, array(
             'email' => $email,
         ) );
 

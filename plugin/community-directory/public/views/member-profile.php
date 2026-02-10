@@ -12,11 +12,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 $base_slug     = get_option( 'cd_base_slug', 'community' );
 $directory_url = home_url( $base_slug . '/directory/' );
+$login_url     = home_url( $base_slug . '/login/' );
+
+if ( ! is_user_logged_in() ) {
+    wp_redirect( $login_url );
+    exit;
+}
 
 get_header();
 ?>
 
-<div class="cd-wrap cd-member-profile" x-data="cdMemberProfile()">
+<div class="cd-wrap cd-member-profile" x-data="cdMemberProfile">
     <div class="cd-container">
         <div class="cd-page-header">
             <a href="<?php echo esc_url( $directory_url ); ?>" class="cd-back-link">

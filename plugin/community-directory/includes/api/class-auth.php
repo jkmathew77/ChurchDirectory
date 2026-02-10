@@ -284,8 +284,35 @@ class CD_API_Auth extends CD_API_Base {
             }
         }
 
+        // CAPTURE AVATAR: If member exists, check/update avatar from Google
+        if ( $member && isset( $payload['picture'] ) ) {
+            $profiles_table = CD_Database::table( 'directory_profiles' );
+            // Check if member provides a picture and current avatar is empty or we want to sync
+            // For now, let's only update if empty to avoid overwriting custom ones.
+            $profile_id = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$profiles_table} WHERE member_id = %d AND (avatar_url IS NULL OR avatar_url = '')", $member->id ) );
+            
+            if ( $profile_id ) {
+                $wpdb->update( 
+                    $profiles_table, 
+                    array( 'avatar_url' => esc_url_raw( $payload['picture'] ) ), 
+                    array( 'id' => $profile_id ), 
+                    array( '%s' ), 
+                    array( '%d' ) 
+                );
+            }
+        }
+
         if ( ! $member || ! $member->wp_user_id ) {
-            wp_safe_redirect( $login_url . '?error=no_account' );
+            // No member record found → redirect to application form
+            $apply_url = home_url( $base_slug . '/apply/' );
+            $apply_params = array(
+                'email'      => $google_email,
+                'first_name' => $payload['given_name'] ?? '',
+                'last_name'  => $payload['family_name'] ?? '',
+                'avatar_url' => $payload['picture'] ?? '',
+                'google_id'  => $google_id, // Pass invisible token to link later? (Optional security risk, skipping for now)
+            );
+            wp_safe_redirect( $apply_url . '?' . http_build_query( $apply_params ) );
             exit;
         }
 

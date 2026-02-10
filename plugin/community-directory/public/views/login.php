@@ -16,7 +16,7 @@ $apply_url   = home_url( $base_slug . '/apply/' );
 get_header();
 ?>
 
-<div class="cd-wrap cd-login" x-data="cdLogin()" x-init="init()">
+<div class="cd-wrap cd-login" x-data="cdLogin">
     <div class="cd-container">
         <div class="cd-page-header">
             <a href="<?php echo esc_url( $landing_url ); ?>" class="cd-back-link">

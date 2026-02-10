@@ -3,7 +3,7 @@
  * Plugin Name: Community Directory
  * Plugin URI:  https://sttheklachurch.org
  * Description: A secure, members-only church community directory with application workflow, Google OAuth, household management, and PWA support.
- * Version:     0.2.1
+ * Version:     0.3.38
  * Author:      St. Thekla Church
  * Author URI:  https://sttheklachurch.org
  * Text Domain: community-directory
@@ -19,8 +19,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'CD_VERSION', '0.2.1' );
-define( 'CD_DB_VERSION', '002' );
+define( 'CD_VERSION', '0.3.38' );
+define( 'CD_DB_VERSION', '004' );
 define( 'CD_PLUGIN_FILE', __FILE__ );
 define( 'CD_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'CD_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
@@ -66,11 +66,11 @@ spl_autoload_register( function ( $class ) {
 /**
  * Plugin activation hook.
  */
-function cd_activate() {
-    require_once CD_PLUGIN_DIR . 'includes/class-activator.php';
+register_activation_hook( __FILE__, 'cd_activate_plugin' );
+function cd_activate_plugin() {
+    require_once plugin_dir_path( __FILE__ ) . 'includes/class-activator.php';
     CD_Activator::activate();
 }
-register_activation_hook( __FILE__, 'cd_activate' );
 
 /**
  * Plugin deactivation hook.
