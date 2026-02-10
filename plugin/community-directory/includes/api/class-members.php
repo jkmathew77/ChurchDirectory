@@ -56,26 +56,24 @@ class CD_API_Members extends CD_API_Base {
 
         $members_table  = CD_Database::table( 'members' );
         $profiles_table = CD_Database::table( 'directory_profiles' );
-        
+
         $search = sanitize_text_field( $request->get_param( 'search' ) ?: '' );
         $page   = max( 1, (int) $request->get_param( 'page' ) ?: 1 );
-        $per    = min( 50, max( 1, (int) $request->get_param( 'per_page' ) ?: 24 ) ); // 24 for grid layout (3x8 or 4x6)
+        $per    = min( 50, max( 1, (int) $request->get_param( 'per_page' ) ?: 24 ) );
         $offset = ( $page - 1 ) * $per;
 
-        // Base Where: Active Members Only
         $where = "m.status = 'active'";
         $args  = array();
 
-        // Search Filter
         if ( $search ) {
             $search_like = '%' . $wpdb->esc_like( $search ) . '%';
-            $where .= ' AND (p.first_name LIKE %s OR p.last_name LIKE %s OR p.emails LIKE %s)';
+            $where .= ' AND (p.first_name LIKE %s OR p.last_name LIKE %s OR p.emails LIKE %s OR p.phones LIKE %s)';
+            $args[] = $search_like;
             $args[] = $search_like;
             $args[] = $search_like;
             $args[] = $search_like;
         }
 
-        // Count totals
         $total_query = "SELECT COUNT(*) FROM {$members_table} m LEFT JOIN {$profiles_table} p ON m.id = p.member_id WHERE {$where}";
         if ( ! empty( $args ) ) {
             $total = (int) $wpdb->get_var( $wpdb->prepare( $total_query, $args ) );
@@ -83,49 +81,51 @@ class CD_API_Members extends CD_API_Base {
             $total = (int) $wpdb->get_var( $total_query );
         }
 
-        // Fetch Rows
-        // We select specific fields for the directory card
-        $query = "SELECT m.uuid, p.first_name, p.last_name, p.avatar_url, 
-                         p.emails, p.phones, p.city, p.state, p.ministry_tags
+        $query = "SELECT m.uuid, p.first_name, p.last_name, p.avatar_url,
+                         p.emails, p.phones, p.city, p.state, p.ministry_tags, p.privacy_settings
                   FROM {$members_table} m
                   LEFT JOIN {$profiles_table} p ON m.id = p.member_id
                   WHERE {$where}
                   ORDER BY p.last_name ASC, p.first_name ASC
                   LIMIT %d OFFSET %d";
-        
+
         $args[] = $per;
         $args[] = $offset;
 
         $rows = $wpdb->get_results( $wpdb->prepare( $query, $args ) );
 
-        // Process rows for display
         $results = array();
         foreach ( $rows as $row ) {
-            // Decode JSON
             $emails = json_decode( $row->emails, true );
             $phones = json_decode( $row->phones, true );
             $ministry_tags = json_decode( $row->ministry_tags, true );
+            $privacy = json_decode( $row->privacy_settings, true );
+            if ( ! is_array( $privacy ) ) {
+                $privacy = array();
+            }
 
-            // Primary Contact
+            // Apply privacy: default to visible if not set
             $primary_email = '';
-            if ( ! empty( $emails ) && is_array( $emails ) ) {
+            if ( ( $privacy['email'] ?? 'visible' ) === 'visible' && ! empty( $emails ) && is_array( $emails ) ) {
                 $primary_email = $emails[0]['value'] ?? '';
             }
 
             $primary_phone = '';
-            if ( ! empty( $phones ) && is_array( $phones ) ) {
+            if ( ( $privacy['phone'] ?? 'visible' ) === 'visible' && ! empty( $phones ) && is_array( $phones ) ) {
                 $primary_phone = $phones[0]['value'] ?? '';
             }
 
+            $show_address = ( $privacy['address'] ?? 'visible' ) === 'visible';
+
             $results[] = array(
-                'uuid'         => $row->uuid,
-                'first_name'   => $row->first_name,
-                'last_name'    => $row->last_name,
-                'avatar_url'   => $row->avatar_url,
-                'email'        => $primary_email,
-                'phone'        => $primary_phone, // TODO: Apply privacy filter here later?
-                'city'         => $row->city,
-                'state'        => $row->state,
+                'uuid'          => $row->uuid,
+                'first_name'    => $row->first_name,
+                'last_name'     => $row->last_name,
+                'avatar_url'    => $row->avatar_url,
+                'email'         => $primary_email,
+                'phone'         => $primary_phone,
+                'city'          => $show_address ? $row->city : '',
+                'state'         => $show_address ? $row->state : '',
                 'ministry_tags' => $ministry_tags ?: array(),
             );
         }
@@ -151,7 +151,7 @@ class CD_API_Members extends CD_API_Base {
         $profiles_table = CD_Database::table( 'directory_profiles' );
 
         $row = $wpdb->get_row( $wpdb->prepare(
-            "SELECT m.uuid, p.*
+            "SELECT m.uuid, m.member_since, p.*
              FROM {$members_table} m
              LEFT JOIN {$profiles_table} p ON m.id = p.member_id
              WHERE m.uuid = %s AND m.status = 'active'",
@@ -163,37 +163,79 @@ class CD_API_Members extends CD_API_Base {
         }
 
         // Decode all JSON fields
-        $row->emails        = json_decode( $row->emails, true );
-        $row->phones        = json_decode( $row->phones, true );
-        $row->social_links  = json_decode( $row->social_links, true );
-        $row->ministry_tags = json_decode( $row->ministry_tags, true );
-        $row->privacy_settings = json_decode( $row->privacy_settings, true );
-        
+        $row->emails           = json_decode( $row->emails, true ) ?: array();
+        $row->phones           = json_decode( $row->phones, true ) ?: array();
+        $row->social_links     = json_decode( $row->social_links, true ) ?: array();
+        $row->ministry_tags    = json_decode( $row->ministry_tags, true ) ?: array();
+        $row->privacy_settings = json_decode( $row->privacy_settings, true ) ?: array();
+
         // Decrypt Encrypted Fields
         if ( ! empty( $row->address_home ) ) {
             $row->address_home = CD_Encryption::decrypt( $row->address_home );
         }
         if ( ! empty( $row->address_mailing ) ) {
-             $row->address_mailing = CD_Encryption::decrypt( $row->address_mailing );
+            $row->address_mailing = CD_Encryption::decrypt( $row->address_mailing );
         }
         if ( ! empty( $row->date_of_birth ) ) {
-             $row->date_of_birth = CD_Encryption::decrypt( $row->date_of_birth );
+            $row->date_of_birth = CD_Encryption::decrypt( $row->date_of_birth );
         }
         if ( ! empty( $row->emergency_contact_name ) ) {
-             $row->emergency_contact_name = CD_Encryption::decrypt( $row->emergency_contact_name );
+            $row->emergency_contact_name = CD_Encryption::decrypt( $row->emergency_contact_name );
         }
         if ( ! empty( $row->emergency_contact_phone ) ) {
-             $row->emergency_contact_phone = CD_Encryption::decrypt( $row->emergency_contact_phone );
+            $row->emergency_contact_phone = CD_Encryption::decrypt( $row->emergency_contact_phone );
         }
-        
-        // Remove sensitive system fields (id, member_id, etc from p.*)
+
+        // Determine if this is the user's own profile
+        $current_user_id = get_current_user_id();
+        $current_member_id = CD_Members::get_member_id_by_user_id( $current_user_id );
+        $is_own_profile = ( $current_member_id && $current_member_id == $row->member_id );
+        $is_admin = current_user_can( 'manage_options' );
+
+        // Remove internal DB fields and remap column names
+        $member_id_for_check = $row->member_id;
         unset( $row->id );
         unset( $row->member_id );
-        
-        // TODO: Filter based on privacy settings
-        // For now, return full profile (Internal Directory)
-        
-        return $this->success( array( 'member' => $row ) );
+
+        // Remap zip_code → zip for frontend consistency
+        $row->zip = $row->zip_code ?? '';
+        unset( $row->zip_code );
+
+        // Apply privacy filtering for other members' profiles
+        if ( ! $is_own_profile && ! $is_admin ) {
+            $privacy = $row->privacy_settings;
+
+            if ( ( $privacy['email'] ?? 'visible' ) === 'hidden' ) {
+                $row->emails = array();
+            }
+            if ( ( $privacy['phone'] ?? 'visible' ) === 'hidden' ) {
+                $row->phones = array();
+            }
+            if ( ( $privacy['address'] ?? 'visible' ) === 'hidden' ) {
+                $row->address_home = '';
+                $row->address_mailing = '';
+                $row->city = '';
+                $row->state = '';
+                $row->zip = '';
+            }
+            if ( ( $privacy['social'] ?? 'hidden' ) === 'hidden' ) {
+                $row->social_links = array();
+            }
+            if ( ( $privacy['date_of_birth'] ?? 'hidden' ) === 'hidden' ) {
+                $row->date_of_birth = '';
+            }
+            if ( ( $privacy['wedding_anniversary'] ?? 'hidden' ) === 'hidden' ) {
+                $row->wedding_anniversary = '';
+            }
+            // Emergency contact is always admin-only
+            $row->emergency_contact_name = '';
+            $row->emergency_contact_phone = '';
+        }
+
+        return $this->success( array(
+            'member'         => $row,
+            'is_own_profile' => $is_own_profile,
+        ) );
     }
 
     /**
@@ -237,7 +279,14 @@ class CD_API_Members extends CD_API_Base {
             $data['employer'] = sanitize_text_field( $params['employer'] );
             $format[] = '%s';
         }
-        if ( isset( $params['address_home'] ) ) {
+        // Address: accept either address_home directly or address_line_1 + address_line_2
+        if ( isset( $params['address_line_1'] ) || isset( $params['address_line_2'] ) ) {
+            $line1 = sanitize_text_field( $params['address_line_1'] ?? '' );
+            $line2 = sanitize_text_field( $params['address_line_2'] ?? '' );
+            $combined = trim( $line1 . ( $line2 ? "\n" . $line2 : '' ) );
+            $data['address_home'] = CD_Encryption::encrypt( $combined );
+            $format[] = '%s';
+        } elseif ( isset( $params['address_home'] ) ) {
             $data['address_home'] = CD_Encryption::encrypt( sanitize_textarea_field( $params['address_home'] ) );
             $format[] = '%s';
         }
@@ -254,31 +303,57 @@ class CD_API_Members extends CD_API_Base {
              $format[] = '%s';
         }
         if ( isset( $params['zip'] ) ) {
-             $data['zip'] = sanitize_text_field( $params['zip'] );
+             $data['zip_code'] = sanitize_text_field( $params['zip'] );
              $format[] = '%s';
         }
         if ( isset( $params['date_of_birth'] ) ) {
-            $data['date_of_birth'] = CD_Encryption::encrypt( sanitize_text_field( $params['date_of_birth'] ) );
-            $format[] = '%s';
+            $val = sanitize_text_field( $params['date_of_birth'] );
+            if ( $val !== '' ) {
+                $data['date_of_birth'] = CD_Encryption::encrypt( $val );
+                $format[] = '%s';
+            } else {
+                $wpdb->query( $wpdb->prepare(
+                    "UPDATE {$profiles_table} SET date_of_birth = NULL WHERE member_id = %d",
+                    $member_id
+                ) );
+            }
         }
         if ( isset( $params['baptism_date'] ) ) {
-            $data['baptism_date'] = sanitize_text_field( $params['baptism_date'] );
-            $format[] = '%s';
+            $val = sanitize_text_field( $params['baptism_date'] );
+            if ( $val !== '' ) {
+                $data['baptism_date'] = $val;
+                $format[] = '%s';
+            } else {
+                $wpdb->query( $wpdb->prepare(
+                    "UPDATE {$profiles_table} SET baptism_date = NULL WHERE member_id = %d",
+                    $member_id
+                ) );
+            }
         }
         if ( isset( $params['wedding_anniversary'] ) ) {
-            $data['wedding_anniversary'] = sanitize_text_field( $params['wedding_anniversary'] );
-            $format[] = '%s';
+            $val = sanitize_text_field( $params['wedding_anniversary'] );
+            if ( $val !== '' ) {
+                $data['wedding_anniversary'] = $val;
+                $format[] = '%s';
+            } else {
+                $wpdb->query( $wpdb->prepare(
+                    "UPDATE {$profiles_table} SET wedding_anniversary = NULL WHERE member_id = %d",
+                    $member_id
+                ) );
+            }
         }
         if ( isset( $params['name_day'] ) ) {
             $data['name_day'] = sanitize_text_field( $params['name_day'] );
             $format[] = '%s';
         }
         if ( isset( $params['emergency_contact_name'] ) ) {
-            $data['emergency_contact_name'] = CD_Encryption::encrypt( sanitize_text_field( $params['emergency_contact_name'] ) );
+            $val = sanitize_text_field( $params['emergency_contact_name'] );
+            $data['emergency_contact_name'] = $val !== '' ? CD_Encryption::encrypt( $val ) : '';
             $format[] = '%s';
         }
         if ( isset( $params['emergency_contact_phone'] ) ) {
-            $data['emergency_contact_phone'] = CD_Encryption::encrypt( sanitize_text_field( $params['emergency_contact_phone'] ) );
+            $val = sanitize_text_field( $params['emergency_contact_phone'] );
+            $data['emergency_contact_phone'] = $val !== '' ? CD_Encryption::encrypt( $val ) : '';
             $format[] = '%s';
         }
         if ( isset( $params['preferred_contact_method'] ) ) {
@@ -337,6 +412,19 @@ class CD_API_Members extends CD_API_Base {
              }
              $data['social_links'] = wp_json_encode( $clean_social );
              $format[] = '%s';
+        }
+
+        // Privacy settings
+        if ( isset( $params['privacy_settings'] ) && is_array( $params['privacy_settings'] ) ) {
+            $allowed_keys = array( 'email', 'phone', 'address', 'social', 'date_of_birth', 'wedding_anniversary', 'occupation' );
+            $clean_privacy = array();
+            foreach ( $params['privacy_settings'] as $key => $value ) {
+                if ( in_array( $key, $allowed_keys, true ) ) {
+                    $clean_privacy[ $key ] = ( $value === 'visible' ) ? 'visible' : 'hidden';
+                }
+            }
+            $data['privacy_settings'] = wp_json_encode( $clean_privacy );
+            $format[] = '%s';
         }
 
         if ( empty( $data ) ) {
@@ -405,10 +493,16 @@ class CD_API_Members extends CD_API_Base {
         // Update profile
         global $wpdb;
         $profiles_table = CD_Database::table( 'directory_profiles' );
-        
+
+        $wpdb->update(
+            $profiles_table,
+            array( 'avatar_url' => $url, 'avatar_source' => 'upload' ),
+            array( 'member_id' => $member_id ),
+            array( '%s', '%s' ),
+            array( '%d' )
         );
 
-        return $this->success( array( 
+        return $this->success( array(
             'url' => $url,
             'message' => __( 'Avatar updated.', 'community-directory' )
         ) );

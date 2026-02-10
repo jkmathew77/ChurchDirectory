@@ -1,7 +1,6 @@
 <?php
 /**
  * Community Directory — View Member Profile.
- * Stub for Phase 3.
  * Rendered inside the active WordPress theme via get_header/get_footer.
  * Member UUID is passed to JS via wp_add_inline_script in class-plugin.php.
  */
@@ -12,6 +11,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 $base_slug     = get_option( 'cd_base_slug', 'community' );
 $directory_url = home_url( $base_slug . '/directory/' );
+$profile_url   = home_url( $base_slug . '/profile/' );
 $login_url     = home_url( $base_slug . '/login/' );
 
 if ( ! is_user_logged_in() ) {
@@ -22,22 +22,189 @@ if ( ! is_user_logged_in() ) {
 get_header();
 ?>
 
-<div class="cd-wrap cd-member-profile" x-data="cdMemberProfile">
+<div class="cd-wrap cd-member-profile" x-data="cdMemberProfile" x-cloak>
     <div class="cd-container">
         <div class="cd-page-header">
             <a href="<?php echo esc_url( $directory_url ); ?>" class="cd-back-link">
-                &larr; <?php esc_html_e( 'Directory', 'community-directory' ); ?>
+                &larr; <?php esc_html_e( 'Back to Directory', 'community-directory' ); ?>
             </a>
-            <h1 class="cd-title"><?php esc_html_e( 'Member Profile', 'community-directory' ); ?></h1>
         </div>
 
-        <div class="cd-main">
-            <div class="cd-card">
-                <p class="cd-text-muted cd-text-center">
-                    <?php esc_html_e( 'Member profiles will be available in Phase 3.', 'community-directory' ); ?>
-                </p>
-            </div>
+        <!-- Loading State -->
+        <div x-show="loading" class="cd-text-center" style="padding: 3rem 0;">
+            <div class="cd-spinner cd-spinner-lg"></div>
+            <p class="cd-text-muted"><?php esc_html_e( 'Loading profile...', 'community-directory' ); ?></p>
         </div>
+
+        <!-- Error State -->
+        <template x-if="!loading && errorMessage">
+            <div class="cd-card">
+                <div class="cd-alert cd-alert-error" x-text="errorMessage"></div>
+                <div class="cd-text-center">
+                    <a href="<?php echo esc_url( $directory_url ); ?>" class="cd-btn cd-btn-primary">
+                        <?php esc_html_e( 'Return to Directory', 'community-directory' ); ?>
+                    </a>
+                </div>
+            </div>
+        </template>
+
+        <!-- Profile Content -->
+        <template x-if="!loading && member">
+            <div>
+                <!-- Profile Header Card -->
+                <div class="cd-card cd-profile-card-header">
+                    <div class="cd-profile-top">
+                        <!-- Avatar -->
+                        <div class="cd-profile-avatar-lg">
+                            <template x-if="member.avatar_url">
+                                <img
+                                    :src="member.avatar_url"
+                                    :alt="member.first_name + ' ' + member.last_name"
+                                    class="cd-avatar-img-lg"
+                                    @error="member.avatar_url = ''"
+                                >
+                            </template>
+                            <template x-if="!member.avatar_url">
+                                <div
+                                    class="cd-avatar-initials-lg"
+                                    :style="'background-color: ' + getAvatarColor(member.first_name + ' ' + member.last_name)"
+                                >
+                                    <span x-text="getInitials(member.first_name, member.last_name)"></span>
+                                </div>
+                            </template>
+                        </div>
+
+                        <!-- Name & Meta -->
+                        <div class="cd-profile-name-block">
+                            <h1 class="cd-profile-name" x-text="member.first_name + ' ' + member.last_name"></h1>
+                            <p class="cd-text-muted cd-profile-meta" x-show="member.city || member.state">
+                                <span x-text="(member.city || '') + (member.city && member.state ? ', ' : '') + (member.state || '')"></span>
+                            </p>
+                            <p class="cd-text-muted cd-profile-meta" x-show="member.member_since">
+                                <?php esc_html_e( 'Member since', 'community-directory' ); ?>
+                                <span x-text="member.member_since ? new Date(member.member_since).toLocaleDateString('en-US', {year: 'numeric', month: 'long'}) : ''"></span>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Edit Profile button (own profile only) -->
+                    <div x-show="isOwnProfile" class="cd-profile-actions" style="margin-top: 1rem;">
+                        <a href="<?php echo esc_url( $profile_url ); ?>" class="cd-btn cd-btn-sm cd-btn-secondary">
+                            <?php esc_html_e( 'Edit My Profile', 'community-directory' ); ?>
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Contact Actions -->
+                <div class="cd-card" x-show="(member.emails && member.emails.length > 0) || (member.phones && member.phones.length > 0)">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Contact', 'community-directory' ); ?></h3>
+
+                    <!-- Emails -->
+                    <template x-if="member.emails && member.emails.length > 0">
+                        <div class="cd-contact-group">
+                            <template x-for="(email, idx) in member.emails" :key="'email-' + idx">
+                                <div class="cd-contact-item">
+                                    <span class="cd-contact-icon">&#9993;</span>
+                                    <div>
+                                        <a :href="'mailto:' + email.value" class="cd-contact-link" x-text="email.value"></a>
+                                        <small class="cd-text-muted" x-text="email.type || 'personal'" style="text-transform: capitalize;"></small>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    <!-- Phones -->
+                    <template x-if="member.phones && member.phones.length > 0">
+                        <div class="cd-contact-group">
+                            <template x-for="(phone, idx) in member.phones" :key="'phone-' + idx">
+                                <div class="cd-contact-item">
+                                    <span class="cd-contact-icon">&#9742;</span>
+                                    <div>
+                                        <a :href="'tel:' + phone.value.replace(/\D/g, '')" class="cd-contact-link" x-text="formatPhone(phone.value)"></a>
+                                        <small class="cd-text-muted" x-text="phone.type || 'mobile'" style="text-transform: capitalize;"></small>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Address -->
+                <div class="cd-card" x-show="member.address_home || member.city">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Address', 'community-directory' ); ?></h3>
+                    <div class="cd-detail-block">
+                        <p x-show="member.address_home" x-text="member.address_home" style="white-space: pre-line;"></p>
+                        <p x-show="member.city || member.state || member.zip">
+                            <span x-text="(member.city || '') + (member.city && member.state ? ', ' : '') + (member.state || '') + (member.zip ? ' ' + member.zip : '')"></span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Bio -->
+                <div class="cd-card" x-show="member.bio">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'About', 'community-directory' ); ?></h3>
+                    <p x-text="member.bio" style="white-space: pre-line;"></p>
+                </div>
+
+                <!-- Ministry Tags -->
+                <div class="cd-card" x-show="member.ministry_tags && member.ministry_tags.length > 0">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Ministry Involvement', 'community-directory' ); ?></h3>
+                    <div class="cd-tag-list">
+                        <template x-for="tag in member.ministry_tags" :key="tag">
+                            <span class="cd-tag" x-text="tag"></span>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Work -->
+                <div class="cd-card" x-show="member.occupation || member.employer">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Work', 'community-directory' ); ?></h3>
+                    <p x-show="member.occupation">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Occupation:', 'community-directory' ); ?></span>
+                        <span x-text="member.occupation"></span>
+                    </p>
+                    <p x-show="member.employer">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Employer:', 'community-directory' ); ?></span>
+                        <span x-text="member.employer"></span>
+                    </p>
+                </div>
+
+                <!-- Social Links -->
+                <div class="cd-card" x-show="member.social_links && member.social_links.length > 0">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Social', 'community-directory' ); ?></h3>
+                    <div class="cd-social-list">
+                        <template x-for="(link, idx) in member.social_links" :key="'social-' + idx">
+                            <a :href="link.url" target="_blank" rel="noopener noreferrer" class="cd-social-item">
+                                <span class="cd-social-platform" x-text="link.platform" style="text-transform: capitalize;"></span>
+                                <span class="cd-text-muted" style="font-size: 0.85rem;">&nearr;</span>
+                            </a>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Personal Dates (own profile or admin only) -->
+                <div class="cd-card" x-show="isOwnProfile && (member.date_of_birth || member.baptism_date || member.name_day || member.wedding_anniversary)">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Personal Dates', 'community-directory' ); ?></h3>
+                    <p x-show="member.date_of_birth">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Birthday:', 'community-directory' ); ?></span>
+                        <span x-text="member.date_of_birth"></span>
+                    </p>
+                    <p x-show="member.name_day">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Name Day:', 'community-directory' ); ?></span>
+                        <span x-text="member.name_day"></span>
+                    </p>
+                    <p x-show="member.baptism_date">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Baptism Date:', 'community-directory' ); ?></span>
+                        <span x-text="member.baptism_date"></span>
+                    </p>
+                    <p x-show="member.wedding_anniversary">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Wedding Anniversary:', 'community-directory' ); ?></span>
+                        <span x-text="member.wedding_anniversary"></span>
+                    </p>
+                </div>
+            </div>
+        </template>
     </div>
 </div>
 

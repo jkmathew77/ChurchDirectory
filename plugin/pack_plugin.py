@@ -7,13 +7,14 @@ def zip_directory(folder_path, zip_path):
             for file in files:
                 file_path = os.path.join(root, file)
                 arcname = os.path.relpath(file_path, os.path.dirname(folder_path))
+                arcname = arcname.replace("\\", "/")
                 print(f"Adding: {arcname}")
                 zipf.write(file_path, arcname)
 
 if __name__ == "__main__":
     plugin_dir = os.path.dirname(os.path.abspath(__file__))
     source_dir = os.path.join(plugin_dir, "community-directory")
-    output_zip = os.path.join(plugin_dir, "community-directory-0.3.38.zip")
+    output_zip = os.path.join(plugin_dir, "community-directory-0.3.43.zip")
     
     if os.path.exists(output_zip):
         os.remove(output_zip)

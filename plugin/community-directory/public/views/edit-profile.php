@@ -35,7 +35,6 @@ get_header();
 
         <div class="cd-main">
             <div class="cd-card">
-            <div class="cd-card">
                 <!-- Loading State -->
                 <div x-show="loading" class="cd-loading-state">
                     <div class="cd-spinner"></div>
@@ -54,14 +53,21 @@ get_header();
                     <!-- Avatar Upload -->
                     <div class="cd-profile-header">
                         <div class="cd-avatar-upload">
-                            <img :src="form.avatar_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&f=y'" alt="Avatar" class="cd-avatar-preview">
+                            <template x-if="form.avatar_url">
+                                <img :src="form.avatar_url" alt="Avatar" class="cd-avatar-preview">
+                            </template>
+                            <template x-if="!form.avatar_url">
+                                <div class="cd-avatar-preview cd-avatar-initials" :style="'background-color: ' + getAvatarColor(form.first_name + ' ' + form.last_name)">
+                                    <span x-text="getInitials(form.first_name, form.last_name)"></span>
+                                </div>
+                            </template>
                             <div class="cd-avatar-actions">
                                 <label class="cd-btn cd-btn-sm cd-btn-secondary">
                                     <?php esc_html_e( 'Change Photo', 'community-directory' ); ?>
                                     <input type="file" @change="uploadAvatar" accept="image/*" style="display:none;">
                                 </label>
-                                <button type="button" class="cd-btn cd-btn-sm cd-btn-danger" @click="deleteAvatar" x-show="form.avatar_url" style="margin-left: 8px;">
-                                    <?php esc_html_e( 'Remove', 'community-directory' ); ?>
+                                <button type="button" class="cd-btn cd-btn-sm cd-btn-danger" @click="deleteAvatar" x-show="form.avatar_url" style="margin-left: 8px;" title="<?php esc_attr_e( 'Remove Photo', 'community-directory' ); ?>">
+                                    &#128465; <?php esc_html_e( 'Remove', 'community-directory' ); ?>
                                 </button>
                                 <span x-show="uploadingAvatar" class="cd-spinner-sm"></span>
                             </div>
@@ -121,7 +127,7 @@ get_header();
                                         <option value="home">Home</option>
                                         <option value="work">Work</option>
                                     </select>
-                                    <button type="button" class="cd-btn cd-btn-icon" @click="removePhone(index)" x-show="form.phones.length > 0">&times;</button>
+                                    <button type="button" class="cd-btn cd-btn-icon" @click="removePhone(index)" x-show="form.phones.length > 1">&times;</button>
                                 </div>
                             </template>
                             <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="addPhone()">
@@ -259,10 +265,9 @@ get_header();
                                 <input type="text" class="cd-input" x-model="form.employer">
                             </div>
                         </div>
-                        </div>
                     </div>
 
-                     <!-- Actions -->
+                    <!-- Actions -->
                     <div class="cd-form-actions">
                         <button type="submit" class="cd-btn cd-btn-primary" :disabled="saving">
                             <span x-show="!saving"><?php esc_html_e( 'Save Profile', 'community-directory' ); ?></span>
@@ -270,7 +275,6 @@ get_header();
                         </button>
                     </div>
                 </form>
-            </div>
             </div>
         </div>
     </div>

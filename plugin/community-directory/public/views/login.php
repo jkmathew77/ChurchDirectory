@@ -110,7 +110,7 @@ get_header();
 
             <!-- Forgot Password Modal -->
             <template x-if="showForgotPassword">
-                <div class="cd-modal-backdrop" @click.self="showForgotPassword = false">
+                <div class="cd-modal-overlay" @click.self="showForgotPassword = false">
                     <div class="cd-card cd-modal">
                         <h2><?php esc_html_e( 'Reset Password', 'community-directory' ); ?></h2>
                         <p><?php esc_html_e( 'Enter your email address and we will send you a link to reset your password.', 'community-directory' ); ?></p>
@@ -146,7 +146,7 @@ get_header();
 
             <!-- Password Reset Confirmation Modal (from email link) -->
             <template x-if="showResetConfirm">
-                <div class="cd-modal-backdrop">
+                <div class="cd-modal-overlay">
                     <div class="cd-card cd-modal">
                         <h2><?php esc_html_e( 'Set New Password', 'community-directory' ); ?></h2>
                         <p><?php esc_html_e( 'Enter your new password below.', 'community-directory' ); ?></p>
@@ -195,7 +195,7 @@ get_header();
 
             <!-- Forgot Email Modal -->
             <template x-if="showForgotEmail">
-                <div class="cd-modal-backdrop" @click.self="showForgotEmail = false">
+                <div class="cd-modal-overlay" @click.self="showForgotEmail = false">
                     <div class="cd-card cd-modal">
                         <h2><?php esc_html_e( "Can't Remember Your Email?", 'community-directory' ); ?></h2>
                         <p><?php esc_html_e( 'Enter your full name and phone number. If we find a matching account, we will send a hint to the phone number on file.', 'community-directory' ); ?></p>

@@ -370,8 +370,8 @@
     height: 20px;
     border: 2px solid rgba(0, 0, 0, 0.1);
     border-radius: 50%;
-    border-top-color: var(--cd-primary-color);
-    animation: cd-spin 1s ease-in-out infinite;
+    border-top-color: var(--cd-primary);
+    animation: cd-spin 0.6s linear infinite;
 }
 
 .cd-form-group label {
@@ -994,6 +994,344 @@
         gap: 12px;
         text-align: center;
     }
+}
+
+/* ─── Directory: Member Grid ─── */
+.cd-member-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+
+.cd-member-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    background: var(--cd-bg-white);
+    border-radius: var(--cd-radius-lg);
+    box-shadow: var(--cd-shadow);
+    text-decoration: none;
+    color: var(--cd-text);
+    transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.cd-member-card:hover {
+    box-shadow: var(--cd-shadow-lg);
+    transform: translateY(-2px);
+}
+
+.cd-member-avatar-wrapper {
+    flex-shrink: 0;
+    width: 56px;
+    height: 56px;
+}
+
+.cd-member-avatar-img {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.cd-member-avatar-fallback {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 1.1rem;
+}
+
+.cd-member-info h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.cd-member-meta {
+    font-size: 0.85rem;
+    color: var(--cd-text-muted);
+    margin-top: 2px;
+}
+
+.cd-member-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.cd-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--cd-primary-light);
+    color: var(--cd-primary);
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.cd-tag-more {
+    font-size: 0.75rem;
+    color: var(--cd-text-muted);
+    padding: 2px 4px;
+}
+
+.cd-tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.cd-tag-list .cd-tag {
+    padding: 4px 12px;
+    font-size: 0.85rem;
+}
+
+/* ─── Loading & Empty States ─── */
+.cd-loading-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 3rem 0;
+    color: var(--cd-text-muted);
+}
+
+.cd-empty-state {
+    text-align: center;
+    padding: 3rem 0;
+    color: var(--cd-text-muted);
+}
+
+/* ─── Pagination ─── */
+.cd-pagination {
+    display: flex;
+    align-items: center;
+}
+
+/* ─── Member Profile View ─── */
+.cd-member-profile .cd-container {
+    max-width: var(--cd-container-wide);
+}
+
+.cd-profile-card-header {
+    text-align: center;
+}
+
+.cd-profile-top {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+}
+
+.cd-profile-avatar-lg {
+    width: 120px;
+    height: 120px;
+    flex-shrink: 0;
+}
+
+.cd-avatar-img-lg {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    object-fit: cover;
+    border: 3px solid #fff;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.cd-avatar-initials-lg {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 2.5rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.cd-profile-name-block {
+    text-align: center;
+}
+
+.cd-profile-name {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0;
+    color: var(--cd-text);
+}
+
+.cd-profile-meta {
+    margin: 4px 0 0;
+    font-size: 0.9rem;
+}
+
+.cd-profile-actions {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+}
+
+.cd-section-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--cd-text);
+    margin: 0 0 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--cd-border);
+}
+
+.cd-contact-group {
+    margin-bottom: 12px;
+}
+
+.cd-contact-group:last-child {
+    margin-bottom: 0;
+}
+
+.cd-contact-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.cd-contact-item + .cd-contact-item {
+    border-top: 1px solid var(--cd-bg);
+}
+
+.cd-contact-icon {
+    font-size: 1.2rem;
+    width: 32px;
+    text-align: center;
+    flex-shrink: 0;
+    color: var(--cd-text-muted);
+}
+
+.cd-contact-link {
+    color: var(--cd-primary);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.cd-contact-link:hover {
+    text-decoration: underline;
+}
+
+.cd-detail-block p {
+    margin: 0 0 4px;
+}
+
+.cd-detail-label {
+    font-weight: 600;
+    color: var(--cd-text-muted);
+    font-size: 0.9rem;
+    margin-right: 4px;
+}
+
+.cd-social-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.cd-social-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    background: var(--cd-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius);
+    color: var(--cd-text);
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: background-color 0.15s;
+}
+
+.cd-social-item:hover {
+    background: var(--cd-primary-light);
+    border-color: var(--cd-primary);
+    color: var(--cd-primary);
+}
+
+/* ─── Edit Profile: Avatar Initials Fallback ─── */
+.cd-avatar-initials {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 2.5rem;
+    border: 3px solid #fff;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* ─── Edit Profile: Form Actions ─── */
+.cd-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding-top: 20px;
+    border-top: 1px solid var(--cd-border);
+    margin-top: 24px;
+}
+
+/* ─── Edit Profile: Input/Select/Label utility classes ─── */
+.cd-input {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius);
+    font-size: 1rem;
+    font-family: var(--cd-font);
+    color: var(--cd-text);
+    background: var(--cd-bg-white);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.cd-input:focus {
+    outline: none;
+    border-color: var(--cd-border-focus);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.cd-select {
+    width: 100%;
+    padding: 10px 14px;
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius);
+    font-size: 1rem;
+    font-family: var(--cd-font);
+    color: var(--cd-text);
+    background: var(--cd-bg-white);
+    appearance: auto;
+    transition: border-color 0.15s;
+}
+
+.cd-select:focus {
+    outline: none;
+    border-color: var(--cd-border-focus);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+.cd-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--cd-text);
 }
 
 /* ─── Print ─── */

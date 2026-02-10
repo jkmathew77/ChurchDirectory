@@ -529,7 +529,7 @@ document.addEventListener('alpine:init', () => {
                 }
             } catch (err) {
                 console.error('Directory load error:', err);
-                // toast error?
+                this.members = [];
             } finally {
                 this.loading = false;
             }
@@ -557,7 +557,7 @@ document.addEventListener('alpine:init', () => {
         },
 
         logout() {
-            window.location.href = cdConfig.baseUrl + '/login/?logged_out=1';
+            window.location.href = cdConfig.logoutUrl || (cdConfig.baseUrl + '/login/?logged_out=1');
         },
 
         // Helper for avatar background color
@@ -575,30 +575,67 @@ document.addEventListener('alpine:init', () => {
         }
     }));
 
-    /* ─── Member Profile View (Phase 3 stub) ─── */
+    /* ─── Member Profile View ─── */
     Alpine.data('cdMemberProfile', () => ({
         member: null,
         loading: true,
+        errorMessage: '',
+        isOwnProfile: false,
 
         async init() {
-            // Phase 3: fetch member by UUID from window.cdMemberUuid
-            this.loading = false;
+            const uuid = window.cdMemberUuid;
+            if (!uuid) {
+                this.errorMessage = 'No member specified.';
+                this.loading = false;
+                return;
+            }
+
+            try {
+                const result = await cdApi.get('/members/' + uuid);
+                this.member = result.data.member;
+                this.isOwnProfile = result.data.is_own_profile || false;
+            } catch (err) {
+                this.errorMessage = err.message;
+            } finally {
+                this.loading = false;
+            }
+        },
+
+        getAvatarColor(name) {
+            const colors = ['#d32f2f', '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#1976d2', '#0288d1', '#0097a7', '#00796b', '#388e3c', '#afb42b', '#fbc02d', '#ffa000', '#f57c00', '#e64a19', '#5d4037', '#616161'];
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) {
+                hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            return colors[Math.abs(hash) % colors.length];
+        },
+
+        getInitials(first, last) {
+            return ((first || '').charAt(0) + (last || '').charAt(0)).toUpperCase();
+        },
+
+        formatPhone(value) {
+            if (!value) return '';
+            const digits = value.replace(/\D/g, '');
+            if (digits.length === 10) {
+                return '(' + digits.slice(0,3) + ') ' + digits.slice(3,6) + '-' + digits.slice(6);
+            }
+            return value;
         },
     }));
 
-    /* ─── Edit Profile (Phase 3 stub) ─── */
     /* ─── Edit Profile ─── */
     Alpine.data('cdEditProfile', () => ({
         form: {
             first_name: '',
             last_name: '',
             bio: '',
+            avatar_url: '',
             emails: [],
             phones: [],
             social_links: [],
-            address_home: '',
-            city: '',
-            address_home: '',
+            address_line_1: '',
+            address_line_2: '',
             address_mailing: '',
             city: '',
             state: '',
@@ -613,7 +650,14 @@ document.addEventListener('alpine:init', () => {
             emergency_contact_phone: '',
             preferred_contact_method: 'email',
             preferred_language: 'en',
-            privacy_settings: {},
+            privacy_settings: {
+                email: 'visible',
+                phone: 'visible',
+                address: 'visible',
+                social: 'hidden',
+                date_of_birth: 'hidden',
+                wedding_anniversary: 'hidden',
+            },
         },
         loading: true,
         saving: false,
@@ -623,7 +667,6 @@ document.addEventListener('alpine:init', () => {
         showPrivacyModal: false,
 
         async init() {
-            // Get current user UUID from config
             const uuid = cdConfig.currentMemberUuid;
             if (!uuid) {
                 this.errorMessage = 'Could not identify member profile.';
@@ -640,22 +683,43 @@ document.addEventListener('alpine:init', () => {
                 this.form.last_name = data.last_name || '';
                 this.form.avatar_url = data.avatar_url || '';
                 this.form.bio = data.bio || '';
-                this.form.address_home = data.address_home || '';
+
+                // Parse address_home into line_1 and line_2
+                const addrParts = (data.address_home || '').split('\n');
+                this.form.address_line_1 = addrParts[0] || '';
+                this.form.address_line_2 = addrParts[1] || '';
+                this.form.address_mailing = data.address_mailing || '';
+
                 this.form.city = data.city || '';
                 this.form.state = data.state || '';
                 this.form.zip = data.zip || '';
                 this.form.occupation = data.occupation || '';
                 this.form.employer = data.employer || '';
                 this.form.date_of_birth = data.date_of_birth || '';
+                this.form.baptism_date = data.baptism_date || '';
+                this.form.wedding_anniversary = data.wedding_anniversary || '';
+                this.form.name_day = data.name_day || '';
+                this.form.emergency_contact_name = data.emergency_contact_name || '';
+                this.form.emergency_contact_phone = data.emergency_contact_phone || '';
+                this.form.preferred_contact_method = data.preferred_contact_method || 'email';
+                this.form.preferred_language = data.preferred_language || 'en';
+
+                // Load privacy settings with defaults
+                const defaults = { email: 'visible', phone: 'visible', address: 'visible', social: 'hidden', date_of_birth: 'hidden', wedding_anniversary: 'hidden' };
+                const saved = (typeof data.privacy_settings === 'object' && data.privacy_settings) ? data.privacy_settings : {};
+                this.form.privacy_settings = { ...defaults, ...saved };
 
                 // Ensure emails/phones/socials are arrays
                 this.form.emails = Array.isArray(data.emails) ? data.emails : [];
                 this.form.phones = Array.isArray(data.phones) ? data.phones : [];
                 this.form.social_links = Array.isArray(data.social_links) ? data.social_links : [];
 
-                // Minimum 1 empty email slot if empty
+                // Minimum 1 empty slot
                 if (this.form.emails.length === 0) {
                     this.form.emails.push({ type: 'personal', value: '' });
+                }
+                if (this.form.phones.length === 0) {
+                    this.form.phones.push({ type: 'mobile', value: '' });
                 }
 
             } catch (err) {
@@ -742,6 +806,20 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        // Avatar helpers
+        getAvatarColor(name) {
+            const colors = ['#d32f2f', '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#1976d2', '#0288d1', '#0097a7', '#00796b', '#388e3c', '#afb42b', '#fbc02d', '#ffa000', '#f57c00', '#e64a19', '#5d4037', '#616161'];
+            let hash = 0;
+            for (let i = 0; i < (name || '').length; i++) {
+                hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            return colors[Math.abs(hash) % colors.length];
+        },
+
+        getInitials(first, last) {
+            return ((first || '').charAt(0) + (last || '').charAt(0)).toUpperCase();
+        },
+
         // Privacy Modals
         togglePrivacy(field) {
             const current = this.form.privacy_settings[field];
@@ -761,14 +839,32 @@ document.addEventListener('alpine:init', () => {
         async saveProfile() {
             this.errorMessage = '';
             this.successMessage = '';
+
+            // Validate at least one email
+            const validEmails = this.form.emails.filter(e => e.value.trim() !== '');
+            if (validEmails.length === 0) {
+                this.errorMessage = 'Please provide at least one email address.';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                return;
+            }
+
+            // Validate email formats
+            for (const e of validEmails) {
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.value)) {
+                    this.errorMessage = 'Please enter a valid email address: ' + e.value;
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    return;
+                }
+            }
+
             this.saving = true;
 
             try {
-                // Filter empty entries
                 const payload = {
                     ...this.form,
-                    emails: this.form.emails.filter(e => e.value.trim() !== ''),
+                    emails: validEmails,
                     phones: this.form.phones.filter(p => p.value.trim() !== ''),
+                    social_links: this.form.social_links.filter(s => s.url.trim() !== ''),
                 };
 
                 await cdApi.put('/members/me', payload);

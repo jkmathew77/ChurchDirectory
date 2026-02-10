@@ -71,6 +71,16 @@ class CD_Admin_Menu {
             array( $this, 'render_members_page' )
         );
 
+        // Households
+        add_submenu_page(
+            'community-directory',
+            __( 'Households', 'community-directory' ),
+            __( 'Households', 'community-directory' ),
+            'manage_options',
+            'cd-households',
+            array( $this, 'render_households_page' )
+        );
+
         // Officers Group
         add_submenu_page(
             'community-directory',
@@ -218,6 +228,10 @@ class CD_Admin_Menu {
 
     public function render_members_page() {
         include CD_PLUGIN_DIR . 'includes/admin/views/members.php';
+    }
+
+    public function render_households_page() {
+        include CD_PLUGIN_DIR . 'includes/admin/views/households.php';
     }
 
     public function render_officers_page() {

@@ -102,6 +102,9 @@ class CD_Plugin {
 
         $invites_api = new CD_API_Invites();
         $invites_api->register_routes();
+
+        $households_api = new CD_API_Households();
+        $households_api->register_routes();
     }
 
     /**
@@ -350,10 +353,14 @@ class CD_Plugin {
             }
         }
 
+        $base_slug = get_option( 'cd_base_slug', 'community' );
+        $login_url = home_url( $base_slug . '/login/?logged_out=1' );
+
         wp_localize_script( 'community-directory', 'cdConfig', array(
             'apiUrl'   => esc_url_raw( rest_url( CD_API_NAMESPACE ) ),
             'nonce'    => wp_create_nonce( 'wp_rest' ),
-            'baseUrl'  => esc_url( home_url( get_option( 'cd_base_slug', 'community' ) ) ),
+            'baseUrl'  => esc_url( home_url( $base_slug ) ),
+            'logoutUrl' => wp_logout_url( $login_url ),
             'isLoggedIn' => is_user_logged_in(),
             'currentMemberUuid' => $current_member_uuid,
         ) );
