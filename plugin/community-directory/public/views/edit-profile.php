@@ -75,15 +75,17 @@ get_header();
                                         <input type="file" @change="uploadAvatar" accept="image/*" style="display:none;">
                                     </label>
                                     <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="startCamera()">
-                                        &#128247; <?php esc_html_e( 'Take Photo', 'community-directory' ); ?>
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                        <?php esc_html_e( 'Take Photo', 'community-directory' ); ?>
                                     </button>
                                     <button type="button" class="cd-btn cd-btn-sm cd-btn-danger" @click="deleteAvatar" x-show="form.avatar_url" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">
-                                        &#128465;
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                                     </button>
                                 </div>
                                 <div class="cd-avatar-btn-row" x-show="showCamera" x-cloak>
                                     <button type="button" class="cd-btn cd-btn-sm cd-btn-primary" @click="capturePhoto()">
-                                        &#128247; <?php esc_html_e( 'Capture', 'community-directory' ); ?>
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                        <?php esc_html_e( 'Capture', 'community-directory' ); ?>
                                     </button>
                                     <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="stopCamera()">
                                         <?php esc_html_e( 'Cancel', 'community-directory' ); ?>

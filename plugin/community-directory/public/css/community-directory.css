@@ -1803,14 +1803,10 @@
         min-height: 100vh;
     }
 
-    /* Hide standard WordPress/Theme elements in PWA */
-    #wpadminbar,
-    .site-header,
-    .site-footer,
-    .footer,
-    header.site-header,
-    footer.site-footer,
-    .admin-bar {
+    /* Only hide WP admin bar in standalone PWA mode.
+       Do NOT hide site-header/footer — the church banner
+       and navigation must remain visible. See MEMORY.md. */
+    #wpadminbar {
         display: none !important;
     }
 }
