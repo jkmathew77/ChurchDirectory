@@ -14,6 +14,7 @@ $member_url_base  = home_url( $base_slug . '/member/' );
 $login_url     = home_url( $base_slug . '/login/' );
 
 if ( ! is_user_logged_in() ) {
+    CD_Logger::warn( 'directory.php: fallback auth check triggered (should have been caught by template_redirect)' );
     wp_redirect( $login_url );
     exit;
 }

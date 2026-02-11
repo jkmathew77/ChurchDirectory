@@ -57,6 +57,7 @@ class CD_Database {
             $migration_version = substr( $filename, 0, 3 );
 
             if ( version_compare( $migration_version, $from_version, '>' ) ) {
+                CD_Logger::info( "Migration: running {$filename}..." );
                 require_once $file;
 
                 // Migration functions are named: cd_migration_001, cd_migration_002, etc.
@@ -66,6 +67,7 @@ class CD_Database {
 
                     if ( false === $result ) {
                         // Migration failed — halt and notify admin
+                        CD_Logger::error( "Migration: {$filename} FAILED — halting migration chain" );
                         set_transient( 'cd_migration_error', sprintf(
                             'Migration %s failed. Please check the error log.',
                             $migration_version
@@ -73,8 +75,11 @@ class CD_Database {
                         return;
                     }
 
+                    CD_Logger::info( "Migration: {$filename} succeeded" );
                     // Record successful migration
                     $this->record_migration( $migration_version, $filename );
+                } else {
+                    CD_Logger::warn( "Migration: function {$function_name} not found in {$filename}" );
                 }
 
                 update_option( 'cd_db_version', $migration_version );

@@ -60,8 +60,10 @@ class CD_Plugin {
     private function check_db_version() {
         $installed_version = get_option( 'cd_db_version', '000' );
         if ( version_compare( $installed_version, CD_DB_VERSION, '<' ) ) {
+            CD_Logger::info( "DB migration needed: installed={$installed_version} target=" . CD_DB_VERSION );
             $db = new CD_Database();
             $db->run_migrations( $installed_version );
+            CD_Logger::info( 'DB migration complete. New version: ' . get_option( 'cd_db_version', '000' ) );
         }
     }
 
@@ -78,6 +80,7 @@ class CD_Plugin {
         if ( get_transient( $heal_key ) ) {
             return;
         }
+        CD_Logger::info( 'DB heal: running column checks for v' . CD_VERSION );
 
         global $wpdb;
 
@@ -349,9 +352,15 @@ class CD_Plugin {
             return;
         }
 
+        $user_id     = get_current_user_id();
+        $logged_in   = is_user_logged_in();
+        $has_cap     = current_user_can( 'cd_member' );
+        CD_Logger::info( "Route: cd_page={$page} | logged_in=" . ( $logged_in ? 'yes' : 'no' )
+            . " | wp_user_id={$user_id} | has_cd_member=" . ( $has_cap ? 'yes' : 'no' ) );
+
         // PWA routes — serve directly and exit (no theme template needed)
         $pwa_enabled = '1' === get_option( 'cd_pwa_enabled', '0' );
-        
+
         // Hide Admin Bar on all community pages for a cleaner "app" feel
         if ( ! current_user_can( 'administrator' ) && ! is_admin() ) {
             show_admin_bar( false );
@@ -370,7 +379,8 @@ class CD_Plugin {
 
         // Logged-in members skip landing/login and go to directory
         if ( in_array( $page, array( 'landing', 'login' ), true ) ) {
-            if ( is_user_logged_in() && current_user_can( 'cd_member' ) ) {
+            if ( $logged_in && $has_cap ) {
+                CD_Logger::info( "Route: {$page} → already logged in with cd_member, redirecting to directory" );
                 wp_safe_redirect( home_url( $base_slug . '/directory/' ) );
                 exit;
             }
@@ -378,7 +388,16 @@ class CD_Plugin {
 
         // Protected pages require cd_member capability
         if ( in_array( $page, array( 'directory', 'member', 'profile' ), true ) ) {
-            if ( ! is_user_logged_in() || ! current_user_can( 'cd_member' ) ) {
+            if ( ! $logged_in || ! $has_cap ) {
+                CD_Logger::warn( "Route: {$page} BLOCKED — logged_in=" . ( $logged_in ? 'yes' : 'no' )
+                    . " has_cd_member=" . ( $has_cap ? 'yes' : 'no' )
+                    . " wp_user_id={$user_id} → redirecting to login" );
+                if ( $logged_in && ! $has_cap ) {
+                    // User is logged in but missing cd_member — log their caps for diagnosis
+                    $user = wp_get_current_user();
+                    $roles = implode( ',', $user->roles );
+                    CD_Logger::warn( "Route: user {$user_id} roles=[{$roles}] — missing cd_member capability" );
+                }
                 wp_safe_redirect( home_url( $base_slug . '/login/' ) );
                 exit;
             }

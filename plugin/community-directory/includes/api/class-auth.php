@@ -484,6 +484,12 @@ class CD_API_Auth extends CD_API_Base {
         wp_set_current_user( $member->wp_user_id );
         wp_set_auth_cookie( $member->wp_user_id, true );
 
+        // Log user capabilities for diagnostics
+        $user = get_userdata( $member->wp_user_id );
+        $roles = $user ? implode( ',', $user->roles ) : 'NO_USER';
+        $has_cd_member = $user && $user->has_cap( 'cd_member' ) ? 'yes' : 'no';
+        CD_Logger::info( 'auth cookie set. roles=[' . $roles . '] has_cd_member=' . $has_cd_member );
+
         $ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( $_SERVER['REMOTE_ADDR'] ) : '';
         CD_Audit_Logger::log( CD_Audit_Logger::LOGIN_SUCCESS, $member->wp_user_id, null, array(
             'method' => 'google',
