@@ -50,14 +50,13 @@ get_header();
             <!-- Advanced Filters Toggle -->
             <div class="cd-filter-toggle-wrap" style="margin-bottom: 1rem;">
                 <button type="button" class="cd-filter-toggle" @click="showFilters = !showFilters" :class="{ 'active': showFilters || hasActiveFilters() }">
-                    <span x-show="!showFilters"><?php esc_html_e( 'Advanced Filters', 'community-directory' ); ?> &#9660;</span>
-                    <span x-show="showFilters"><?php esc_html_e( 'Advanced Filters', 'community-directory' ); ?> &#9650;</span>
-                    <span x-show="hasActiveFilters() && !showFilters" class="cd-filter-badge">&#8226;</span>
+                    <?php esc_html_e( 'Advanced Filters', 'community-directory' ); ?> <span x-text="showFilters ? '\u25B2' : '\u25BC'"></span>
+                    <template x-if="hasActiveFilters() && !showFilters"><span class="cd-filter-badge">&#8226;</span></template>
                 </button>
             </div>
 
             <!-- Advanced Filters Panel -->
-            <div class="cd-filter-panel" x-show="showFilters" x-cloak x-transition>
+            <template x-if="showFilters"><div class="cd-filter-panel">
                 <div class="cd-grid-2">
                     <div class="cd-form-group">
                         <label class="cd-label"><?php esc_html_e( 'City', 'community-directory' ); ?></label>
@@ -84,7 +83,7 @@ get_header();
                         <?php esc_html_e( 'Clear Filters', 'community-directory' ); ?>
                     </button>
                 </div>
-            </div>
+            </div></template>
 
             <!-- Loading State -->
             <div x-show="loading" class="cd-loading-state">
@@ -93,12 +92,14 @@ get_header();
             </div>
 
             <!-- Empty State -->
-            <div x-show="!loading && members.length === 0" class="cd-empty-state" style="display: none;">
-                <p><?php esc_html_e( 'No members found matching your search.', 'community-directory' ); ?></p>
-            </div>
+            <template x-if="!loading && members.length === 0">
+                <div class="cd-empty-state">
+                    <p><?php esc_html_e( 'No members found matching your search.', 'community-directory' ); ?></p>
+                </div>
+            </template>
 
             <!-- Member Grid -->
-            <div x-show="!loading && members.length > 0" class="cd-member-grid" style="display: none;">
+            <template x-if="!loading && members.length > 0"><div class="cd-member-grid">
                 <template x-for="member in members" :key="member.uuid">
                     <a :href="'<?php echo esc_url( $member_url_base ); ?>' + member.uuid" class="cd-member-card">
                         <div class="cd-member-avatar-wrapper">
@@ -133,19 +134,21 @@ get_header();
                         </div>
                     </a>
                 </template>
-            </div>
+            </div></template>
 
             <!-- Pagination -->
-            <div class="cd-pagination" x-show="totalPages > 1 && !loading" style="display: none; margin-top: 2rem; justify-content: center; gap: 1rem;">
-                <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" :disabled="page <= 1" @click="prevPage()">&laquo; <?php esc_html_e( 'Previous', 'community-directory' ); ?></button>
-                <span style="align-self: center; font-size: 0.9em; color: #666;">
-                    <?php esc_html_e( 'Page', 'community-directory' ); ?> <span x-text="page"></span> <?php esc_html_e( 'of', 'community-directory' ); ?> <span x-text="totalPages"></span>
-                </span>
-                <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" :disabled="page >= totalPages" @click="nextPage()"><?php esc_html_e( 'Next', 'community-directory' ); ?> &raquo;</button>
-            </div>
+            <template x-if="totalPages > 1 && !loading">
+                <div class="cd-pagination" style="margin-top: 2rem; justify-content: center; gap: 1rem;">
+                    <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" :disabled="page <= 1" @click="prevPage()">&laquo; <?php esc_html_e( 'Previous', 'community-directory' ); ?></button>
+                    <span style="align-self: center; font-size: 0.9em; color: #666;">
+                        <?php esc_html_e( 'Page', 'community-directory' ); ?> <span x-text="page"></span> <?php esc_html_e( 'of', 'community-directory' ); ?> <span x-text="totalPages"></span>
+                    </span>
+                    <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" :disabled="page >= totalPages" @click="nextPage()"><?php esc_html_e( 'Next', 'community-directory' ); ?> &raquo;</button>
+                </div>
+            </template>
 
             <!-- WhatsApp Groups Section -->
-            <div class="cd-whatsapp-section" x-show="whatsappGroups.length > 0" style="display: none;">
+            <template x-if="whatsappGroups.length > 0"><div class="cd-whatsapp-section">
                 <h2 class="cd-section-title"><?php esc_html_e( 'WhatsApp Groups', 'community-directory' ); ?></h2>
                 <p class="cd-text-muted" style="margin-bottom: 1rem;"><?php esc_html_e( 'Stay connected with the community through our WhatsApp groups.', 'community-directory' ); ?></p>
                 <div class="cd-whatsapp-grid">
@@ -162,7 +165,7 @@ get_header();
                         </div>
                     </template>
                 </div>
-            </div>
+            </div></template>
         </div>
     </div>
 </div>

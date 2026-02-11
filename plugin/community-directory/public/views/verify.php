@@ -31,26 +31,30 @@ get_header();
                 </div>
 
                 <!-- Success state -->
-                <div x-show="!loading && success" x-cloak x-transition>
-                    <div class="cd-success-icon">&#10003;</div>
-                    <h2><?php esc_html_e( 'Email Verified!', 'community-directory' ); ?></h2>
-                    <p><?php esc_html_e( 'Your email address has been verified and your application is now under review. A church officer will review your application and you will be notified by email once a decision has been made.', 'community-directory' ); ?></p>
-                    <a href="<?php echo esc_url( $landing_url ); ?>" class="cd-btn cd-btn-primary">
-                        <?php esc_html_e( 'Return Home', 'community-directory' ); ?>
-                    </a>
-                </div>
-
-                <!-- Error state -->
-                <div x-show="!loading && !success && errorMessage" x-cloak x-transition>
-                    <div class="cd-error-icon">&#10007;</div>
-                    <h2><?php esc_html_e( 'Verification Failed', 'community-directory' ); ?></h2>
-                    <p x-text="errorMessage"></p>
-                    <div class="cd-actions">
+                <template x-if="!loading && success">
+                    <div>
+                        <div class="cd-success-icon">&#10003;</div>
+                        <h2><?php esc_html_e( 'Email Verified!', 'community-directory' ); ?></h2>
+                        <p><?php esc_html_e( 'Your email address has been verified and your application is now under review. A church officer will review your application and you will be notified by email once a decision has been made.', 'community-directory' ); ?></p>
                         <a href="<?php echo esc_url( $landing_url ); ?>" class="cd-btn cd-btn-primary">
                             <?php esc_html_e( 'Return Home', 'community-directory' ); ?>
                         </a>
                     </div>
-                </div>
+                </template>
+
+                <!-- Error state -->
+                <template x-if="!loading && !success && errorMessage">
+                    <div>
+                        <div class="cd-error-icon">&#10007;</div>
+                        <h2><?php esc_html_e( 'Verification Failed', 'community-directory' ); ?></h2>
+                        <p x-text="errorMessage"></p>
+                        <div class="cd-actions">
+                            <a href="<?php echo esc_url( $landing_url ); ?>" class="cd-btn cd-btn-primary">
+                                <?php esc_html_e( 'Return Home', 'community-directory' ); ?>
+                            </a>
+                        </div>
+                    </div>
+                </template>
             </div>
         </div>
     </div>
