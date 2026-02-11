@@ -256,15 +256,21 @@ class CD_API_Auth extends CD_API_Base {
         $lock_key = 'cd_oauth_lock_' . md5( $code );
         $lock_result = get_transient( $lock_key );
         if ( false !== $lock_result ) {
-            CD_Logger::info( 'duplicate callback detected, lock status=' . ( $lock_result['status'] ?? 'unknown' ) . ' — suppressing redirect' );
-            // Do NOT redirect — the first request already set the auth cookie
-            // and redirected the browser to the directory. A second redirect
-            // races with the first and arrives before the cookie is committed,
-            // which causes the directory to see logged_in=no and bounce to login.
+            CD_Logger::info( 'duplicate callback detected, lock status=' . ( $lock_result['status'] ?? 'unknown' ) . ' — JS redirect (no 302)' );
+            // Use a delayed JS redirect instead of 302 so the browser has time
+            // to commit the auth cookie from the first callback's response.
+            $redirect_url = ! empty( $lock_result['redirect'] )
+                ? $lock_result['redirect']
+                : home_url( $base_slug . '/directory/' );
             status_header( 200 );
             header( 'Content-Type: text/html; charset=utf-8' );
-            echo '<!DOCTYPE html><html><head><title>Redirecting</title></head><body>';
-            echo '<p>Login successful. If you are not redirected, <a href="' . esc_url( home_url( $base_slug . '/directory/' ) ) . '">click here</a>.</p>';
+            header( 'Cache-Control: no-cache, no-store, must-revalidate' );
+            $safe_url = esc_url( $redirect_url );
+            echo '<!DOCTYPE html><html><head>';
+            echo '<meta http-equiv="refresh" content="1;url=' . $safe_url . '">';
+            echo '</head><body>';
+            echo '<script>setTimeout(function(){window.location.replace("' . esc_js( $redirect_url ) . '");},1000);</script>';
+            echo '<p>Redirecting to <a href="' . $safe_url . '">Community Directory</a>...</p>';
             echo '</body></html>';
             exit;
         }
@@ -497,10 +503,25 @@ class CD_API_Auth extends CD_API_Base {
         ) );
 
         $directory_url = home_url( $base_slug . '/directory/' );
-        CD_Logger::info( 'LOGIN SUCCESS — redirecting to ' . $directory_url . ' (headers_sent=' . ( headers_sent() ? 'YES!' : 'no' ) . ')' );
+        CD_Logger::info( 'LOGIN SUCCESS — JS redirect to ' . $directory_url );
         // Store successful result so duplicate callback skips token exchange
         set_transient( $lock_key, array( 'status' => 'success', 'redirect' => $directory_url ), 60 );
-        wp_safe_redirect( $directory_url );
+
+        // Use an HTML page with JS redirect instead of 302 wp_safe_redirect().
+        // On this server, every request is duplicated (miniorange plugin). With a
+        // 302, the duplicate response races the first and can cancel the redirect
+        // before the browser commits the auth cookie. A 200 HTML response ensures
+        // the Set-Cookie header is fully processed before navigation occurs.
+        status_header( 200 );
+        header( 'Content-Type: text/html; charset=utf-8' );
+        header( 'Cache-Control: no-cache, no-store, must-revalidate' );
+        $safe_url = esc_url( $directory_url );
+        echo '<!DOCTYPE html><html><head>';
+        echo '<meta http-equiv="refresh" content="0;url=' . $safe_url . '">';
+        echo '</head><body>';
+        echo '<script>window.location.replace("' . esc_js( $directory_url ) . '");</script>';
+        echo '<p>Redirecting to <a href="' . $safe_url . '">Community Directory</a>...</p>';
+        echo '</body></html>';
         exit;
     }
 
