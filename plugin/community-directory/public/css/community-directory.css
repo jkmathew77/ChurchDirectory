@@ -1761,17 +1761,13 @@
 }
 .cd-pwa-update-dismiss:hover { color: #fff; }
 
-/* ─── PWA Standalone Mode — hide site nav ─── */
+/* ─── PWA Standalone Mode — hide nav & footer, keep header branding ─── */
 @media (display-mode: standalone) {
-    /* Hide WordPress theme navigation and admin bar in PWA standalone */
-    .site-header,
+    /* Hide navigation menu, footer, and admin bar in PWA standalone.
+       Keep .site-header / .site-branding / #masthead visible for church branding. */
     .main-navigation,
-    .site-branding,
-    #masthead,
     #site-navigation,
     .header-navigation-area,
-    .wp-site-blocks > header,
-    header.wp-block-template-part,
     .site-footer,
     #colophon,
     .wp-site-blocks > footer,

@@ -396,14 +396,11 @@ class CD_Plugin {
             body.cd-page .screen-reader-shortcut { display: none !important; }
             html.wp-toolbar { margin-top: 0 !important; padding-top: 0 !important; }
             @media (display-mode: standalone) {
-                .site-header,
+                /* Hide navigation menu and footer in PWA standalone —
+                   keep .site-header / .site-branding / #masthead visible for church branding */
                 .main-navigation,
-                .site-branding,
-                #masthead,
                 #site-navigation,
                 .header-navigation-area,
-                .wp-site-blocks > header,
-                header.wp-block-template-part,
                 .site-footer,
                 #colophon,
                 .wp-site-blocks > footer,
