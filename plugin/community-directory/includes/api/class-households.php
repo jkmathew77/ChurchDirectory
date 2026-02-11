@@ -125,6 +125,20 @@ class CD_API_Households extends CD_API_Base {
             'permission_callback' => array( $this, 'permission_member' ),
         ) );
 
+        // POST /members/me/household/photo — upload household family photo
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/photo', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'upload_household_photo' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
+        // DELETE /members/me/household/photo — remove household family photo
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/photo', array(
+            'methods'             => 'DELETE',
+            'callback'            => array( $this, 'delete_household_photo' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
         // POST /members/me/household/merge-request — request merge with another household
         register_rest_route( CD_API_NAMESPACE, '/members/me/household/merge-request', array(
             'methods'             => 'POST',
@@ -640,7 +654,7 @@ class CD_API_Households extends CD_API_Base {
         $members_table     = CD_Database::table( 'members' );
 
         $hm = $wpdb->get_row( $wpdb->prepare(
-            "SELECT hm.*, h.name AS household_name, h.primary_address, h.status AS household_status
+            "SELECT hm.*, h.name AS household_name, h.primary_address, h.status AS household_status, h.photo_url AS household_photo_url
              FROM {$hm_table} hm
              JOIN {$households_table} h ON hm.household_id = h.id
              WHERE hm.member_id = %d AND hm.left_at IS NULL",
@@ -683,6 +697,7 @@ class CD_API_Households extends CD_API_Base {
                 'name'            => $hm->household_name,
                 'address'         => $address,
                 'status'          => $hm->household_status,
+                'photo_url'       => $hm->household_photo_url ?? '',
                 'my_role'         => $hm->role,
                 'my_role_label'   => self::role_label( $hm->role ),
                 'can_manage'      => in_array( $hm->role, array( 'head', 'spouse' ), true ),
@@ -1500,6 +1515,143 @@ class CD_API_Households extends CD_API_Base {
         ) );
 
         return $this->success( array( 'households' => $rows ?: array() ) );
+    }
+
+    /**
+     * Upload household family photo. Head/spouse only.
+     */
+    public function upload_household_photo( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm ) {
+            return $this->error( 'not_in_household', __( 'You are not part of a household.', 'community-directory' ) );
+        }
+        if ( ! in_array( $hm->role, array( 'head', 'spouse' ), true ) ) {
+            return $this->error( 'not_authorized', __( 'Only the primary membership holder or spouse can upload a family photo.', 'community-directory' ), 403 );
+        }
+
+        $files = $request->get_file_params();
+        if ( empty( $files['file'] ) ) {
+            return $this->error( 'no_file', __( 'No file uploaded.', 'community-directory' ), 400 );
+        }
+
+        $file = $files['file'];
+        $allowed_types = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
+        if ( ! in_array( $file['type'], $allowed_types, true ) ) {
+            return $this->error( 'invalid_type', __( 'Invalid file type. Allowed: JPG, PNG, GIF, WEBP.', 'community-directory' ), 400 );
+        }
+        if ( $file['size'] > 5 * 1024 * 1024 ) {
+            return $this->error( 'file_too_large', __( 'File too large (Max 5MB).', 'community-directory' ), 400 );
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        // Strip EXIF (security: GPS location protection)
+        add_filter( 'wp_handle_upload', function( $info ) {
+            if ( function_exists( 'wp_read_image_metadata' ) && in_array( $info['type'], array( 'image/jpeg', 'image/png' ), true ) ) {
+                $editor = wp_get_image_editor( $info['file'] );
+                if ( ! is_wp_error( $editor ) ) {
+                    $editor->save( $info['file'] );
+                }
+            }
+            return $info;
+        } );
+
+        $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
+        if ( isset( $upload['error'] ) ) {
+            return $this->error( 'upload_failed', $upload['error'], 500 );
+        }
+
+        // Delete old photo file if exists
+        $old_url = $wpdb->get_var( $wpdb->prepare(
+            "SELECT photo_url FROM {$households_table} WHERE id = %d",
+            $hm->household_id
+        ) );
+        if ( ! empty( $old_url ) ) {
+            $old_id = attachment_url_to_postid( $old_url );
+            if ( $old_id ) {
+                wp_delete_attachment( $old_id, true );
+            }
+        }
+
+        $wpdb->update(
+            $households_table,
+            array( 'photo_url' => $upload['url'] ),
+            array( 'id' => $hm->household_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_CREATED, get_current_user_id(), $hm->household_id, array(
+            'action' => 'photo_uploaded',
+        ) );
+
+        return $this->success( array(
+            'message' => __( 'Family photo uploaded.', 'community-directory' ),
+            'url'     => $upload['url'],
+        ) );
+    }
+
+    /**
+     * Delete household family photo. Head/spouse only.
+     */
+    public function delete_household_photo( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm ) {
+            return $this->error( 'not_in_household', __( 'You are not part of a household.', 'community-directory' ) );
+        }
+        if ( ! in_array( $hm->role, array( 'head', 'spouse' ), true ) ) {
+            return $this->error( 'not_authorized', __( 'Only the primary membership holder or spouse can manage the family photo.', 'community-directory' ), 403 );
+        }
+
+        $old_url = $wpdb->get_var( $wpdb->prepare(
+            "SELECT photo_url FROM {$households_table} WHERE id = %d",
+            $hm->household_id
+        ) );
+
+        if ( ! empty( $old_url ) ) {
+            $old_id = attachment_url_to_postid( $old_url );
+            if ( $old_id ) {
+                wp_delete_attachment( $old_id, true );
+            }
+        }
+
+        $wpdb->update(
+            $households_table,
+            array( 'photo_url' => null ),
+            array( 'id' => $hm->household_id ),
+            array( '%s' ),
+            array( '%d' )
+        );
+
+        return $this->success( array( 'message' => __( 'Family photo removed.', 'community-directory' ) ) );
     }
 
     /**

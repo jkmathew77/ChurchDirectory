@@ -144,9 +144,23 @@ get_header();
                 <!-- Household -->
                 <div class="cd-card" x-show="household">
                     <h3 class="cd-section-title"><?php esc_html_e( 'Household', 'community-directory' ); ?></h3>
+
+                    <!-- Family Photo -->
+                    <template x-if="household && household.photo_url">
+                        <div class="cd-hh-family-photo" style="margin-bottom: 12px;">
+                            <img :src="household.photo_url" :alt="household.name" class="cd-hh-family-photo-img" style="width: 100%; max-height: 300px; object-fit: cover; border-radius: 8px;">
+                        </div>
+                    </template>
+
                     <div class="cd-hh-profile-header">
                         <span class="cd-hh-profile-name" x-text="household ? household.name : ''"></span>
                     </div>
+
+                    <!-- Household address (if visible) -->
+                    <template x-if="household && household.address && (household.address.line_1 || household.address.city)">
+                        <p class="cd-text-muted" style="font-size: 0.9em; margin: 4px 0 12px;" x-text="[household.address.line_1, household.address.line_2, [household.address.city, household.address.state, household.address.zip].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
+                    </template>
+
                     <div class="cd-hh-profile-members">
                         <template x-for="hm in (household ? household.members : [])" :key="hm.uuid">
                             <a
@@ -174,6 +188,32 @@ get_header();
                             </a>
                         </template>
                     </div>
+                </div>
+
+                <!-- Education (own profile, child role only) -->
+                <div class="cd-card" x-show="isOwnProfile && member.school_type">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Education', 'community-directory' ); ?></h3>
+                    <p x-show="member.school_name">
+                        <span class="cd-detail-label"><?php esc_html_e( 'School:', 'community-directory' ); ?></span>
+                        <span x-text="member.school_name"></span>
+                        <small class="cd-text-muted" x-text="member.school_type === 'high_school' ? 'High School' : member.school_type === 'college' ? 'College' : member.school_type === 'university' ? 'University' : ''" style="text-transform: capitalize;"></small>
+                    </p>
+                    <p x-show="member.major_studies">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Major:', 'community-directory' ); ?></span>
+                        <span x-text="member.major_studies"></span>
+                    </p>
+                    <p x-show="member.minor_studies">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Minor:', 'community-directory' ); ?></span>
+                        <span x-text="member.minor_studies"></span>
+                    </p>
+                    <p x-show="member.graduation_date">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Expected Graduation:', 'community-directory' ); ?></span>
+                        <span x-text="member.graduation_date"></span>
+                    </p>
+                    <p x-show="member.sunday_school_teacher_name">
+                        <span class="cd-detail-label"><?php esc_html_e( 'Sunday School Teacher:', 'community-directory' ); ?></span>
+                        <span x-text="member.sunday_school_teacher_name"></span>
+                    </p>
                 </div>
 
                 <!-- Bio -->

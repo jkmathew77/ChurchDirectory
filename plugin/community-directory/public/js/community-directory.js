@@ -798,6 +798,14 @@ document.addEventListener('alpine:init', () => {
             emergency_contact_phone: '',
             preferred_contact_method: 'email',
             preferred_language: 'en',
+            // Child/student fields
+            school_type: '',
+            school_name: '',
+            graduation_date: '',
+            major_studies: '',
+            minor_studies: '',
+            sunday_school_teacher_id: null,
+            sunday_school_teacher_name: '',
             privacy_settings: {
                 email: 'visible',
                 phone: 'visible',
@@ -812,9 +820,13 @@ document.addEventListener('alpine:init', () => {
         errorMessage: '',
         successMessage: '',
         uploadingAvatar: false,
+        uploadingHouseholdPhoto: false,
         showCamera: false,
         cameraStream: null,
         showPrivacyModal: false,
+        householdRole: null,
+        teacherSearchQuery: '',
+        teacherResults: [],
 
         // Household state
         household: null,
@@ -888,6 +900,18 @@ document.addEventListener('alpine:init', () => {
                 this.form.emergency_contact_phone = data.emergency_contact_phone || '';
                 this.form.preferred_contact_method = data.preferred_contact_method || 'email';
                 this.form.preferred_language = data.preferred_language || 'en';
+
+                // Child/student fields
+                this.form.school_type = data.school_type || '';
+                this.form.school_name = data.school_name || '';
+                this.form.graduation_date = data.graduation_date || '';
+                this.form.major_studies = data.major_studies || '';
+                this.form.minor_studies = data.minor_studies || '';
+                this.form.sunday_school_teacher_id = data.sunday_school_teacher_id || null;
+                this.form.sunday_school_teacher_name = data.sunday_school_teacher_name || '';
+
+                // Household role (determines which fields to show)
+                this.householdRole = result.data.household_role || null;
 
                 // Load privacy settings with defaults
                 const defaults = { email: 'visible', phone: 'visible', address: 'visible', social: 'hidden', date_of_birth: 'hidden', wedding_anniversary: 'hidden' };
@@ -1119,6 +1143,80 @@ document.addEventListener('alpine:init', () => {
                 this.cameraStream = null;
             }
             this.showCamera = false;
+        },
+
+        // Teacher search for Sunday School
+        async searchTeachers() {
+            if (this.teacherSearchQuery.length < 2) {
+                this.teacherResults = [];
+                return;
+            }
+            try {
+                const result = await cdApi.get('/directory?search=' + encodeURIComponent(this.teacherSearchQuery) + '&per_page=8');
+                this.teacherResults = (result.data.members || []).map(m => ({
+                    member_id: m.id || m.member_id,
+                    first_name: m.first_name,
+                    last_name: m.last_name,
+                }));
+            } catch (err) {
+                this.teacherResults = [];
+            }
+        },
+
+        selectTeacher(teacher) {
+            this.form.sunday_school_teacher_id = teacher.member_id;
+            this.form.sunday_school_teacher_name = teacher.first_name + ' ' + teacher.last_name;
+            this.teacherSearchQuery = '';
+            this.teacherResults = [];
+        },
+
+        // Household photo upload
+        uploadHouseholdPhoto(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            this.uploadingHouseholdPhoto = true;
+            this.householdError = '';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch(cdConfig.apiUrl + '/members/me/household/photo', {
+                method: 'POST',
+                headers: { 'X-WP-Nonce': cdConfig.nonce },
+                credentials: 'same-origin',
+                body: formData,
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.data && data.data.url) {
+                        this.household.photo_url = data.data.url;
+                        this.householdMessage = data.data.message || 'Family photo uploaded.';
+                    } else {
+                        throw new Error(data.message || 'Upload failed');
+                    }
+                })
+                .catch(err => {
+                    this.householdError = err.message;
+                })
+                .finally(() => {
+                    this.uploadingHouseholdPhoto = false;
+                });
+        },
+
+        async deleteHouseholdPhoto() {
+            if (!confirm('Remove the family photo?')) return;
+            this.uploadingHouseholdPhoto = true;
+            this.householdError = '';
+            try {
+                await cdApi.request('/members/me/household/photo', { method: 'DELETE' });
+                this.household.photo_url = '';
+                this.householdMessage = 'Family photo removed.';
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.uploadingHouseholdPhoto = false;
+            }
         },
 
         // Avatar helpers

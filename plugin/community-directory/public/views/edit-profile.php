@@ -233,7 +233,7 @@ get_header();
                                 <label class="cd-label"><?php esc_html_e( 'Date of Birth', 'community-directory' ); ?></label>
                                 <input type="date" class="cd-input" x-model="form.date_of_birth">
                             </div>
-                            <div class="cd-form-group">
+                            <div class="cd-form-group" x-show="householdRole !== 'child'">
                                 <label class="cd-label"><?php esc_html_e( 'Wedding Anniversary', 'community-directory' ); ?></label>
                                 <input type="date" class="cd-input" x-model="form.wedding_anniversary">
                             </div>
@@ -249,6 +249,67 @@ get_header();
                             </div>
                         </div>
                     </div>
+
+                    <!-- Section: Education & Youth (for children / students) -->
+                    <template x-if="householdRole === 'child'">
+                        <div class="cd-form-section">
+                            <h3><?php esc_html_e( 'Education & Youth', 'community-directory' ); ?></h3>
+                            <div class="cd-grid-2">
+                                <div class="cd-form-group">
+                                    <label class="cd-label"><?php esc_html_e( 'School Type', 'community-directory' ); ?></label>
+                                    <select class="cd-select" x-model="form.school_type">
+                                        <option value=""><?php esc_html_e( '— Not in school —', 'community-directory' ); ?></option>
+                                        <option value="high_school"><?php esc_html_e( 'High School or Below', 'community-directory' ); ?></option>
+                                        <option value="college"><?php esc_html_e( 'College', 'community-directory' ); ?></option>
+                                        <option value="university"><?php esc_html_e( 'University', 'community-directory' ); ?></option>
+                                    </select>
+                                </div>
+                                <div class="cd-form-group" x-show="form.school_type">
+                                    <label class="cd-label"><?php esc_html_e( 'School Name', 'community-directory' ); ?></label>
+                                    <input type="text" class="cd-input" x-model="form.school_name" placeholder="<?php esc_attr_e( 'e.g. Lincoln High School', 'community-directory' ); ?>">
+                                </div>
+                            </div>
+
+                            <!-- Sunday School Teacher — only for high school or below -->
+                            <div class="cd-form-group" x-show="form.school_type === 'high_school' || form.school_type === ''">
+                                <label class="cd-label"><?php esc_html_e( 'Sunday School Teacher', 'community-directory' ); ?></label>
+                                <div class="cd-teacher-search">
+                                    <input type="text" class="cd-input" x-model="teacherSearchQuery" @input.debounce.400ms="searchTeachers()" placeholder="<?php esc_attr_e( 'Search by name...', 'community-directory' ); ?>">
+                                    <template x-if="form.sunday_school_teacher_name && !teacherSearchQuery">
+                                        <div class="cd-teacher-selected">
+                                            <span x-text="form.sunday_school_teacher_name"></span>
+                                            <button type="button" class="cd-btn cd-btn-icon" @click="form.sunday_school_teacher_id = null; form.sunday_school_teacher_name = ''" title="<?php esc_attr_e( 'Clear', 'community-directory' ); ?>">&times;</button>
+                                        </div>
+                                    </template>
+                                    <template x-if="teacherResults.length > 0">
+                                        <ul class="cd-search-dropdown">
+                                            <template x-for="t in teacherResults" :key="t.member_id">
+                                                <li @click="selectTeacher(t)" class="cd-search-dropdown-item" x-text="t.first_name + ' ' + t.last_name"></li>
+                                            </template>
+                                        </ul>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <!-- Graduation date — all school types -->
+                            <div class="cd-form-group" x-show="form.school_type">
+                                <label class="cd-label"><?php esc_html_e( 'Expected Graduation Date', 'community-directory' ); ?></label>
+                                <input type="date" class="cd-input" x-model="form.graduation_date">
+                            </div>
+
+                            <!-- Major/Minor — only for college / university -->
+                            <div class="cd-grid-2" x-show="form.school_type === 'college' || form.school_type === 'university'">
+                                <div class="cd-form-group">
+                                    <label class="cd-label"><?php esc_html_e( 'Major / Field of Study', 'community-directory' ); ?></label>
+                                    <input type="text" class="cd-input" x-model="form.major_studies" placeholder="<?php esc_attr_e( 'e.g. Computer Science', 'community-directory' ); ?>">
+                                </div>
+                                <div class="cd-form-group">
+                                    <label class="cd-label"><?php esc_html_e( 'Minor (optional)', 'community-directory' ); ?></label>
+                                    <input type="text" class="cd-input" x-model="form.minor_studies">
+                                </div>
+                            </div>
+                        </div>
+                    </template>
 
                      <!-- Section: Emergency Contact -->
                     <div class="cd-form-section">
@@ -358,6 +419,28 @@ get_header();
                             <template x-if="household.address && (household.address.line_1 || household.address.city)">
                                 <p class="cd-hh-address cd-text-muted" x-text="[household.address.line_1, household.address.line_2, [household.address.city, household.address.state, household.address.zip].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
                             </template>
+
+                            <!-- Family Photo (head/spouse can upload) -->
+                            <div class="cd-hh-photo-section" style="margin: 12px 0;">
+                                <template x-if="household.photo_url">
+                                    <div class="cd-hh-photo-wrap">
+                                        <img :src="household.photo_url" alt="<?php esc_attr_e( 'Family Photo', 'community-directory' ); ?>" class="cd-hh-photo-img">
+                                    </div>
+                                </template>
+                                <template x-if="household.can_manage">
+                                    <div class="cd-hh-photo-actions" style="margin-top: 8px;">
+                                        <label class="cd-btn cd-btn-sm cd-btn-secondary">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                            <span x-text="household.photo_url ? '<?php echo esc_js( __( 'Change Family Photo', 'community-directory' ) ); ?>' : '<?php echo esc_js( __( 'Upload Family Photo', 'community-directory' ) ); ?>'"></span>
+                                            <input type="file" @change="uploadHouseholdPhoto" accept="image/*" style="display:none;">
+                                        </label>
+                                        <button type="button" class="cd-btn cd-btn-sm cd-btn-danger" x-show="household.photo_url" @click="deleteHouseholdPhoto" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                        </button>
+                                        <span x-show="uploadingHouseholdPhoto" class="cd-spinner-sm"></span>
+                                    </div>
+                                </template>
+                            </div>
 
                             <!-- Household members list -->
                             <div class="cd-hh-members">

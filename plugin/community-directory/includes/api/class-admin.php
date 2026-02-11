@@ -320,7 +320,8 @@ class CD_API_Admin extends CD_API_Base {
                 'baptism_date', 'wedding_anniversary', 'name_day',
                 'address_line_1', 'address_line_2', 'city', 'state', 'zip_code', 'country',
                 'preferred_contact_method', 'preferred_language',
-                'avatar_url'
+                'avatar_url',
+                'school_name', 'major_studies', 'minor_studies', 'graduation_date',
             );
 
             foreach ( $plain_fields as $key ) {
@@ -381,6 +382,18 @@ class CD_API_Admin extends CD_API_Base {
             if ( isset( $params['avatar_url'] ) ) {
                  $profile_update['avatar_url'] = sanitize_url( $params['avatar_url'] );
                  $profile_format[] = '%s';
+            }
+
+            // Child/student fields
+            if ( isset( $params['school_type'] ) ) {
+                $allowed_school = array( 'high_school', 'college', 'university', 'other', '' );
+                $val = sanitize_text_field( $params['school_type'] );
+                $profile_update['school_type'] = in_array( $val, $allowed_school, true ) ? $val : '';
+                $profile_format[] = '%s';
+            }
+            if ( isset( $params['sunday_school_teacher_id'] ) ) {
+                $profile_update['sunday_school_teacher_id'] = absint( $params['sunday_school_teacher_id'] ) ?: null;
+                $profile_format[] = '%d';
             }
 
             if ( ! empty( $profile_update ) ) {

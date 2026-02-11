@@ -1958,3 +1958,75 @@
     background: #20bd5a;
     color: #fff;
 }
+
+/* ─── Teacher Search Dropdown ─── */
+.cd-teacher-search {
+    position: relative;
+}
+
+.cd-teacher-selected {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    background: var(--cd-primary-light);
+    border-radius: var(--cd-radius);
+    font-size: 0.875rem;
+    margin-top: 6px;
+}
+
+.cd-search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: var(--cd-bg-white);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius);
+    box-shadow: var(--cd-shadow-lg);
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 4px 0;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.cd-search-dropdown-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.cd-search-dropdown-item:hover {
+    background: var(--cd-primary-light);
+    color: var(--cd-primary);
+}
+
+/* ─── Household Family Photo ─── */
+.cd-hh-photo-wrap {
+    border-radius: var(--cd-radius-lg);
+    overflow: hidden;
+    max-height: 220px;
+}
+
+.cd-hh-photo-img {
+    width: 100%;
+    max-height: 220px;
+    object-fit: cover;
+    display: block;
+}
+
+.cd-hh-photo-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cd-hh-family-photo-img {
+    width: 100%;
+    max-height: 300px;
+    object-fit: cover;
+    border-radius: var(--cd-radius-lg);
+    display: block;
+}

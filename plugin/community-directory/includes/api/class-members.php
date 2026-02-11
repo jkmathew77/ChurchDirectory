@@ -128,7 +128,7 @@ class CD_API_Members extends CD_API_Base {
             $total = (int) $wpdb->get_var( $total_query );
         }
 
-        $query = "SELECT m.uuid, p.salutation, p.first_name, p.last_name, p.avatar_url,
+        $query = "SELECT m.id AS member_id, m.uuid, p.salutation, p.first_name, p.last_name, p.avatar_url,
                          p.emails, p.phones, p.city, p.state, p.occupation, p.employer, p.ministry_tags, p.privacy_settings
                   FROM {$members_table} m
                   LEFT JOIN {$profiles_table} p ON m.id = p.member_id
@@ -167,6 +167,7 @@ class CD_API_Members extends CD_API_Base {
             $show_address = ( $privacy['address'] ?? 'visible' ) === 'visible';
 
             $results[] = array(
+                'member_id'     => (int) $row->member_id,
                 'uuid'          => $row->uuid,
                 'salutation'    => $row->salutation ?: '',
                 'first_name'    => $row->first_name,
@@ -314,7 +315,7 @@ class CD_API_Members extends CD_API_Base {
         $hm_members_table  = CD_Database::table( 'members' );
 
         $hm = $wpdb->get_row( $wpdb->prepare(
-            "SELECT hm.household_id, hm.role, h.name AS household_name, h.primary_address
+            "SELECT hm.household_id, hm.role, h.name AS household_name, h.primary_address, h.photo_url AS household_photo_url
              FROM {$hm_table} hm
              JOIN {$households_table} h ON hm.household_id = h.id
              WHERE hm.member_id = %d AND hm.left_at IS NULL AND h.status = 'active'",
@@ -348,18 +349,29 @@ class CD_API_Members extends CD_API_Base {
             }
 
             $household = array(
-                'id'      => (int) $hm->household_id,
-                'name'    => $hm->household_name,
-                'address' => CD_API_Households::decrypt_address( $hm->primary_address ),
-                'my_role' => $hm->role,
-                'members' => $members_list,
+                'id'        => (int) $hm->household_id,
+                'name'      => $hm->household_name,
+                'address'   => CD_API_Households::decrypt_address( $hm->primary_address ),
+                'photo_url' => $hm->household_photo_url ?? '',
+                'my_role'   => $hm->role,
+                'members'   => $members_list,
             );
+        }
+
+        // Resolve sunday_school_teacher name if set
+        if ( ! empty( $row->sunday_school_teacher_id ) ) {
+            $teacher_name = $wpdb->get_var( $wpdb->prepare(
+                "SELECT CONCAT(first_name, ' ', last_name) FROM {$profiles_table} WHERE member_id = %d",
+                (int) $row->sunday_school_teacher_id
+            ) );
+            $row->sunday_school_teacher_name = $teacher_name ?: '';
         }
 
         return $this->success( array(
             'member'           => $row,
             'is_own_profile'   => $is_own_profile,
             'household'        => $household,
+            'household_role'   => $hm ? $hm->role : null,
             'email_obfuscated' => true,
         ) );
     }
@@ -497,6 +509,34 @@ class CD_API_Members extends CD_API_Base {
             $format[] = '%s';
         }
 
+        // Child/student-specific fields
+        if ( isset( $params['graduation_date'] ) ) {
+            $data['graduation_date'] = sanitize_text_field( $params['graduation_date'] ) ?: null;
+            $format[] = '%s';
+        }
+        if ( isset( $params['school_name'] ) ) {
+            $data['school_name'] = sanitize_text_field( $params['school_name'] );
+            $format[] = '%s';
+        }
+        if ( isset( $params['school_type'] ) ) {
+            $allowed = array( 'high_school', 'college', 'university', 'other', '' );
+            $val = sanitize_text_field( $params['school_type'] );
+            $data['school_type'] = in_array( $val, $allowed, true ) ? $val : '';
+            $format[] = '%s';
+        }
+        if ( isset( $params['major_studies'] ) ) {
+            $data['major_studies'] = sanitize_text_field( $params['major_studies'] );
+            $format[] = '%s';
+        }
+        if ( isset( $params['minor_studies'] ) ) {
+            $data['minor_studies'] = sanitize_text_field( $params['minor_studies'] );
+            $format[] = '%s';
+        }
+        if ( isset( $params['sunday_school_teacher_id'] ) ) {
+            $data['sunday_school_teacher_id'] = absint( $params['sunday_school_teacher_id'] ) ?: null;
+            $format[] = '%d';
+        }
+
         // JSON fields - explicit sanitization
         if ( isset( $params['emails'] ) && is_array( $params['emails'] ) ) {
             $clean_emails = array();
@@ -579,6 +619,31 @@ class CD_API_Members extends CD_API_Base {
         // Google Contacts sync — update
         if ( class_exists( 'CD_Google_Contacts' ) ) {
             CD_Google_Contacts::sync_member( $member_id, 'update' );
+        }
+
+        // Auto-sync wedding anniversary to spouse
+        if ( isset( $data['wedding_anniversary'] ) ) {
+            $hm_table = CD_Database::table( 'household_members' );
+            $my_hh = $wpdb->get_row( $wpdb->prepare(
+                "SELECT household_id, role FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+                $member_id
+            ) );
+            if ( $my_hh && in_array( $my_hh->role, array( 'head', 'spouse' ), true ) ) {
+                $spouse = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT member_id FROM {$hm_table}
+                     WHERE household_id = %d AND member_id != %d AND role IN ('head','spouse') AND left_at IS NULL",
+                    $my_hh->household_id, $member_id
+                ) );
+                if ( $spouse ) {
+                    $wpdb->update(
+                        $profiles_table,
+                        array( 'wedding_anniversary' => $data['wedding_anniversary'] ),
+                        array( 'member_id' => $spouse ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+                }
+            }
         }
 
         return $this->success( array( 'message' => __( 'Profile updated successfully.', 'community-directory' ) ) );
