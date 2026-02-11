@@ -205,7 +205,10 @@ get_header();
                 <div class="cd-whatsapp-grid">
                     <template x-for="group in whatsappGroups" :key="group.id">
                         <div class="cd-whatsapp-card">
-                            <div class="cd-whatsapp-icon" x-text="group.icon || '&#128172;'"></div>
+                            <div class="cd-whatsapp-icon">
+                                <template x-if="group.icon"><span x-text="group.icon"></span></template>
+                                <template x-if="!group.icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg></template>
+                            </div>
                             <div class="cd-whatsapp-info">
                                 <h4 x-text="group.name"></h4>
                                 <p x-show="group.description" x-text="group.description" class="cd-text-muted"></p>
@@ -224,14 +227,83 @@ get_header();
         <!-- ═══════════════════════════════════════════════ -->
         <template x-if="isOfficer && activeTab === 'admin'"><div class="cd-admin-panel">
 
-            <!-- Applications Section -->
-            <div class="cd-admin-section">
+            <!-- Admin Sub-Navigation -->
+            <div class="cd-admin-nav">
+                <button type="button" class="cd-admin-nav-btn" :class="{ 'active': adminSection === 'dashboard' }" @click="switchAdminSection('dashboard')">
+                    <?php esc_html_e( 'Dashboard', 'community-directory' ); ?>
+                </button>
+                <button type="button" class="cd-admin-nav-btn" :class="{ 'active': adminSection === 'applications' }" @click="switchAdminSection('applications')">
+                    <?php esc_html_e( 'Applications', 'community-directory' ); ?>
+                    <template x-if="pendingAppCount > 0"><span class="cd-admin-nav-badge" x-text="pendingAppCount"></span></template>
+                </button>
+                <button type="button" class="cd-admin-nav-btn" :class="{ 'active': adminSection === 'registrations' }" @click="switchAdminSection('registrations')">
+                    <?php esc_html_e( 'Registrations', 'community-directory' ); ?>
+                </button>
+                <button type="button" class="cd-admin-nav-btn" :class="{ 'active': adminSection === 'requests' }" @click="switchAdminSection('requests')">
+                    <?php esc_html_e( 'Requests', 'community-directory' ); ?>
+                </button>
+                <button type="button" class="cd-admin-nav-btn" :class="{ 'active': adminSection === 'whatsapp' }" @click="switchAdminSection('whatsapp')">
+                    <?php esc_html_e( 'WhatsApp', 'community-directory' ); ?>
+                </button>
+            </div>
+
+            <!-- ═══ DASHBOARD SECTION ═══ -->
+            <div x-show="adminSection === 'dashboard'" class="cd-admin-section">
+                <div x-show="dashLoading" class="cd-loading-state" style="padding: 2rem 0;">
+                    <div class="cd-spinner"></div>
+                    <span><?php esc_html_e( 'Loading stats...', 'community-directory' ); ?></span>
+                </div>
+                <template x-if="dashStats && !dashLoading"><div>
+                    <div class="cd-dash-grid">
+                        <div class="cd-dash-card cd-dash-card-primary">
+                            <div class="cd-dash-card-value" x-text="dashStats.status_counts ? dashStats.status_counts.active || 0 : 0"></div>
+                            <div class="cd-dash-card-label"><?php esc_html_e( 'Active Members', 'community-directory' ); ?></div>
+                        </div>
+                        <div class="cd-dash-card cd-dash-card-warning">
+                            <div class="cd-dash-card-value" x-text="dashStats.pending_applications || 0"></div>
+                            <div class="cd-dash-card-label"><?php esc_html_e( 'Pending Applications', 'community-directory' ); ?></div>
+                        </div>
+                        <div class="cd-dash-card cd-dash-card-info">
+                            <div class="cd-dash-card-value" x-text="dashStats.status_counts ? dashStats.status_counts.awaiting_verification || 0 : 0"></div>
+                            <div class="cd-dash-card-label"><?php esc_html_e( 'Awaiting Verification', 'community-directory' ); ?></div>
+                        </div>
+                        <div class="cd-dash-card cd-dash-card-danger">
+                            <div class="cd-dash-card-value" x-text="dashStats.status_counts ? dashStats.status_counts.deletion_requests || 0 : 0"></div>
+                            <div class="cd-dash-card-label"><?php esc_html_e( 'Deletion Requests', 'community-directory' ); ?></div>
+                        </div>
+                        <div class="cd-dash-card cd-dash-card-success">
+                            <div class="cd-dash-card-value" x-text="dashStats.household_stats ? dashStats.household_stats.total || 0 : 0"></div>
+                            <div class="cd-dash-card-label"><?php esc_html_e( 'Households', 'community-directory' ); ?></div>
+                        </div>
+                        <div class="cd-dash-card cd-dash-card-muted">
+                            <div class="cd-dash-card-value" x-text="dashStats.status_counts ? dashStats.status_counts.incomplete_profiles || 0 : 0"></div>
+                            <div class="cd-dash-card-label"><?php esc_html_e( 'Incomplete Profiles', 'community-directory' ); ?></div>
+                        </div>
+                    </div>
+
+                    <!-- Recent Activity -->
+                    <template x-if="dashStats.recent_activity && dashStats.recent_activity.length > 0"><div style="margin-top: 1.5rem;">
+                        <h3 class="cd-section-title" style="font-size: 1rem;"><?php esc_html_e( 'Recent Activity', 'community-directory' ); ?></h3>
+                        <div class="cd-activity-list">
+                            <template x-for="activity in dashStats.recent_activity.slice(0, 10)" :key="activity.id || activity.created_at">
+                                <div class="cd-activity-item">
+                                    <span class="cd-activity-action" x-text="activity.action"></span>
+                                    <span class="cd-activity-detail cd-text-muted" x-text="activity.details || ''"></span>
+                                    <span class="cd-activity-date cd-text-muted" x-text="formatDate(activity.created_at)"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </div></template>
+                </div></template>
+            </div>
+
+            <!-- ═══ APPLICATIONS SECTION ═══ -->
+            <div x-show="adminSection === 'applications'" class="cd-admin-section">
                 <h2 class="cd-section-title" style="margin-top: 0;">
-                    <?php esc_html_e( 'Pending Applications', 'community-directory' ); ?>
+                    <?php esc_html_e( 'Applications', 'community-directory' ); ?>
                     <template x-if="appCounts.all > 0"><span class="cd-badge cd-badge-role" x-text="appCounts.all + ' total'" style="margin-left: 8px; font-size: 0.75rem;"></span></template>
                 </h2>
 
-                <!-- Application Status Filter Tabs -->
                 <div class="cd-app-filters">
                     <button type="button" class="cd-app-filter-btn" :class="{ 'active': appStatusFilter === '' }" @click="appStatusFilter = ''; loadApplications()">
                         <?php esc_html_e( 'All', 'community-directory' ); ?> <span class="cd-filter-count" x-text="appCounts.all || 0"></span>
@@ -253,27 +325,20 @@ get_header();
                     </button>
                 </div>
 
-                <!-- Loading -->
                 <div x-show="appsLoading" class="cd-loading-state" style="padding: 2rem 0;">
-                    <div class="cd-spinner cd-spinner-lg"></div>
+                    <div class="cd-spinner"></div>
                     <span><?php esc_html_e( 'Loading applications...', 'community-directory' ); ?></span>
                 </div>
-
-                <!-- Error -->
                 <template x-if="appsError"><div class="cd-alert cd-alert-error" x-text="appsError"></div></template>
-
-                <!-- Empty state -->
                 <template x-if="!appsLoading && !appsError && applications.length === 0">
                     <div class="cd-empty-state" style="padding: 2rem 0;">
                         <p><?php esc_html_e( 'No applications found for this filter.', 'community-directory' ); ?></p>
                     </div>
                 </template>
 
-                <!-- Applications List -->
                 <template x-if="!appsLoading && applications.length > 0"><div class="cd-apps-list">
                     <template x-for="app in applications" :key="app.id">
                         <div class="cd-app-card" :class="{ 'cd-app-card-expanded': expandedAppId === app.id }">
-                            <!-- Summary Row -->
                             <div class="cd-app-summary" @click="toggleAppDetail(app.id)">
                                 <div class="cd-app-summary-info">
                                     <strong x-text="app.first_name + ' ' + app.last_name"></strong>
@@ -285,8 +350,6 @@ get_header();
                                     <span class="cd-app-expand-icon" x-text="expandedAppId === app.id ? '\u25B2' : '\u25BC'"></span>
                                 </div>
                             </div>
-
-                            <!-- Expanded Detail -->
                             <template x-if="expandedAppId === app.id"><div class="cd-app-detail">
                                 <div class="cd-app-detail-grid">
                                     <div>
@@ -322,8 +385,6 @@ get_header();
                                         <span x-text="app.form_data.marital_status"></span>
                                     </div></template>
                                 </div>
-
-                                <!-- Spouse info -->
                                 <template x-if="app.form_data && app.form_data.spouse"><div class="cd-app-detail-sub">
                                     <h4><?php esc_html_e( 'Spouse', 'community-directory' ); ?></h4>
                                     <p>
@@ -331,16 +392,12 @@ get_header();
                                         <template x-if="app.form_data.spouse.email"><span class="cd-text-muted" x-text="' — ' + app.form_data.spouse.email"></span></template>
                                     </p>
                                 </div></template>
-
-                                <!-- Children info -->
                                 <template x-if="app.form_data && app.form_data.children && app.form_data.children.length > 0"><div class="cd-app-detail-sub">
                                     <h4><?php esc_html_e( 'Children', 'community-directory' ); ?></h4>
                                     <template x-for="child in app.form_data.children" :key="child.first_name">
                                         <p x-text="child.first_name + ' ' + (child.last_name || '') + (child.relationship ? ' (' + child.relationship + ')' : '')"></p>
                                     </template>
                                 </div></template>
-
-                                <!-- Ministry interests -->
                                 <template x-if="app.form_data && app.form_data.ministry_interests && app.form_data.ministry_interests.length > 0"><div class="cd-app-detail-sub">
                                     <h4><?php esc_html_e( 'Ministry Interests', 'community-directory' ); ?></h4>
                                     <div class="cd-member-tags">
@@ -349,27 +406,19 @@ get_header();
                                         </template>
                                     </div>
                                 </div></template>
-
-                                <!-- Reviewer info -->
                                 <template x-if="app.reviewer_name"><div class="cd-app-detail-sub">
                                     <span class="cd-detail-label"><?php esc_html_e( 'Reviewed by:', 'community-directory' ); ?></span>
                                     <span x-text="app.reviewer_name"></span>
                                     <template x-if="app.reviewed_at"><span class="cd-text-muted" x-text="' on ' + formatDate(app.reviewed_at)"></span></template>
                                 </div></template>
-
-                                <!-- Existing notes -->
                                 <template x-if="app.notes"><div class="cd-app-detail-sub">
                                     <span class="cd-detail-label"><?php esc_html_e( 'Notes:', 'community-directory' ); ?></span>
                                     <p class="cd-text-muted" x-text="app.notes" style="margin: 4px 0 0; white-space: pre-wrap;"></p>
                                 </div></template>
-
-                                <!-- Internal Notes Input -->
                                 <template x-if="app.status === 'new' || app.status === 'under_review' || app.status === 'on_hold'"><div class="cd-app-notes-input">
                                     <label class="cd-label" style="font-size: 0.8rem;"><?php esc_html_e( 'Internal Notes (optional)', 'community-directory' ); ?></label>
                                     <textarea rows="2" class="cd-input" x-model="appActionNotes" placeholder="<?php esc_attr_e( 'Add notes about this application...', 'community-directory' ); ?>" style="font-size: 0.85rem;"></textarea>
                                 </div></template>
-
-                                <!-- Action Buttons -->
                                 <template x-if="app.status === 'new' || app.status === 'under_review' || app.status === 'on_hold'"><div class="cd-app-actions">
                                     <button type="button" class="cd-btn cd-btn-sm cd-btn-primary" :disabled="appActioning" @click="appAction(app.id, 'approve')">
                                         <?php esc_html_e( 'Approve', 'community-directory' ); ?>
@@ -385,17 +434,13 @@ get_header();
                                     </button>
                                     <span x-show="appActioning" class="cd-spinner-sm"></span>
                                 </div></template>
-
-                                <!-- Action Success -->
                                 <template x-if="appActionSuccess"><div class="cd-alert cd-alert-success" x-text="appActionSuccess" style="margin-top: 12px;"></div></template>
                                 <template x-if="appActionError"><div class="cd-alert cd-alert-error" x-text="appActionError" style="margin-top: 12px;"></div></template>
-
                             </div></template>
                         </div>
                     </template>
                 </div></template>
 
-                <!-- Applications Pagination -->
                 <template x-if="appsTotalPages > 1 && !appsLoading">
                     <div class="cd-pagination" style="margin-top: 1.5rem; justify-content: center; gap: 1rem;">
                         <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" :disabled="appsPage <= 1" @click="appsPage--; loadApplications()">&laquo; <?php esc_html_e( 'Previous', 'community-directory' ); ?></button>
@@ -405,6 +450,239 @@ get_header();
                         <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" :disabled="appsPage >= appsTotalPages" @click="appsPage++; loadApplications()"><?php esc_html_e( 'Next', 'community-directory' ); ?> &raquo;</button>
                     </div>
                 </template>
+            </div>
+
+            <!-- ═══ REGISTRATIONS SECTION ═══ -->
+            <div x-show="adminSection === 'registrations'" class="cd-admin-section">
+                <h2 class="cd-section-title" style="margin-top: 0;"><?php esc_html_e( 'Registration Pipeline', 'community-directory' ); ?></h2>
+
+                <div x-show="regsLoading" class="cd-loading-state" style="padding: 2rem 0;">
+                    <div class="cd-spinner"></div>
+                    <span><?php esc_html_e( 'Loading registrations...', 'community-directory' ); ?></span>
+                </div>
+                <template x-if="regsError"><div class="cd-alert cd-alert-error" x-text="regsError"></div></template>
+                <template x-if="!regsLoading && !regsError && registrations.length === 0">
+                    <div class="cd-empty-state" style="padding: 2rem 0;">
+                        <p><?php esc_html_e( 'No registrations in the pipeline.', 'community-directory' ); ?></p>
+                    </div>
+                </template>
+
+                <template x-if="!regsLoading && registrations.length > 0"><div>
+                    <!-- Counts summary -->
+                    <template x-if="regCounts"><div class="cd-reg-counts">
+                        <span class="cd-reg-count-item"><strong x-text="regCounts.total || 0"></strong> <?php esc_html_e( 'total', 'community-directory' ); ?></span>
+                        <template x-if="regCounts.unverified > 0"><span class="cd-reg-count-item cd-status-warning"><strong x-text="regCounts.unverified"></strong> <?php esc_html_e( 'unverified', 'community-directory' ); ?></span></template>
+                        <template x-if="regCounts.pending > 0"><span class="cd-reg-count-item cd-status-info"><strong x-text="regCounts.pending"></strong> <?php esc_html_e( 'pending review', 'community-directory' ); ?></span></template>
+                        <template x-if="regCounts.approved > 0"><span class="cd-reg-count-item cd-status-success"><strong x-text="regCounts.approved"></strong> <?php esc_html_e( 'approved', 'community-directory' ); ?></span></template>
+                    </div></template>
+
+                    <div class="cd-reg-list">
+                        <template x-for="reg in registrations" :key="reg.id">
+                            <div class="cd-reg-card">
+                                <div class="cd-reg-card-info">
+                                    <strong x-text="(reg.first_name || '') + ' ' + (reg.last_name || '')"></strong>
+                                    <span class="cd-text-muted" x-text="reg.email" style="font-size: 0.85rem;"></span>
+                                </div>
+                                <div class="cd-reg-card-meta">
+                                    <span class="cd-reg-status-badge" :class="regStatusClass(reg.status)" x-text="regStatusLabel(reg.status)"></span>
+                                    <span class="cd-text-muted" style="font-size: 0.8rem;" x-text="reg.type === 'member_invite' ? 'Invite' : 'Application'"></span>
+                                    <span class="cd-text-muted" style="font-size: 0.8rem;" x-text="formatDate(reg.submitted_at || reg.created_at)"></span>
+                                </div>
+                                <div class="cd-reg-card-actions">
+                                    <template x-if="reg.status === 'unverified'">
+                                        <button type="button" class="cd-btn cd-btn-xs cd-btn-secondary" :disabled="regActioning === reg.id" @click="regResendVerification(reg.id)">
+                                            <?php esc_html_e( 'Resend Verification', 'community-directory' ); ?>
+                                        </button>
+                                    </template>
+                                    <template x-if="reg.type === 'member_invite' && (reg.status === 'active' || reg.status === 'invited')">
+                                        <button type="button" class="cd-btn cd-btn-xs cd-btn-secondary" :disabled="regActioning === reg.id" @click="regResendInvite(reg.id)">
+                                            <?php esc_html_e( 'Resend Invite', 'community-directory' ); ?>
+                                        </button>
+                                    </template>
+                                    <button type="button" class="cd-btn cd-btn-xs cd-btn-danger-outline" :disabled="regActioning === reg.id" @click="regRemove(reg.id)">
+                                        <?php esc_html_e( 'Remove', 'community-directory' ); ?>
+                                    </button>
+                                    <span x-show="regActioning === reg.id" class="cd-spinner-sm"></span>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div></template>
+            </div>
+
+            <!-- ═══ REQUESTS SECTION (Deletion + Household Merge) ═══ -->
+            <div x-show="adminSection === 'requests'" class="cd-admin-section">
+
+                <!-- Deletion Requests -->
+                <h2 class="cd-section-title" style="margin-top: 0;"><?php esc_html_e( 'Deletion Requests', 'community-directory' ); ?></h2>
+                <div x-show="delReqLoading" class="cd-loading-state" style="padding: 1rem 0;">
+                    <div class="cd-spinner"></div>
+                </div>
+                <template x-if="delReqError"><div class="cd-alert cd-alert-error" x-text="delReqError"></div></template>
+                <template x-if="!delReqLoading && !delReqError && deletionRequests.length === 0">
+                    <div class="cd-empty-state" style="padding: 1rem 0;">
+                        <p><?php esc_html_e( 'No pending deletion requests.', 'community-directory' ); ?></p>
+                    </div>
+                </template>
+                <template x-if="!delReqLoading && deletionRequests.length > 0"><div class="cd-req-list">
+                    <template x-for="req in deletionRequests" :key="req.id">
+                        <div class="cd-req-card">
+                            <div class="cd-req-card-info">
+                                <strong x-text="(req.member_name || req.first_name + ' ' + req.last_name)"></strong>
+                                <span class="cd-text-muted" x-text="req.reason || ''" style="font-size: 0.85rem;"></span>
+                            </div>
+                            <div class="cd-req-card-meta">
+                                <span class="cd-text-muted" x-text="formatDate(req.created_at)"></span>
+                            </div>
+                            <template x-if="req.status === 'pending'"><div class="cd-req-card-actions">
+                                <button type="button" class="cd-btn cd-btn-xs cd-btn-primary" :disabled="delReqActioning === req.id" @click="delReqAction(req.id, 'approve')">
+                                    <?php esc_html_e( 'Approve', 'community-directory' ); ?>
+                                </button>
+                                <button type="button" class="cd-btn cd-btn-xs cd-btn-secondary" :disabled="delReqActioning === req.id" @click="delReqAction(req.id, 'deny')">
+                                    <?php esc_html_e( 'Deny', 'community-directory' ); ?>
+                                </button>
+                                <span x-show="delReqActioning === req.id" class="cd-spinner-sm"></span>
+                            </div></template>
+                            <template x-if="req.status !== 'pending'">
+                                <span class="cd-reg-status-badge" :class="req.status === 'approved' ? 'cd-status-success' : 'cd-status-muted'" x-text="req.status"></span>
+                            </template>
+                        </div>
+                    </template>
+                </div></template>
+
+                <!-- Household Merge Requests -->
+                <h2 class="cd-section-title" style="margin-top: 2rem;"><?php esc_html_e( 'Household Merge Requests', 'community-directory' ); ?></h2>
+                <div x-show="hhReqLoading" class="cd-loading-state" style="padding: 1rem 0;">
+                    <div class="cd-spinner"></div>
+                </div>
+                <template x-if="hhReqError"><div class="cd-alert cd-alert-error" x-text="hhReqError"></div></template>
+                <template x-if="!hhReqLoading && !hhReqError && householdRequests.length === 0">
+                    <div class="cd-empty-state" style="padding: 1rem 0;">
+                        <p><?php esc_html_e( 'No pending household merge requests.', 'community-directory' ); ?></p>
+                    </div>
+                </template>
+                <template x-if="!hhReqLoading && householdRequests.length > 0"><div class="cd-req-list">
+                    <template x-for="req in householdRequests" :key="req.id">
+                        <div class="cd-req-card">
+                            <div class="cd-req-card-info">
+                                <strong x-text="(req.source_household_name || 'Source') + ' → ' + (req.target_household_name || 'Target')"></strong>
+                                <span class="cd-text-muted" x-text="'Requested by ' + (req.requester_name || 'Unknown')" style="font-size: 0.85rem;"></span>
+                            </div>
+                            <div class="cd-req-card-meta">
+                                <span class="cd-text-muted" x-text="formatDate(req.created_at)"></span>
+                            </div>
+                            <template x-if="req.status === 'pending'"><div class="cd-req-card-actions">
+                                <button type="button" class="cd-btn cd-btn-xs cd-btn-primary" :disabled="hhReqActioning === req.id" @click="hhReqAction(req.id, 'approve')">
+                                    <?php esc_html_e( 'Approve', 'community-directory' ); ?>
+                                </button>
+                                <button type="button" class="cd-btn cd-btn-xs cd-btn-secondary" :disabled="hhReqActioning === req.id" @click="hhReqAction(req.id, 'deny')">
+                                    <?php esc_html_e( 'Deny', 'community-directory' ); ?>
+                                </button>
+                                <span x-show="hhReqActioning === req.id" class="cd-spinner-sm"></span>
+                            </div></template>
+                            <template x-if="req.status !== 'pending'">
+                                <span class="cd-reg-status-badge" :class="req.status === 'approved' ? 'cd-status-success' : 'cd-status-muted'" x-text="req.status"></span>
+                            </template>
+                        </div>
+                    </template>
+                </div></template>
+            </div>
+
+            <!-- ═══ WHATSAPP MANAGEMENT SECTION ═══ -->
+            <div x-show="adminSection === 'whatsapp'" class="cd-admin-section">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                    <h2 class="cd-section-title" style="margin: 0;"><?php esc_html_e( 'WhatsApp Groups', 'community-directory' ); ?></h2>
+                    <button type="button" class="cd-btn cd-btn-sm cd-btn-primary" @click="waNewGroup()">
+                        + <?php esc_html_e( 'Add Group', 'community-directory' ); ?>
+                    </button>
+                </div>
+
+                <!-- Add/Edit Form -->
+                <template x-if="waShowForm"><div class="cd-wa-form-card">
+                    <h3 x-text="waEditing ? '<?php echo esc_js( __( 'Edit Group', 'community-directory' ) ); ?>' : '<?php echo esc_js( __( 'New Group', 'community-directory' ) ); ?>'" style="margin: 0 0 12px; font-size: 1rem;"></h3>
+                    <div class="cd-grid-2">
+                        <div class="cd-form-group">
+                            <label class="cd-label"><?php esc_html_e( 'Name *', 'community-directory' ); ?></label>
+                            <input type="text" class="cd-input" x-model="waForm.name">
+                        </div>
+                        <div class="cd-form-group">
+                            <label class="cd-label"><?php esc_html_e( 'Invite URL *', 'community-directory' ); ?></label>
+                            <input type="url" class="cd-input" x-model="waForm.invite_url" placeholder="https://chat.whatsapp.com/...">
+                        </div>
+                        <div class="cd-form-group">
+                            <label class="cd-label"><?php esc_html_e( 'Description', 'community-directory' ); ?></label>
+                            <input type="text" class="cd-input" x-model="waForm.description">
+                        </div>
+                        <div class="cd-form-group" style="display: flex; gap: 12px;">
+                            <div style="flex: 0 0 80px;">
+                                <label class="cd-label"><?php esc_html_e( 'Icon', 'community-directory' ); ?></label>
+                                <input type="text" class="cd-input" x-model="waForm.icon" placeholder="emoji" style="text-align: center;">
+                            </div>
+                            <div style="flex: 0 0 80px;">
+                                <label class="cd-label"><?php esc_html_e( 'Order', 'community-directory' ); ?></label>
+                                <input type="number" class="cd-input" x-model.number="waForm.display_order" min="0">
+                            </div>
+                            <div style="flex: 1;">
+                                <label class="cd-label"><?php esc_html_e( 'Visibility', 'community-directory' ); ?></label>
+                                <select class="cd-input" x-model="waForm.visibility">
+                                    <option value="all"><?php esc_html_e( 'All Members', 'community-directory' ); ?></option>
+                                    <option value="tag"><?php esc_html_e( 'By Tag', 'community-directory' ); ?></option>
+                                </select>
+                            </div>
+                        </div>
+                        <template x-if="waForm.visibility === 'tag'"><div class="cd-form-group">
+                            <label class="cd-label"><?php esc_html_e( 'Visibility Tag', 'community-directory' ); ?></label>
+                            <input type="text" class="cd-input" x-model="waForm.visibility_tag">
+                        </div></template>
+                    </div>
+                    <div class="cd-form-group" style="margin-top: 8px;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 0.875rem;">
+                            <input type="checkbox" x-model="waForm.is_active"> <?php esc_html_e( 'Active', 'community-directory' ); ?>
+                        </label>
+                    </div>
+                    <div style="display: flex; gap: 8px; margin-top: 12px;">
+                        <button type="button" class="cd-btn cd-btn-sm cd-btn-primary" :disabled="waSaving" @click="waSaveGroup()">
+                            <?php esc_html_e( 'Save', 'community-directory' ); ?>
+                        </button>
+                        <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="waCancelForm()">
+                            <?php esc_html_e( 'Cancel', 'community-directory' ); ?>
+                        </button>
+                        <span x-show="waSaving" class="cd-spinner-sm"></span>
+                    </div>
+                </div></template>
+
+                <div x-show="waLoading" class="cd-loading-state" style="padding: 2rem 0;">
+                    <div class="cd-spinner"></div>
+                </div>
+                <template x-if="waError"><div class="cd-alert cd-alert-error" x-text="waError"></div></template>
+                <template x-if="!waLoading && !waError && waGroups.length === 0 && !waShowForm">
+                    <div class="cd-empty-state" style="padding: 2rem 0;">
+                        <p><?php esc_html_e( 'No WhatsApp groups. Click "Add Group" to create one.', 'community-directory' ); ?></p>
+                    </div>
+                </template>
+
+                <template x-if="!waLoading && waGroups.length > 0"><div class="cd-wa-list">
+                    <template x-for="group in waGroups" :key="group.id">
+                        <div class="cd-wa-card" :class="{ 'cd-wa-inactive': !group.is_active }">
+                            <div class="cd-wa-card-info">
+                                <strong x-text="(group.icon ? group.icon + ' ' : '') + group.name"></strong>
+                                <span class="cd-text-muted" x-text="group.description" style="font-size: 0.85rem;"></span>
+                            </div>
+                            <div class="cd-wa-card-meta">
+                                <span class="cd-text-muted" x-text="group.visibility === 'tag' ? 'Tag: ' + group.visibility_tag : 'All Members'" style="font-size: 0.8rem;"></span>
+                                <template x-if="!group.is_active"><span class="cd-reg-status-badge cd-status-muted"><?php esc_html_e( 'Inactive', 'community-directory' ); ?></span></template>
+                            </div>
+                            <div class="cd-wa-card-actions">
+                                <button type="button" class="cd-btn cd-btn-xs cd-btn-secondary" @click="waEditGroup(group)">
+                                    <?php esc_html_e( 'Edit', 'community-directory' ); ?>
+                                </button>
+                                <button type="button" class="cd-btn cd-btn-xs cd-btn-danger-outline" @click="waDeleteGroup(group.id)">
+                                    <?php esc_html_e( 'Delete', 'community-directory' ); ?>
+                                </button>
+                            </div>
+                        </div>
+                    </template>
+                </div></template>
             </div>
 
         </div></template>

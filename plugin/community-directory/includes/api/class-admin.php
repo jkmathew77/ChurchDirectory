@@ -16,14 +16,14 @@ class CD_API_Admin extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/admin/registrations', array(
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array( $this, 'list_registrations' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // POST /admin/registrations/{id}/resend-verification
         register_rest_route( CD_API_NAMESPACE, '/admin/registrations/(?P<id>\d+)/resend-verification', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'resend_verification' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // GET /admin/applications — verified applications for review
@@ -121,7 +121,7 @@ class CD_API_Admin extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/admin/members', array(
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array( $this, 'list_members' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // PUT /admin/members/{id} — Update member details
@@ -135,14 +135,14 @@ class CD_API_Admin extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/admin/members/(?P<id>\d+)', array(
             'methods'             => 'DELETE',
             'callback'            => array( $this, 'delete_member' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // POST /admin/members/{id}/resend-invite — Resend invite to member
         register_rest_route( CD_API_NAMESPACE, '/admin/members/(?P<id>\d+)/resend-invite', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'resend_member_invite' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // GET /admin/members/export — Export members as CSV
@@ -170,7 +170,7 @@ class CD_API_Admin extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/admin/stats', array(
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array( $this, 'get_dashboard_stats' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // ── Household Requests ──
@@ -179,14 +179,14 @@ class CD_API_Admin extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/admin/household-requests', array(
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array( $this, 'list_household_requests' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // PUT /admin/household-requests/{id} — approve/deny household request
         register_rest_route( CD_API_NAMESPACE, '/admin/household-requests/(?P<id>\d+)', array(
             'methods'             => 'PUT',
             'callback'            => array( $this, 'update_household_request' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // ── Deletion Requests ──
@@ -195,14 +195,14 @@ class CD_API_Admin extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/admin/deletion-requests', array(
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array( $this, 'list_deletion_requests' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // PUT /admin/deletion-requests/{id} — approve/deny deletion request
         register_rest_route( CD_API_NAMESPACE, '/admin/deletion-requests/(?P<id>\d+)', array(
             'methods'             => 'PUT',
             'callback'            => array( $this, 'update_deletion_request' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // ── WhatsApp Groups CRUD ──
@@ -211,28 +211,28 @@ class CD_API_Admin extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/admin/whatsapp-groups', array(
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array( $this, 'list_whatsapp_groups' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // POST /admin/whatsapp-groups — create group
         register_rest_route( CD_API_NAMESPACE, '/admin/whatsapp-groups', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'create_whatsapp_group' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // PUT /admin/whatsapp-groups/{id} — update group
         register_rest_route( CD_API_NAMESPACE, '/admin/whatsapp-groups/(?P<id>\d+)', array(
             'methods'             => 'PUT',
             'callback'            => array( $this, 'update_whatsapp_group' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // DELETE /admin/whatsapp-groups/{id} — delete group
         register_rest_route( CD_API_NAMESPACE, '/admin/whatsapp-groups/(?P<id>\d+)', array(
             'methods'             => 'DELETE',
             'callback'            => array( $this, 'delete_whatsapp_group' ),
-            'permission_callback' => array( $this, 'permission_admin' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // POST /admin/database/reset — NUCLEAR OPTION (Clean Start)
@@ -3005,6 +3005,7 @@ class CD_API_Admin extends CD_API_Base {
         $hm_table       = CD_Database::table( 'household_members' );
         $apps_table     = CD_Database::table( 'applications' );
         $audit_table    = CD_Database::table( 'audit_log' );
+        $del_table      = CD_Database::table( 'deletion_requests' );
 
         // Status counts
         $status_rows = $wpdb->get_results(
@@ -3014,6 +3015,26 @@ class CD_API_Admin extends CD_API_Base {
         foreach ( $status_rows as $sr ) {
             $status_counts[ $sr->status ] = (int) $sr->cnt;
         }
+
+        // Pending applications (status = 'new')
+        $pending_applications = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$apps_table} WHERE status = 'new'"
+        );
+
+        // Awaiting verification (status = 'pending_verification')
+        $awaiting_verification = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$apps_table} WHERE status = 'pending_verification'"
+        );
+
+        // Pending deletion requests
+        $pending_deletions = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$del_table} WHERE status = 'pending'"
+        );
+
+        // Incomplete profiles (profile_completion < 80)
+        $incomplete_profiles = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$profiles_table} WHERE profile_completion < 80"
+        );
 
         // Members by month (last 12 months)
         $members_by_month = $wpdb->get_results(
@@ -3040,11 +3061,12 @@ class CD_API_Admin extends CD_API_Base {
 
         // Recent activity (last 20 audit log entries)
         $recent = $wpdb->get_results(
-            "SELECT event_type, actor_user_id, target_id, details, created_at
+            "SELECT event_type AS action, actor_user_id, target_id, details, created_at
              FROM {$audit_table} ORDER BY created_at DESC LIMIT 20"
         );
         foreach ( $recent as &$r ) {
-            $r->details = json_decode( $r->details ?? '', true );
+            $decoded = json_decode( $r->details ?? '', true );
+            $r->details = is_array( $decoded ) ? ( $decoded['summary'] ?? $decoded['note'] ?? '' ) : '';
         }
         unset( $r );
 
@@ -3056,9 +3078,14 @@ class CD_API_Admin extends CD_API_Base {
         ) );
 
         return $this->success( array(
-            'status_counts'    => $status_counts,
-            'members_by_month' => $members_by_month,
-            'household_stats'  => array(
+            'status_counts'    => array_merge( $status_counts, array(
+                'awaiting_verification' => $awaiting_verification,
+                'deletion_requests'     => $pending_deletions,
+                'incomplete_profiles'   => $incomplete_profiles,
+            ) ),
+            'pending_applications' => $pending_applications,
+            'members_by_month'     => $members_by_month,
+            'household_stats'      => array(
                 'total'    => $hh_total,
                 'avg_size' => round( $hh_avg, 1 ),
             ),
@@ -3066,7 +3093,7 @@ class CD_API_Admin extends CD_API_Base {
                 'synced'         => $synced,
                 'pending_retries' => count( $retry_queue ),
             ),
-            'recent_activity'   => $recent,
+            'recent_activity'    => $recent,
             'applications_month' => $apps_month,
         ) );
     }

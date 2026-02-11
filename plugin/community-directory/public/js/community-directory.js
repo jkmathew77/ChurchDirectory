@@ -574,7 +574,12 @@ document.addEventListener('alpine:init', () => {
                 // Officer admin state
                 isOfficer: !!(cdConfig && cdConfig.isOfficer),
                 activeTab: 'directory',
+                adminSection: 'dashboard',
                 pendingAppCount: 0,
+
+                // Dashboard stats
+                dashStats: null,
+                dashLoading: false,
 
                 // Applications state
                 applications: [],
@@ -590,6 +595,34 @@ document.addEventListener('alpine:init', () => {
                 appActionSuccess: '',
                 appActionError: '',
 
+                // Registrations state
+                registrations: [],
+                regsLoading: false,
+                regsError: '',
+                regCounts: {},
+                regActioning: null,
+
+                // Deletion requests state
+                deletionRequests: [],
+                delReqLoading: false,
+                delReqError: '',
+                delReqActioning: null,
+
+                // Household merge requests state
+                householdRequests: [],
+                hhReqLoading: false,
+                hhReqError: '',
+                hhReqActioning: null,
+
+                // WhatsApp management state
+                waGroups: [],
+                waLoading: false,
+                waError: '',
+                waEditing: null,
+                waForm: { name: '', description: '', invite_url: '', icon: '', display_order: 0, visibility: 'all', visibility_tag: '', is_active: true },
+                waSaving: false,
+                waShowForm: false,
+
                 init() {
                     // Safety: Force loading to stop after 5s if API hangs
                     setTimeout(() => {
@@ -602,9 +635,10 @@ document.addEventListener('alpine:init', () => {
                     this.loadMembers();
                     this.loadWhatsAppGroups();
 
-                    // Officers: fetch pending count on init
+                    // Officers: fetch pending count + stats on init
                     if (this.isOfficer) {
                         this.loadPendingAppCount();
+                        this.loadDashboardStats();
                     }
                 },
 
@@ -721,8 +755,28 @@ document.addEventListener('alpine:init', () => {
 
                 switchTab(tab) {
                     this.activeTab = tab;
-                    if (tab === 'admin' && this.applications.length === 0) {
-                        this.loadApplications();
+                    if (tab === 'admin') {
+                        if (!this.dashStats) this.loadDashboardStats();
+                    }
+                },
+
+                switchAdminSection(section) {
+                    this.adminSection = section;
+                    if (section === 'applications' && this.applications.length === 0) this.loadApplications();
+                    if (section === 'registrations' && this.registrations.length === 0) this.loadRegistrations();
+                    if (section === 'requests' && this.deletionRequests.length === 0) { this.loadDeletionRequests(); this.loadHouseholdRequests(); }
+                    if (section === 'whatsapp' && this.waGroups.length === 0) this.loadWAGroups();
+                },
+
+                async loadDashboardStats() {
+                    this.dashLoading = true;
+                    try {
+                        const result = await cdApi.get('/admin/stats');
+                        this.dashStats = result.data || null;
+                    } catch (err) {
+                        this.dashStats = null;
+                    } finally {
+                        this.dashLoading = false;
                     }
                 },
 
@@ -734,9 +788,11 @@ document.addEventListener('alpine:init', () => {
                             this.pendingAppCount = (counts.new || 0) + (counts.under_review || 0) + (counts.on_hold || 0);
                         }
                     } catch (err) {
-                        // Silently fail — user may not have officer permissions
+                        // Silently fail
                     }
                 },
+
+                // ── Applications ──
 
                 async loadApplications() {
                     this.appsLoading = true;
@@ -754,7 +810,6 @@ document.addEventListener('alpine:init', () => {
                         if (result.meta) {
                             this.appsTotalPages = result.meta.pages || 1;
                         }
-                        // Update pending count
                         this.pendingAppCount = (this.appCounts.new || 0) + (this.appCounts.under_review || 0) + (this.appCounts.on_hold || 0);
                     } catch (err) {
                         this.appsError = err.message;
@@ -790,10 +845,10 @@ document.addEventListener('alpine:init', () => {
                         var labels = { approve: 'Application approved.', reject: 'Application rejected.', hold: 'Application placed on hold.', request_info: 'Information requested from applicant.' };
                         this.appActionSuccess = labels[action] || 'Action completed.';
                         this.appActionNotes = '';
-                        // Refresh the list after a brief delay for UI feedback
                         setTimeout(() => {
                             this.loadApplications();
                             this.expandedAppId = null;
+                            this.loadDashboardStats();
                         }, 1200);
                     } catch (err) {
                         this.appActionError = err.message;
@@ -801,6 +856,217 @@ document.addEventListener('alpine:init', () => {
                         this.appActioning = false;
                     }
                 },
+
+                // ── Registrations ──
+
+                async loadRegistrations() {
+                    this.regsLoading = true;
+                    this.regsError = '';
+                    try {
+                        const result = await cdApi.get('/admin/registrations');
+                        this.registrations = result.data.registrations || [];
+                        this.regCounts = result.data.counts || {};
+                    } catch (err) {
+                        this.regsError = err.message;
+                        this.registrations = [];
+                    } finally {
+                        this.regsLoading = false;
+                    }
+                },
+
+                async regResendVerification(id) {
+                    if (!confirm('Resend verification email for this registration?')) return;
+                    this.regActioning = id;
+                    try {
+                        await cdApi.post('/admin/registrations/' + id + '/resend-verification', {});
+                        alert('Verification email resent.');
+                        this.loadRegistrations();
+                    } catch (err) {
+                        alert('Error: ' + err.message);
+                    } finally {
+                        this.regActioning = null;
+                    }
+                },
+
+                async regRemove(id) {
+                    if (!confirm('Remove this registration? This cannot be undone.')) return;
+                    this.regActioning = id;
+                    try {
+                        await cdApi.request('/admin/members/' + id, { method: 'DELETE' });
+                        alert('Registration removed.');
+                        this.loadRegistrations();
+                        this.loadDashboardStats();
+                    } catch (err) {
+                        alert('Error: ' + err.message);
+                    } finally {
+                        this.regActioning = null;
+                    }
+                },
+
+                async regResendInvite(id) {
+                    if (!confirm('Resend invite email to this member?')) return;
+                    this.regActioning = id;
+                    try {
+                        await cdApi.post('/admin/members/' + id + '/resend-invite', {});
+                        alert('Invite email resent.');
+                        this.loadRegistrations();
+                    } catch (err) {
+                        alert('Error: ' + err.message);
+                    } finally {
+                        this.regActioning = null;
+                    }
+                },
+
+                regStatusLabel(status) {
+                    var map = { unverified: 'Unverified', new: 'New', under_review: 'Under Review', on_hold: 'On Hold', approved: 'Approved', not_approved: 'Rejected', invited: 'Invited', active: 'Active' };
+                    return map[status] || status;
+                },
+
+                regStatusClass(status) {
+                    var map = { unverified: 'cd-status-warning', new: 'cd-status-info', under_review: 'cd-status-warning', on_hold: 'cd-status-muted', approved: 'cd-status-success', not_approved: 'cd-status-danger', invited: 'cd-status-info', active: 'cd-status-success' };
+                    return map[status] || '';
+                },
+
+                // ── Deletion Requests ──
+
+                async loadDeletionRequests() {
+                    this.delReqLoading = true;
+                    this.delReqError = '';
+                    try {
+                        const result = await cdApi.get('/admin/deletion-requests');
+                        this.deletionRequests = result.data.requests || [];
+                    } catch (err) {
+                        this.delReqError = err.message;
+                        this.deletionRequests = [];
+                    } finally {
+                        this.delReqLoading = false;
+                    }
+                },
+
+                async delReqAction(id, action) {
+                    var msg = action === 'approve' ? 'Approve this deletion request? The member will be deactivated.' : 'Deny this deletion request?';
+                    if (!confirm(msg)) return;
+                    this.delReqActioning = id;
+                    try {
+                        await cdApi.put('/admin/deletion-requests/' + id, { action: action });
+                        alert(action === 'approve' ? 'Deletion approved.' : 'Deletion denied.');
+                        this.loadDeletionRequests();
+                        this.loadDashboardStats();
+                    } catch (err) {
+                        alert('Error: ' + err.message);
+                    } finally {
+                        this.delReqActioning = null;
+                    }
+                },
+
+                // ── Household Merge Requests ──
+
+                async loadHouseholdRequests() {
+                    this.hhReqLoading = true;
+                    this.hhReqError = '';
+                    try {
+                        const result = await cdApi.get('/admin/household-requests');
+                        this.householdRequests = result.data.requests || [];
+                    } catch (err) {
+                        this.hhReqError = err.message;
+                        this.householdRequests = [];
+                    } finally {
+                        this.hhReqLoading = false;
+                    }
+                },
+
+                async hhReqAction(id, action) {
+                    var msg = action === 'approve' ? 'Approve this household merge request?' : 'Deny this household merge request?';
+                    if (!confirm(msg)) return;
+                    this.hhReqActioning = id;
+                    try {
+                        await cdApi.put('/admin/household-requests/' + id, { action: action });
+                        alert(action === 'approve' ? 'Merge approved.' : 'Merge denied.');
+                        this.loadHouseholdRequests();
+                    } catch (err) {
+                        alert('Error: ' + err.message);
+                    } finally {
+                        this.hhReqActioning = null;
+                    }
+                },
+
+                // ── WhatsApp Group Management ──
+
+                async loadWAGroups() {
+                    this.waLoading = true;
+                    this.waError = '';
+                    try {
+                        const result = await cdApi.get('/admin/whatsapp-groups');
+                        this.waGroups = result.data.groups || [];
+                    } catch (err) {
+                        this.waError = err.message;
+                        this.waGroups = [];
+                    } finally {
+                        this.waLoading = false;
+                    }
+                },
+
+                waNewGroup() {
+                    this.waEditing = null;
+                    this.waForm = { name: '', description: '', invite_url: '', icon: '', display_order: 0, visibility: 'all', visibility_tag: '', is_active: true };
+                    this.waShowForm = true;
+                },
+
+                waEditGroup(group) {
+                    this.waEditing = group.id;
+                    this.waForm = {
+                        name: group.name,
+                        description: group.description || '',
+                        invite_url: group.invite_url,
+                        icon: group.icon || '',
+                        display_order: group.display_order || 0,
+                        visibility: group.visibility || 'all',
+                        visibility_tag: group.visibility_tag || '',
+                        is_active: group.is_active !== false
+                    };
+                    this.waShowForm = true;
+                },
+
+                waCancelForm() {
+                    this.waShowForm = false;
+                    this.waEditing = null;
+                },
+
+                async waSaveGroup() {
+                    if (!this.waForm.name || !this.waForm.invite_url) {
+                        alert('Name and Invite URL are required.');
+                        return;
+                    }
+                    this.waSaving = true;
+                    try {
+                        if (this.waEditing) {
+                            await cdApi.put('/admin/whatsapp-groups/' + this.waEditing, this.waForm);
+                        } else {
+                            await cdApi.post('/admin/whatsapp-groups', this.waForm);
+                        }
+                        this.waShowForm = false;
+                        this.waEditing = null;
+                        this.loadWAGroups();
+                        this.loadWhatsAppGroups(); // Refresh directory view too
+                    } catch (err) {
+                        alert('Error: ' + err.message);
+                    } finally {
+                        this.waSaving = false;
+                    }
+                },
+
+                async waDeleteGroup(id) {
+                    if (!confirm('Delete this WhatsApp group?')) return;
+                    try {
+                        await cdApi.request('/admin/whatsapp-groups/' + id, { method: 'DELETE' });
+                        this.loadWAGroups();
+                        this.loadWhatsAppGroups();
+                    } catch (err) {
+                        alert('Error: ' + err.message);
+                    }
+                },
+
+                // ── Shared Helpers ──
 
                 formatAppStatus(status) {
                     var map = { new: 'New', under_review: 'Under Review', on_hold: 'On Hold', approved: 'Approved', not_approved: 'Rejected' };
@@ -830,18 +1096,35 @@ document.addEventListener('alpine:init', () => {
                 whatsappGroups: [],
                 isOfficer: false,
                 activeTab: 'directory',
+                adminSection: 'dashboard',
                 pendingAppCount: 0,
                 applications: [],
                 appsLoading: false,
                 appCounts: {},
+                dashStats: null,
+                dashLoading: false,
+                registrations: [],
+                regsLoading: false,
+                regCounts: {},
+                deletionRequests: [],
+                delReqLoading: false,
+                householdRequests: [],
+                hhReqLoading: false,
+                waGroups: [],
+                waLoading: false,
+                waShowForm: false,
+                waForm: {},
                 getError() { return 'Application error: ' + e.message; },
                 displayName() { return 'Error'; },
                 getAvatarColor() { return '#ccc'; },
                 getInitials() { return '!!'; },
                 hasActiveFilters() { return false; },
                 switchTab() {},
+                switchAdminSection() {},
                 formatAppStatus() { return ''; },
-                formatDate() { return ''; }
+                formatDate() { return ''; },
+                regStatusLabel() { return ''; },
+                regStatusClass() { return ''; }
             };
         }
     });
