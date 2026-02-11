@@ -175,12 +175,16 @@ class CD_API_Auth extends CD_API_Base {
      * will handle invite acceptance instead of normal login.
      */
     public function google_auth_url( WP_REST_Request $request ) {
+        error_log( 'CD_Auth: google_auth_url called' );
+
         $client_id = get_option( 'cd_google_client_id', '' );
         if ( empty( $client_id ) ) {
+            error_log( 'CD_Auth: Google client_id is empty — not configured' );
             return $this->error( 'not_configured', __( 'Google sign-in is not configured. Please use email and password.', 'community-directory' ) );
         }
 
         $redirect_uri = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
+        error_log( 'CD_Auth: redirect_uri=' . $redirect_uri );
         $nonce = wp_create_nonce( 'cd_google_login' );
 
         // If invite params are passed, store them in a transient keyed by nonce
@@ -211,22 +215,27 @@ class CD_API_Auth extends CD_API_Base {
      * Handle Google OAuth callback — exchange code, find/link member, log in.
      */
     public function google_callback( WP_REST_Request $request ) {
+        error_log( 'CD_Auth: google_callback entered' );
+
         $base_slug = get_option( 'cd_base_slug', 'community' );
         $login_url = home_url( $base_slug . '/login/' );
 
         $state = sanitize_text_field( $request->get_param( 'state' ) ?? '' );
         if ( ! wp_verify_nonce( $state, 'cd_google_login' ) ) {
+            error_log( 'CD_Auth: nonce verification FAILED' );
             wp_safe_redirect( $login_url . '?error=invalid_state' );
             exit;
         }
 
         if ( $request->get_param( 'error' ) ) {
+            error_log( 'CD_Auth: Google returned error: ' . sanitize_text_field( $request->get_param( 'error' ) ) );
             wp_safe_redirect( $login_url . '?error=' . urlencode( sanitize_text_field( $request->get_param( 'error' ) ) ) );
             exit;
         }
 
         $code = sanitize_text_field( $request->get_param( 'code' ) ?? '' );
         if ( empty( $code ) ) {
+            error_log( 'CD_Auth: no code param in callback' );
             wp_safe_redirect( $login_url . '?error=no_code' );
             exit;
         }
@@ -236,6 +245,8 @@ class CD_API_Auth extends CD_API_Base {
         $encrypted_secret = get_option( 'cd_google_client_secret', '' );
         $client_secret = ! empty( $encrypted_secret ) ? CD_Encryption::decrypt( $encrypted_secret ) : '';
         $redirect_uri  = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
+
+        error_log( 'CD_Auth: token exchange with redirect_uri=' . $redirect_uri );
 
         $token_response = wp_remote_post( 'https://oauth2.googleapis.com/token', array(
             'body' => array(
@@ -249,15 +260,19 @@ class CD_API_Auth extends CD_API_Base {
         ) );
 
         if ( is_wp_error( $token_response ) ) {
+            error_log( 'CD_Auth: wp_remote_post FAILED: ' . $token_response->get_error_message() );
             wp_safe_redirect( $login_url . '?error=token_exchange_failed' );
             exit;
         }
 
         $token_body = json_decode( wp_remote_retrieve_body( $token_response ), true );
         if ( ! empty( $token_body['error'] ) ) {
+            error_log( 'CD_Auth: token exchange error: ' . $token_body['error'] . ' - ' . ( $token_body['error_description'] ?? '' ) );
             wp_safe_redirect( $login_url . '?error=' . urlencode( $token_body['error'] ) );
             exit;
         }
+
+        error_log( 'CD_Auth: token exchange SUCCESS' );
 
         // Decode ID token (JWT) to get user info
         $id_token = $token_body['id_token'] ?? '';

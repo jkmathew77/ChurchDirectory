@@ -28,9 +28,6 @@ class CD_Capabilities {
 
         // Block wp-admin access for directory-only members
         add_action( 'admin_init', array( __CLASS__, 'redirect_members_from_admin' ) );
-
-        // Redirect wp-login.php to community login for non-admins
-        add_action( 'login_init', array( __CLASS__, 'redirect_wp_login' ) );
     }
 
     /**
