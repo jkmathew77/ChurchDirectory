@@ -145,6 +145,34 @@ class CD_API_Admin extends CD_API_Base {
             'permission_callback' => array( $this, 'permission_admin' ),
         ) );
 
+        // GET /admin/members/export — Export members as CSV
+        register_rest_route( CD_API_NAMESPACE, '/admin/members/export', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'export_members_csv' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // GET /admin/members/duplicates — Find potential duplicate members
+        register_rest_route( CD_API_NAMESPACE, '/admin/members/duplicates', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'find_duplicate_members' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // POST /admin/members/merge — Merge two member profiles
+        register_rest_route( CD_API_NAMESPACE, '/admin/members/merge', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'merge_members' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // GET /admin/stats — Dashboard statistics
+        register_rest_route( CD_API_NAMESPACE, '/admin/stats', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'get_dashboard_stats' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
         // ── Household Requests ──
 
         // GET /admin/household-requests — list pending household requests
@@ -366,7 +394,12 @@ class CD_API_Admin extends CD_API_Base {
             }
 
             $wpdb->query( 'COMMIT' );
-            
+
+            // Google Contacts sync — update
+            if ( class_exists( 'CD_Google_Contacts' ) ) {
+                CD_Google_Contacts::sync_member( $id, 'update' );
+            }
+
             return $this->success( array( 'message' => __( 'Member updated.', 'community-directory' ) ) );
 
         } catch ( Exception $e ) {
@@ -393,6 +426,18 @@ class CD_API_Admin extends CD_API_Base {
         $member = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$members_table} WHERE id = %d", $id ) );
         if ( ! $member ) {
             return $this->error( 'not_found', __( 'Member not found.', 'community-directory' ), 404 );
+        }
+
+        // Google Contacts sync — delete (must run before DB records are removed)
+        if ( class_exists( 'CD_Google_Contacts' ) && CD_Google_Contacts::is_enabled() ) {
+            $google_cid = $member->google_contact_id ?? '';
+            if ( ! empty( $google_cid ) ) {
+                $del_result = CD_Google_Contacts::delete_contact( $google_cid );
+                if ( is_wp_error( $del_result ) ) {
+                    CD_Logger::warn( 'Google Sync: delete failed for member ' . $id . ': ' . $del_result->get_error_message() );
+                    CD_Google_Contacts::queue_retry( $id, array( 'google_contact_id' => $google_cid ), 'delete' );
+                }
+            }
         }
 
         // Handle household impact (auto-promote spouse if head is being removed)
@@ -1930,6 +1975,12 @@ class CD_API_Admin extends CD_API_Base {
                 }
 
                 $wpdb->insert( $profiles_table, $profile_data );
+
+                // Google Contacts sync — create imported member
+                if ( class_exists( 'CD_Google_Contacts' ) ) {
+                    CD_Google_Contacts::sync_member( $member_id, 'create' );
+                }
+
                 $imported++;
 
                 // Send Invite
@@ -2287,6 +2338,11 @@ class CD_API_Admin extends CD_API_Base {
                 'status' => 'inactive',
             ), array( 'id' => $dr->member_id ), array( '%s' ), array( '%d' ) );
 
+            // Google Contacts sync — delete on deletion approval
+            if ( class_exists( 'CD_Google_Contacts' ) ) {
+                CD_Google_Contacts::sync_member( $dr->member_id, 'delete' );
+            }
+
             // Force logout — destroy sessions and revoke capability
             $this->force_logout_member( $dr->member_id );
 
@@ -2582,5 +2638,419 @@ class CD_API_Admin extends CD_API_Base {
         } catch ( Exception $e ) {
             return $this->error( 'reset_failed', $e->getMessage(), 500 );
         }
+    }
+
+    /* ──────────────────────────────────────────────
+     * DATA EXPORT — CSV
+     * ────────────────────────────────────────────── */
+
+    /**
+     * Export members as CSV download.
+     * GET /admin/members/export?status=active&search=
+     */
+    public function export_members_csv( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $members_table  = CD_Database::table( 'members' );
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $hm_table       = CD_Database::table( 'household_members' );
+        $hh_table       = CD_Database::table( 'households' );
+
+        $status = sanitize_text_field( $request->get_param( 'status' ) ?: 'active' );
+        $search = sanitize_text_field( $request->get_param( 'search' ) ?: '' );
+
+        $where = '1=1';
+        $args  = array();
+
+        if ( $status && 'all' !== $status ) {
+            $where .= ' AND m.status = %s';
+            $args[] = $status;
+        }
+        if ( $search ) {
+            $like    = '%' . $wpdb->esc_like( $search ) . '%';
+            $where  .= ' AND (p.first_name LIKE %s OR p.last_name LIKE %s OR p.emails LIKE %s)';
+            $args[]  = $like;
+            $args[]  = $like;
+            $args[]  = $like;
+        }
+
+        $query = "SELECT m.id, m.status, m.member_since,
+                         p.first_name, p.last_name, p.emails, p.phones,
+                         p.address_home, p.city, p.state, p.zip_code,
+                         p.date_of_birth, p.baptism_date, p.occupation, p.employer,
+                         h.name AS household_name, hm.role AS household_role
+                  FROM {$members_table} m
+                  LEFT JOIN {$profiles_table} p ON m.id = p.member_id
+                  LEFT JOIN {$hm_table} hm ON m.id = hm.member_id AND hm.left_at IS NULL
+                  LEFT JOIN {$hh_table} h ON hm.household_id = h.id
+                  WHERE {$where}
+                  ORDER BY p.last_name ASC, p.first_name ASC";
+
+        if ( ! empty( $args ) ) {
+            $rows = $wpdb->get_results( $wpdb->prepare( $query, $args ) );
+        } else {
+            $rows = $wpdb->get_results( $query );
+        }
+
+        // Audit log
+        CD_Audit_Logger::log( CD_Audit_Logger::SETTINGS_UPDATED, get_current_user_id(), null, array(
+            'action' => 'csv_export',
+            'status' => $status,
+            'count'  => count( $rows ),
+            'ip'     => $_SERVER['REMOTE_ADDR'] ?? '',
+        ) );
+
+        // Build CSV in memory
+        $output = fopen( 'php://temp', 'r+' );
+        fputcsv( $output, array(
+            'First Name', 'Last Name', 'Email', 'Phone',
+            'Address', 'City', 'State', 'Zip',
+            'Date of Birth', 'Baptism Date', 'Occupation', 'Employer',
+            'Member Since', 'Status', 'Household', 'Household Role',
+        ) );
+
+        foreach ( $rows as $row ) {
+            $emails = json_decode( $row->emails ?? '', true ) ?: array();
+            $phones = json_decode( $row->phones ?? '', true ) ?: array();
+            $email  = ! empty( $emails[0]['value'] ) ? $emails[0]['value'] : '';
+            $phone  = ! empty( $phones[0]['value'] ) ? $phones[0]['value'] : '';
+
+            $address = '';
+            if ( ! empty( $row->address_home ) ) {
+                $dec = CD_Encryption::decrypt( $row->address_home );
+                if ( $dec !== false ) {
+                    $address = $dec;
+                }
+            }
+            $dob = '';
+            if ( ! empty( $row->date_of_birth ) ) {
+                $dec = CD_Encryption::decrypt( $row->date_of_birth );
+                if ( $dec !== false ) {
+                    $dob = $dec;
+                }
+            }
+
+            fputcsv( $output, array(
+                $row->first_name ?? '',
+                $row->last_name ?? '',
+                $email,
+                $phone,
+                $address,
+                $row->city ?? '',
+                $row->state ?? '',
+                $row->zip_code ?? '',
+                $dob,
+                $row->baptism_date ?? '',
+                $row->occupation ?? '',
+                $row->employer ?? '',
+                $row->member_since ?? '',
+                $row->status ?? '',
+                $row->household_name ?? '',
+                $row->household_role ?? '',
+            ) );
+        }
+
+        rewind( $output );
+        $csv = stream_get_contents( $output );
+        fclose( $output );
+
+        $filename = 'community-directory-export-' . gmdate( 'Y-m-d' ) . '.csv';
+
+        return new WP_REST_Response( $csv, 200, array(
+            'Content-Type'        => 'text/csv; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Cache-Control'       => 'no-store',
+        ) );
+    }
+
+    /* ──────────────────────────────────────────────
+     * PROFILE MERGE — Duplicate Finder + Merge
+     * ────────────────────────────────────────────── */
+
+    /**
+     * Find potential duplicate members by name or email.
+     * GET /admin/members/duplicates
+     */
+    public function find_duplicate_members( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $members_table  = CD_Database::table( 'members' );
+
+        // Find members sharing the same first+last name
+        $name_dupes = $wpdb->get_results(
+            "SELECT p.member_id, p.first_name, p.last_name, p.emails, m.status, m.created_at
+             FROM {$profiles_table} p
+             JOIN {$members_table} m ON p.member_id = m.id
+             WHERE m.status IN ('active','inactive')
+             AND (p.first_name, p.last_name) IN (
+                 SELECT p2.first_name, p2.last_name
+                 FROM {$profiles_table} p2
+                 JOIN {$members_table} m2 ON p2.member_id = m2.id
+                 WHERE m2.status IN ('active','inactive')
+                 GROUP BY p2.first_name, p2.last_name
+                 HAVING COUNT(*) > 1
+             )
+             ORDER BY p.last_name, p.first_name, m.created_at"
+        );
+
+        // Group into clusters
+        $clusters = array();
+        foreach ( $name_dupes as $row ) {
+            $key = strtolower( trim( $row->first_name ) . '|' . trim( $row->last_name ) );
+            $emails = json_decode( $row->emails ?? '', true ) ?: array();
+            $email  = ! empty( $emails[0]['value'] ) ? $emails[0]['value'] : '';
+
+            if ( ! isset( $clusters[ $key ] ) ) {
+                $clusters[ $key ] = array(
+                    'reason'  => 'Same name: ' . $row->first_name . ' ' . $row->last_name,
+                    'members' => array(),
+                );
+            }
+            $clusters[ $key ]['members'][] = array(
+                'id'         => (int) $row->member_id,
+                'first_name' => $row->first_name,
+                'last_name'  => $row->last_name,
+                'email'      => $email,
+                'status'     => $row->status,
+                'created_at' => $row->created_at,
+            );
+        }
+
+        // Check if any cluster has email matches (upgrade confidence)
+        foreach ( $clusters as $key => &$cluster ) {
+            $emails_seen = array();
+            $has_email_match = false;
+            foreach ( $cluster['members'] as $m ) {
+                if ( ! empty( $m['email'] ) ) {
+                    $e = strtolower( $m['email'] );
+                    if ( isset( $emails_seen[ $e ] ) ) {
+                        $has_email_match = true;
+                    }
+                    $emails_seen[ $e ] = true;
+                }
+            }
+            $cluster['confidence'] = $has_email_match ? 'high' : 'medium';
+            if ( $has_email_match ) {
+                $cluster['reason'] = 'Same email + name';
+            }
+        }
+        unset( $cluster );
+
+        return $this->success( array(
+            'duplicates' => array_values( $clusters ),
+            'total'      => count( $clusters ),
+        ) );
+    }
+
+    /**
+     * Merge two member profiles.
+     * POST /admin/members/merge { primary_id, secondary_id }
+     */
+    public function merge_members( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $primary_id   = (int) $request->get_param( 'primary_id' );
+        $secondary_id = (int) $request->get_param( 'secondary_id' );
+
+        if ( ! $primary_id || ! $secondary_id || $primary_id === $secondary_id ) {
+            return $this->error( 'invalid_params', __( 'Two different member IDs are required.', 'community-directory' ), 400 );
+        }
+
+        $members_table  = CD_Database::table( 'members' );
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $hm_table       = CD_Database::table( 'household_members' );
+        $invites_table  = CD_Database::table( 'invites' );
+
+        $primary   = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$members_table} WHERE id = %d", $primary_id ) );
+        $secondary = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$members_table} WHERE id = %d", $secondary_id ) );
+
+        if ( ! $primary || ! $secondary ) {
+            return $this->error( 'not_found', __( 'One or both members not found.', 'community-directory' ), 404 );
+        }
+
+        $p_profile = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$profiles_table} WHERE member_id = %d", $primary_id ) );
+        $s_profile = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$profiles_table} WHERE member_id = %d", $secondary_id ) );
+
+        $wpdb->query( 'START TRANSACTION' );
+
+        try {
+            // Fill empty fields in primary with secondary's data
+            if ( $p_profile && $s_profile ) {
+                $fill_fields = array(
+                    'bio', 'occupation', 'employer', 'address_home', 'address_mailing',
+                    'city', 'state', 'zip_code', 'date_of_birth', 'baptism_date',
+                    'wedding_anniversary', 'name_day', 'avatar_url',
+                );
+                $updates = array();
+                $formats = array();
+                foreach ( $fill_fields as $field ) {
+                    if ( empty( $p_profile->$field ) && ! empty( $s_profile->$field ) ) {
+                        $updates[ $field ] = $s_profile->$field;
+                        $formats[] = '%s';
+                    }
+                }
+                // Merge JSON array fields
+                foreach ( array( 'emails', 'phones', 'social_links', 'ministry_tags' ) as $jf ) {
+                    $p_arr = json_decode( $p_profile->$jf ?? '', true ) ?: array();
+                    $s_arr = json_decode( $s_profile->$jf ?? '', true ) ?: array();
+                    if ( ! empty( $s_arr ) ) {
+                        $merged = array_merge( $p_arr, $s_arr );
+                        // Deduplicate by value for emails/phones
+                        if ( in_array( $jf, array( 'emails', 'phones' ), true ) ) {
+                            $seen = array();
+                            $unique = array();
+                            foreach ( $merged as $item ) {
+                                $val = strtolower( $item['value'] ?? '' );
+                                if ( $val && ! isset( $seen[ $val ] ) ) {
+                                    $seen[ $val ] = true;
+                                    $unique[] = $item;
+                                }
+                            }
+                            $merged = $unique;
+                        }
+                        $updates[ $jf ] = wp_json_encode( $merged );
+                        $formats[] = '%s';
+                    }
+                }
+                if ( ! empty( $updates ) ) {
+                    $wpdb->update( $profiles_table, $updates, array( 'member_id' => $primary_id ), $formats, array( '%d' ) );
+                }
+            }
+
+            // Transfer WP user ID if primary has none
+            if ( empty( $primary->wp_user_id ) && ! empty( $secondary->wp_user_id ) ) {
+                $wpdb->update( $members_table, array( 'wp_user_id' => $secondary->wp_user_id ), array( 'id' => $primary_id ), array( '%d' ), array( '%d' ) );
+            }
+
+            // Transfer household memberships
+            $wpdb->query( $wpdb->prepare(
+                "UPDATE {$hm_table} SET member_id = %d WHERE member_id = %d AND left_at IS NULL",
+                $primary_id, $secondary_id
+            ) );
+
+            // Delete secondary's Google contact
+            if ( class_exists( 'CD_Google_Contacts' ) && CD_Google_Contacts::is_enabled() ) {
+                $sec_gid = $secondary->google_contact_id ?? '';
+                if ( ! empty( $sec_gid ) ) {
+                    CD_Google_Contacts::delete_contact( $sec_gid );
+                }
+                // If primary lacks a google_contact_id, take secondary's
+                if ( empty( $primary->google_contact_id ) && ! empty( $sec_gid ) ) {
+                    $wpdb->update( $members_table, array( 'google_contact_id' => $sec_gid ), array( 'id' => $primary_id ), array( '%s' ), array( '%d' ) );
+                }
+            }
+
+            // Delete secondary records
+            $wpdb->delete( $profiles_table, array( 'member_id' => $secondary_id ), array( '%d' ) );
+            $wpdb->delete( $hm_table, array( 'member_id' => $secondary_id ), array( '%d' ) );
+            $wpdb->delete( $invites_table, array( 'member_id' => $secondary_id ), array( '%d' ) );
+            $wpdb->delete( $members_table, array( 'id' => $secondary_id ), array( '%d' ) );
+
+            $wpdb->query( 'COMMIT' );
+
+            CD_Audit_Logger::log( CD_Audit_Logger::BULK_OPERATION, get_current_user_id(), $primary_id, array(
+                'action'       => 'member_merge',
+                'primary_id'   => $primary_id,
+                'secondary_id' => $secondary_id,
+            ) );
+
+            // Sync merged profile to Google
+            if ( class_exists( 'CD_Google_Contacts' ) ) {
+                CD_Google_Contacts::sync_member( $primary_id, 'update' );
+            }
+
+            return $this->success( array(
+                'message'    => __( 'Members merged successfully.', 'community-directory' ),
+                'primary_id' => $primary_id,
+            ) );
+
+        } catch ( Exception $e ) {
+            $wpdb->query( 'ROLLBACK' );
+            return $this->error( 'merge_failed', $e->getMessage(), 500 );
+        }
+    }
+
+    /* ──────────────────────────────────────────────
+     * DASHBOARD STATS
+     * ────────────────────────────────────────────── */
+
+    /**
+     * Get dashboard statistics.
+     * GET /admin/stats
+     */
+    public function get_dashboard_stats( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $members_table  = CD_Database::table( 'members' );
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $hh_table       = CD_Database::table( 'households' );
+        $hm_table       = CD_Database::table( 'household_members' );
+        $apps_table     = CD_Database::table( 'applications' );
+        $audit_table    = CD_Database::table( 'audit_log' );
+
+        // Status counts
+        $status_rows = $wpdb->get_results(
+            "SELECT status, COUNT(*) as cnt FROM {$members_table} GROUP BY status"
+        );
+        $status_counts = array();
+        foreach ( $status_rows as $sr ) {
+            $status_counts[ $sr->status ] = (int) $sr->cnt;
+        }
+
+        // Members by month (last 12 months)
+        $members_by_month = $wpdb->get_results(
+            "SELECT DATE_FORMAT(created_at, '%Y-%m') AS month, COUNT(*) AS count
+             FROM {$members_table}
+             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+             GROUP BY month ORDER BY month"
+        );
+
+        // Household stats
+        $hh_total   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$hh_table} WHERE status = 'active'" );
+        $hh_avg     = (float) $wpdb->get_var(
+            "SELECT AVG(cnt) FROM (
+                SELECT COUNT(*) AS cnt FROM {$hm_table}
+                WHERE left_at IS NULL GROUP BY household_id
+            ) sub"
+        );
+
+        // Google sync stats
+        $synced = (int) $wpdb->get_var(
+            "SELECT COUNT(*) FROM {$members_table} WHERE google_contact_id IS NOT NULL AND google_contact_id != ''"
+        );
+        $retry_queue = get_option( 'cd_google_retry_queue', array() );
+
+        // Recent activity (last 20 audit log entries)
+        $recent = $wpdb->get_results(
+            "SELECT event_type, actor_user_id, target_id, details, created_at
+             FROM {$audit_table} ORDER BY created_at DESC LIMIT 20"
+        );
+        foreach ( $recent as &$r ) {
+            $r->details = json_decode( $r->details ?? '', true );
+        }
+        unset( $r );
+
+        // Applications this month
+        $apps_month = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$apps_table}
+             WHERE submitted_at >= %s",
+            gmdate( 'Y-m-01 00:00:00' )
+        ) );
+
+        return $this->success( array(
+            'status_counts'    => $status_counts,
+            'members_by_month' => $members_by_month,
+            'household_stats'  => array(
+                'total'    => $hh_total,
+                'avg_size' => round( $hh_avg, 1 ),
+            ),
+            'google_sync' => array(
+                'synced'         => $synced,
+                'pending_retries' => count( $retry_queue ),
+            ),
+            'recent_activity'   => $recent,
+            'applications_month' => $apps_month,
+        ) );
     }
 }

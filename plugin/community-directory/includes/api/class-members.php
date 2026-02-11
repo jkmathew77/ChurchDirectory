@@ -576,6 +576,11 @@ class CD_API_Members extends CD_API_Base {
             return $this->error( 'db_error', __( 'Could not save profile.', 'community-directory' ), 500 );
         }
 
+        // Google Contacts sync — update
+        if ( class_exists( 'CD_Google_Contacts' ) ) {
+            CD_Google_Contacts::sync_member( $member_id, 'update' );
+        }
+
         return $this->success( array( 'message' => __( 'Profile updated successfully.', 'community-directory' ) ) );
     }
 

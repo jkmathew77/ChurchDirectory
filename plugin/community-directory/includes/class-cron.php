@@ -190,7 +190,20 @@ class CD_Cron {
                 continue;
             }
 
-            $result = CD_Google_Contacts::create_contact( $item['member_data'] );
+            $op = $item['operation'] ?? 'create';
+            switch ( $op ) {
+                case 'update':
+                    $rn = $item['resource_name'] ?? '';
+                    $result = $rn ? CD_Google_Contacts::update_contact( $rn, $item['member_data'] ) : CD_Google_Contacts::create_contact( $item['member_data'] );
+                    break;
+                case 'delete':
+                    $rn = $item['resource_name'] ?? '';
+                    $result = $rn ? CD_Google_Contacts::delete_contact( $rn ) : true;
+                    break;
+                default: // create
+                    $result = CD_Google_Contacts::create_contact( $item['member_data'] );
+                    break;
+            }
 
             if ( is_wp_error( $result ) ) {
                 $item['retries']      = $retries + 1;
@@ -199,8 +212,8 @@ class CD_Cron {
                 $remaining[]          = $item;
             } else {
                 $processed++;
-                // Update google_contact_id on member if we have member_id
-                if ( ! empty( $item['member_id'] ) && ! empty( $result ) ) {
+                // Update google_contact_id on member for create/update operations
+                if ( $op !== 'delete' && ! empty( $item['member_id'] ) && is_string( $result ) && ! empty( $result ) ) {
                     global $wpdb;
                     $members_table = CD_Database::table( 'members' );
                     $wpdb->update(

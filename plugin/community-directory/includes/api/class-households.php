@@ -999,6 +999,11 @@ class CD_API_Households extends CD_API_Base {
                 'created_at' => current_time( 'mysql' ),
             ), array( '%d', '%s', '%s', '%s', '%s' ) );
 
+            // Google Contacts sync — create new household member (invite)
+            if ( class_exists( 'CD_Google_Contacts' ) ) {
+                CD_Google_Contacts::sync_member( $new_member_id, 'create' );
+            }
+
             // Send invite email
             CD_Email_Templates::send_household_invite( $email, $first_name, $token, $member );
 
@@ -1034,6 +1039,11 @@ class CD_API_Households extends CD_API_Base {
             'emails'     => wp_json_encode( array() ),
             'created_at' => current_time( 'mysql' ),
         ) );
+
+        // Google Contacts sync — create new managed household member
+        if ( class_exists( 'CD_Google_Contacts' ) ) {
+            CD_Google_Contacts::sync_member( $new_member_id, 'create' );
+        }
 
         // Add to household
         $wpdb->insert( $hm_table, array(
@@ -1538,6 +1548,11 @@ class CD_API_Households extends CD_API_Base {
                     array( '%s' ),
                     array( '%d' )
                 );
+
+                // Google Contacts sync — delete deactivated household member
+                if ( class_exists( 'CD_Google_Contacts' ) ) {
+                    CD_Google_Contacts::sync_member( $am->member_id, 'delete' );
+                }
 
                 // Force logout: destroy sessions and revoke capability
                 if ( $am->wp_user_id ) {

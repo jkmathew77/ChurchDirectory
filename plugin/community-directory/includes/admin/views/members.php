@@ -142,10 +142,15 @@ $nonce    = wp_create_nonce( 'wp_rest' );
         <p id="cd-notice-text"></p>
     </div>
 
-    <!-- Search Box -->
-    <div class="cd-search-box">
+    <!-- Toolbar: Search + Export -->
+    <div class="cd-search-box" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <input type="search" id="cd-member-search" placeholder="<?php esc_attr_e( 'Search members...', 'community-directory' ); ?>">
         <button type="button" id="cd-btn-search" class="button"><?php esc_html_e( 'Search', 'community-directory' ); ?></button>
+        <a href="<?php echo esc_url( rest_url( CD_API_NAMESPACE . '/admin/members/export?status=active&_wpnonce=' . wp_create_nonce( 'wp_rest' ) ) ); ?>"
+           class="button" id="cd-btn-export" download="community-directory-export.csv"
+           style="margin-left:auto;"><?php esc_html_e( 'Export CSV', 'community-directory' ); ?></a>
+        <a href="<?php echo esc_url( admin_url( 'admin.php?page=cd-merge' ) ); ?>"
+           class="button" id="cd-btn-merge"><?php esc_html_e( 'Find Duplicates', 'community-directory' ); ?></a>
     </div>
 
     <!-- Tabs -->

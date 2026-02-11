@@ -167,6 +167,16 @@ class CD_Admin_Menu {
             'cd-debug-log',
             array( $this, 'render_debug_log_page' )
         );
+
+        // Merge Members (hidden — accessible from Members list)
+        add_submenu_page(
+            null,
+            __( 'Merge Members', 'community-directory' ),
+            '',
+            'manage_options',
+            'cd-merge',
+            array( $this, 'render_merge_page' )
+        );
     }
 
     /**
@@ -315,7 +325,11 @@ class CD_Admin_Menu {
     }
 
     public function render_reports_page() {
-        echo '<div class="wrap"><h1>' . esc_html__( 'Reports', 'community-directory' ) . '</h1><p>Coming in Phase 5.</p></div>';
+        include CD_PLUGIN_DIR . 'includes/admin/views/reports.php';
+    }
+
+    public function render_merge_page() {
+        include CD_PLUGIN_DIR . 'includes/admin/views/merge.php';
     }
 
     public function render_settings_page() {

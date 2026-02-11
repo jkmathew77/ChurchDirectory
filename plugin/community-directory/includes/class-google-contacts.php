@@ -189,20 +189,12 @@ class CD_Google_Contacts {
     }
 
     /**
-     * Create a contact in Google via People API.
-     * The contact is created in the authenticated user's account.
-     * For workspace-wide visibility, the admin should use a shared/workspace account.
+     * Build a People API person resource from member data.
      *
-     * @param array $member_data Member data: first_name, last_name, email, form_data.
-     * @return string|WP_Error The Google resource name (e.g., "people/c123") or error.
+     * @param array $member_data first_name, last_name, email, phone, form_data.
+     * @return array Person resource for the People API.
      */
-    public static function create_contact( $member_data ) {
-        $access_token = self::get_access_token();
-        if ( is_wp_error( $access_token ) ) {
-            return $access_token;
-        }
-
-        // Build the People API person resource
+    private static function build_person_resource( $member_data ) {
         $person = array(
             'names' => array( array(
                 'givenName'  => $member_data['first_name'] ?? '',
@@ -210,13 +202,11 @@ class CD_Google_Contacts {
             ) ),
         );
 
-        // Add middle name if available
         $form_data = $member_data['form_data'] ?? array();
         if ( ! empty( $form_data['middle_initial'] ) ) {
             $person['names'][0]['middleName'] = $form_data['middle_initial'];
         }
 
-        // Email
         if ( ! empty( $member_data['email'] ) ) {
             $person['emailAddresses'] = array( array(
                 'value' => $member_data['email'],
@@ -224,7 +214,6 @@ class CD_Google_Contacts {
             ) );
         }
 
-        // Phone (from form_data or top-level)
         $phone = $member_data['phone'] ?? ( $form_data['phone'] ?? '' );
         if ( ! empty( $phone ) ) {
             $person['phoneNumbers'] = array( array(
@@ -233,7 +222,6 @@ class CD_Google_Contacts {
             ) );
         }
 
-        // Address
         if ( ! empty( $form_data['address_line_1'] ) ) {
             $person['addresses'] = array( array(
                 'streetAddress' => $form_data['address_line_1'] ?? '',
@@ -244,7 +232,6 @@ class CD_Google_Contacts {
             ) );
         }
 
-        // Birthday
         if ( ! empty( $form_data['date_of_birth'] ) ) {
             $parts = explode( '-', $form_data['date_of_birth'] );
             if ( count( $parts ) === 3 ) {
@@ -258,24 +245,34 @@ class CD_Google_Contacts {
             }
         }
 
-        // Organization/profession
         if ( ! empty( $form_data['profession'] ) ) {
             $person['organizations'] = array( array(
                 'title' => $form_data['profession'],
             ) );
         }
 
-        // Membership note
         $person['biographies'] = array( array(
             'value'       => 'St. Thekla Community Directory Member',
             'contentType' => 'TEXT_PLAIN',
         ) );
 
-        // Add to contact group if configured
-        $group_name = get_option( 'cd_google_contact_group', 'St. Thekla Members' );
+        return $person;
+    }
 
-        // Make the API call
-        $url = self::PEOPLE_API . '/people:createContact?personFields=names,emailAddresses,phoneNumbers,addresses,birthdays,organizations,biographies,memberships';
+    /**
+     * Create a contact in Google via People API.
+     *
+     * @param array $member_data Member data: first_name, last_name, email, form_data.
+     * @return string|WP_Error The Google resource name (e.g., "people/c123") or error.
+     */
+    public static function create_contact( $member_data ) {
+        $access_token = self::get_access_token();
+        if ( is_wp_error( $access_token ) ) {
+            return $access_token;
+        }
+
+        $person = self::build_person_resource( $member_data );
+        $url    = self::PEOPLE_API . '/people:createContact?personFields=names,emailAddresses,phoneNumbers,addresses,birthdays,organizations,biographies,memberships';
 
         $response = wp_remote_post( $url, array(
             'headers' => array(
@@ -298,8 +295,251 @@ class CD_Google_Contacts {
             return new WP_Error( 'google_api_error', $error_msg );
         }
 
-        // Return the resource name (e.g., "people/c123456")
         return $body['resourceName'] ?? '';
+    }
+
+    /**
+     * Get a contact from Google to retrieve the current etag.
+     *
+     * @param string $resource_name e.g. "people/c123456789"
+     * @return array|WP_Error The person resource array or error.
+     */
+    public static function get_contact( $resource_name ) {
+        $access_token = self::get_access_token();
+        if ( is_wp_error( $access_token ) ) {
+            return $access_token;
+        }
+
+        $url = self::PEOPLE_API . '/' . $resource_name
+             . '?personFields=names,emailAddresses,phoneNumbers,addresses,birthdays,organizations,biographies,metadata';
+
+        $response = wp_remote_get( $url, array(
+            'headers' => array( 'Authorization' => 'Bearer ' . $access_token ),
+            'timeout' => 15,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $status = wp_remote_retrieve_response_code( $response );
+        $body   = json_decode( wp_remote_retrieve_body( $response ), true );
+
+        if ( $status >= 400 ) {
+            $error_msg = $body['error']['message'] ?? 'Google API error';
+            return new WP_Error( 'google_api_error', $error_msg );
+        }
+
+        return $body;
+    }
+
+    /**
+     * Update an existing Google contact.
+     * GETs the contact first for the required etag, then PATCHes.
+     *
+     * @param string $resource_name e.g. "people/c123456789"
+     * @param array  $member_data   Same format as create_contact().
+     * @return true|WP_Error
+     */
+    public static function update_contact( $resource_name, $member_data ) {
+        $access_token = self::get_access_token();
+        if ( is_wp_error( $access_token ) ) {
+            return $access_token;
+        }
+
+        $existing = self::get_contact( $resource_name );
+        if ( is_wp_error( $existing ) ) {
+            return $existing;
+        }
+
+        $etag = $existing['etag'] ?? '';
+        if ( empty( $etag ) ) {
+            return new WP_Error( 'no_etag', 'Could not retrieve contact etag for update.' );
+        }
+
+        $person          = self::build_person_resource( $member_data );
+        $person['etag']  = $etag;
+        $update_fields   = 'names,emailAddresses,phoneNumbers,addresses,birthdays,organizations,biographies';
+        $url             = self::PEOPLE_API . '/' . $resource_name
+                         . ':updateContact?updatePersonFields=' . $update_fields;
+
+        $response = wp_remote_request( $url, array(
+            'method'  => 'PATCH',
+            'headers' => array(
+                'Authorization' => 'Bearer ' . $access_token,
+                'Content-Type'  => 'application/json',
+            ),
+            'body'    => wp_json_encode( $person ),
+            'timeout' => 15,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $status = wp_remote_retrieve_response_code( $response );
+        if ( $status >= 400 ) {
+            $body = json_decode( wp_remote_retrieve_body( $response ), true );
+            return new WP_Error( 'google_api_error', $body['error']['message'] ?? 'Update failed' );
+        }
+
+        return true;
+    }
+
+    /**
+     * Delete a contact from Google Workspace.
+     *
+     * @param string $resource_name e.g. "people/c123456789"
+     * @return true|WP_Error
+     */
+    public static function delete_contact( $resource_name ) {
+        $access_token = self::get_access_token();
+        if ( is_wp_error( $access_token ) ) {
+            return $access_token;
+        }
+
+        $url = self::PEOPLE_API . '/' . $resource_name . ':deleteContact';
+
+        $response = wp_remote_request( $url, array(
+            'method'  => 'DELETE',
+            'headers' => array( 'Authorization' => 'Bearer ' . $access_token ),
+            'timeout' => 15,
+        ) );
+
+        if ( is_wp_error( $response ) ) {
+            return $response;
+        }
+
+        $status = wp_remote_retrieve_response_code( $response );
+        if ( $status >= 400 ) {
+            $body = json_decode( wp_remote_retrieve_body( $response ), true );
+            return new WP_Error( 'google_api_error', $body['error']['message'] ?? 'Delete failed' );
+        }
+
+        return true;
+    }
+
+    /**
+     * Build member data array from the database for Google sync.
+     *
+     * @param int $member_id
+     * @return array|false Member data array or false if not found.
+     */
+    public static function get_member_sync_data( $member_id ) {
+        global $wpdb;
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $members_table  = CD_Database::table( 'members' );
+
+        $row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT m.google_contact_id, p.first_name, p.last_name, p.emails, p.phones,
+                    p.address_home, p.city, p.state, p.zip_code, p.date_of_birth, p.occupation
+             FROM {$members_table} m
+             LEFT JOIN {$profiles_table} p ON m.id = p.member_id
+             WHERE m.id = %d",
+            $member_id
+        ) );
+
+        if ( ! $row ) {
+            return false;
+        }
+
+        $emails = json_decode( $row->emails ?? '', true ) ?: array();
+        $phones = json_decode( $row->phones ?? '', true ) ?: array();
+        $email  = ! empty( $emails[0]['value'] ) ? $emails[0]['value'] : '';
+        $phone  = ! empty( $phones[0]['value'] ) ? $phones[0]['value'] : '';
+
+        $dob     = $row->date_of_birth ? CD_Encryption::decrypt( $row->date_of_birth ) : '';
+        $address = $row->address_home  ? CD_Encryption::decrypt( $row->address_home )  : '';
+
+        return array(
+            'first_name'        => $row->first_name ?? '',
+            'last_name'         => $row->last_name ?? '',
+            'email'             => $email,
+            'phone'             => $phone,
+            'google_contact_id' => $row->google_contact_id ?? '',
+            'form_data'         => array(
+                'address_line_1' => $address,
+                'city'           => $row->city ?? '',
+                'state'          => $row->state ?? '',
+                'zip'            => $row->zip_code ?? '',
+                'date_of_birth'  => $dob,
+                'profession'     => $row->occupation ?? '',
+            ),
+        );
+    }
+
+    /**
+     * Central sync dispatcher — creates, updates, or deletes a Google contact.
+     * Handles missing google_contact_id by falling back to create.
+     * Failures are queued for cron retry.
+     *
+     * @param int    $member_id
+     * @param string $operation 'create', 'update', or 'delete'.
+     */
+    public static function sync_member( $member_id, $operation = 'update' ) {
+        if ( ! self::is_enabled() ) {
+            return;
+        }
+
+        $member_data = self::get_member_sync_data( $member_id );
+        if ( ! $member_data ) {
+            CD_Logger::warn( "Google Sync: member {$member_id} not found for {$operation}" );
+            return;
+        }
+
+        $resource_name = $member_data['google_contact_id'] ?? '';
+
+        switch ( $operation ) {
+            case 'create':
+                $result = self::create_contact( $member_data );
+                if ( ! is_wp_error( $result ) && ! empty( $result ) ) {
+                    global $wpdb;
+                    $wpdb->update(
+                        CD_Database::table( 'members' ),
+                        array( 'google_contact_id' => sanitize_text_field( $result ) ),
+                        array( 'id' => $member_id ),
+                        array( '%s' ),
+                        array( '%d' )
+                    );
+                }
+                break;
+
+            case 'update':
+                if ( empty( $resource_name ) ) {
+                    // No google_contact_id yet — create instead
+                    $result = self::create_contact( $member_data );
+                    if ( ! is_wp_error( $result ) && ! empty( $result ) ) {
+                        global $wpdb;
+                        $wpdb->update(
+                            CD_Database::table( 'members' ),
+                            array( 'google_contact_id' => sanitize_text_field( $result ) ),
+                            array( 'id' => $member_id ),
+                            array( '%s' ),
+                            array( '%d' )
+                        );
+                    }
+                } else {
+                    $result = self::update_contact( $resource_name, $member_data );
+                }
+                break;
+
+            case 'delete':
+                if ( empty( $resource_name ) ) {
+                    return; // Nothing to delete in Google
+                }
+                $result = self::delete_contact( $resource_name );
+                break;
+
+            default:
+                return;
+        }
+
+        if ( is_wp_error( $result ) ) {
+            CD_Logger::warn( "Google Sync {$operation} failed for member {$member_id}: " . $result->get_error_message() );
+            self::queue_retry( $member_id, $member_data, $operation );
+        } else {
+            CD_Logger::info( "Google Sync {$operation} succeeded for member {$member_id}" );
+        }
     }
 
     /**
@@ -424,15 +664,21 @@ class CD_Google_Contacts {
     }
 
     /**
-     * Queue a failed contact creation for cron retry.
+     * Queue a failed contact operation for cron retry.
+     *
+     * @param int    $member_id
+     * @param array  $member_data
+     * @param string $operation 'create', 'update', or 'delete'.
      */
-    public static function queue_retry( $member_id, $member_data ) {
+    public static function queue_retry( $member_id, $member_data, $operation = 'create' ) {
         $queue = get_option( 'cd_google_retry_queue', array() );
         $queue[] = array(
-            'member_id'    => $member_id,
-            'member_data'  => $member_data,
-            'retries'      => 0,
-            'last_attempt' => time(),
+            'member_id'     => $member_id,
+            'member_data'   => $member_data,
+            'operation'     => $operation,
+            'resource_name' => $member_data['google_contact_id'] ?? '',
+            'retries'       => 0,
+            'last_attempt'  => time(),
         );
         update_option( 'cd_google_retry_queue', $queue );
     }
