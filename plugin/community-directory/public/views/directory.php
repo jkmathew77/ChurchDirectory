@@ -113,42 +113,10 @@ get_header();
                 </div>
             </template>
 
-            <!-- Household Results -->
-            <template x-if="!loading && households.length > 0"><div class="cd-household-results">
-                <h2 class="cd-section-title" style="margin-top: 0;"><?php esc_html_e( 'Households', 'community-directory' ); ?></h2>
-                <div class="cd-household-grid">
-                    <template x-for="hh in households" :key="'hh-'+hh.id">
-                        <div class="cd-household-card">
-                            <div class="cd-household-card-photo" x-show="hh.photo_url">
-                                <img :src="hh.photo_url" :alt="hh.name" class="cd-household-card-img">
-                            </div>
-                            <div class="cd-household-card-body">
-                                <h3 class="cd-household-card-name" x-text="hh.name"></h3>
-                                <p class="cd-text-muted cd-household-card-addr" x-show="hh.address && (hh.address.city || hh.address.line_1)" x-text="[hh.address.line_1, [hh.address.city, hh.address.state].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
-                                <div class="cd-household-card-members">
-                                    <template x-for="hm in hh.members" :key="hm.uuid">
-                                        <a :href="'<?php echo esc_url( $member_url_base ); ?>' + hm.uuid" class="cd-household-card-member" :title="hm.first_name + ' ' + hm.last_name">
-                                            <template x-if="hm.avatar_url">
-                                                <img :src="hm.avatar_url" :alt="hm.first_name" class="cd-avatar-xs-img">
-                                            </template>
-                                            <template x-if="!hm.avatar_url">
-                                                <div class="cd-avatar-xs" :style="'background-color: ' + getAvatarColor((hm.first_name||'') + ' ' + (hm.last_name||''))">
-                                                    <span x-text="getInitials(hm.first_name, hm.last_name)"></span>
-                                                </div>
-                                            </template>
-                                        </a>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
-                    </template>
-                </div>
-            </div></template>
-
-            <!-- Member Grid -->
+            <!-- Member Grid (shown first) -->
             <template x-if="!loading && members.length > 0"><div>
                 <template x-if="households.length > 0">
-                    <h2 class="cd-section-title" style="margin-top: 1rem;"><?php esc_html_e( 'Members', 'community-directory' ); ?></h2>
+                    <h2 class="cd-section-title" style="margin-top: 0;"><?php esc_html_e( 'Members', 'community-directory' ); ?></h2>
                 </template>
                 <div class="cd-member-grid">
                 <template x-for="member in members" :key="member.uuid">
@@ -197,6 +165,38 @@ get_header();
                     <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" :disabled="page >= totalPages" @click="nextPage()"><?php esc_html_e( 'Next', 'community-directory' ); ?> &raquo;</button>
                 </div>
             </template>
+
+            <!-- Household Results (shown below members) -->
+            <template x-if="!loading && households.length > 0"><div class="cd-household-results">
+                <h2 class="cd-section-title" style="margin-top: 1.5rem;"><?php esc_html_e( 'Households', 'community-directory' ); ?></h2>
+                <div class="cd-household-grid">
+                    <template x-for="hh in households" :key="'hh-'+hh.id">
+                        <div class="cd-household-card">
+                            <div class="cd-household-card-photo" x-show="hh.photo_url">
+                                <img :src="hh.photo_url" :alt="hh.name" class="cd-household-card-img">
+                            </div>
+                            <div class="cd-household-card-body">
+                                <h3 class="cd-household-card-name" x-text="hh.name"></h3>
+                                <p class="cd-text-muted cd-household-card-addr" x-show="hh.address && (hh.address.city || hh.address.line_1)" x-text="[hh.address.line_1, [hh.address.city, hh.address.state].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
+                                <div class="cd-household-card-members">
+                                    <template x-for="hm in hh.members" :key="hm.uuid">
+                                        <a :href="'<?php echo esc_url( $member_url_base ); ?>' + hm.uuid" class="cd-household-card-member" :title="hm.first_name + ' ' + hm.last_name">
+                                            <template x-if="hm.avatar_url">
+                                                <img :src="hm.avatar_url" :alt="hm.first_name" class="cd-avatar-xs-img">
+                                            </template>
+                                            <template x-if="!hm.avatar_url">
+                                                <div class="cd-avatar-xs" :style="'background-color: ' + getAvatarColor((hm.first_name||'') + ' ' + (hm.last_name||''))">
+                                                    <span x-text="getInitials(hm.first_name, hm.last_name)"></span>
+                                                </div>
+                                            </template>
+                                        </a>
+                                    </template>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div></template>
 
             <!-- WhatsApp Groups Section -->
             <template x-if="whatsappGroups.length > 0"><div class="cd-whatsapp-section">

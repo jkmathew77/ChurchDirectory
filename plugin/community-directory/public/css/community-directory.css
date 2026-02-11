@@ -2122,7 +2122,8 @@
 }
 
 .cd-household-card {
-    background: var(--cd-bg-white);
+    background: linear-gradient(135deg, #fdf8f0 0%, #fefcf8 100%);
+    border: 1px solid #f0e6d6;
     border-radius: var(--cd-radius-lg);
     box-shadow: var(--cd-shadow);
     overflow: hidden;
@@ -2156,6 +2157,12 @@
     font-weight: 700;
     margin: 0 0 4px;
     color: var(--cd-text);
+}
+
+.cd-household-card-name::before {
+    content: '\1F3E0';
+    margin-right: 6px;
+    font-size: 0.9rem;
 }
 
 .cd-household-card-addr {
