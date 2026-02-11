@@ -119,6 +119,7 @@ class CD_Plugin {
         add_action( 'template_redirect', array( $this, 'handle_community_redirects' ) );
         add_filter( 'template_include', array( $this, 'load_community_template' ) );
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_public_assets' ) );
+        add_action( 'wp_head', array( $this, 'inject_critical_css' ), 1 );
         add_filter( 'body_class', array( $this, 'add_body_classes' ) );
         add_filter( 'document_title_parts', array( $this, 'filter_page_title' ) );
 
@@ -359,6 +360,44 @@ class CD_Plugin {
         if ( is_ssl() ) {
             header( 'Strict-Transport-Security: max-age=31536000; includeSubDomains' );
         }
+    }
+
+    /**
+     * Inject critical inline CSS into <head> before any external stylesheets.
+     * Prevents FOUC for Alpine.js x-cloak elements and hides theme chrome
+     * in PWA standalone mode before the external CSS file loads.
+     */
+    public function inject_critical_css() {
+        if ( empty( get_query_var( 'cd_page' ) ) ) {
+            return;
+        }
+        ?>
+        <style id="cd-critical-css">
+            [x-cloak] { display: none !important; }
+            @media (display-mode: standalone) {
+                .site-header,
+                .main-navigation,
+                .site-branding,
+                #masthead,
+                #site-navigation,
+                .header-navigation-area,
+                .wp-site-blocks > header,
+                header.wp-block-template-part,
+                .site-footer,
+                #colophon,
+                .wp-site-blocks > footer,
+                footer.wp-block-template-part,
+                #wpadminbar {
+                    display: none !important;
+                }
+                html { margin-top: 0 !important; }
+                body.cd-page {
+                    padding-top: env(safe-area-inset-top) !important;
+                    margin-top: 0 !important;
+                }
+            }
+        </style>
+        <?php
     }
 
     /**

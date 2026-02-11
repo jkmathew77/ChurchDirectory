@@ -1012,10 +1012,6 @@
     margin: 4px 0 0;
 }
 
-[x-cloak] {
-    display: none !important;
-}
-
 /* ─── Responsive ─── */
 @media (max-width: 480px) {
     .cd-container {
@@ -1782,6 +1778,9 @@
     footer.wp-block-template-part,
     #wpadminbar {
         display: none !important;
+    }
+    html {
+        margin-top: 0 !important;
     }
     body.cd-page {
         padding-top: env(safe-area-inset-top) !important;
