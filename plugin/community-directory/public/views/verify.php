@@ -31,7 +31,7 @@ get_header();
                 </div>
 
                 <!-- Success state -->
-                <div x-show="!loading && success" x-cloak x-transition>
+                <div x-show="!loading && success" x-cloak x-transition style="display:none">
                     <div class="cd-success-icon">&#10003;</div>
                     <h2><?php esc_html_e( 'Email Verified!', 'community-directory' ); ?></h2>
                     <p><?php esc_html_e( 'Your email address has been verified and your application is now under review. A church officer will review your application and you will be notified by email once a decision has been made.', 'community-directory' ); ?></p>
@@ -41,7 +41,7 @@ get_header();
                 </div>
 
                 <!-- Error state -->
-                <div x-show="!loading && !success && errorMessage" x-cloak x-transition>
+                <div x-show="!loading && !success && errorMessage" x-cloak x-transition style="display:none">
                     <div class="cd-error-icon">&#10007;</div>
                     <h2><?php esc_html_e( 'Verification Failed', 'community-directory' ); ?></h2>
                     <p x-text="errorMessage"></p>

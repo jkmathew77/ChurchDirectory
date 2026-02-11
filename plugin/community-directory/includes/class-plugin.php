@@ -120,6 +120,7 @@ class CD_Plugin {
         add_filter( 'template_include', array( $this, 'load_community_template' ) );
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_public_assets' ) );
         add_action( 'wp_head', array( $this, 'inject_critical_css' ), 1 );
+        add_filter( 'script_loader_tag', array( $this, 'protect_scripts_from_optimization' ), 10, 2 );
         add_filter( 'body_class', array( $this, 'add_body_classes' ) );
         add_filter( 'document_title_parts', array( $this, 'filter_page_title' ) );
 
@@ -363,6 +364,21 @@ class CD_Plugin {
     }
 
     /**
+     * Prevent caching/optimization plugins (Autoptimize, WP Rocket, LiteSpeed, etc.)
+     * from combining, deferring, or delaying our scripts. Alpine.js must execute
+     * immediately after community-directory.js to register components.
+     */
+    public function protect_scripts_from_optimization( $tag, $handle ) {
+        if ( in_array( $handle, array( 'community-directory', 'alpinejs' ), true ) ) {
+            // data-no-optimize: Autoptimize / LiteSpeed
+            // data-cfasync="false": Cloudflare Rocket Loader
+            // data-pagespeed-no-defer: PageSpeed
+            $tag = str_replace( ' src=', ' data-no-optimize="1" data-cfasync="false" src=', $tag );
+        }
+        return $tag;
+    }
+
+    /**
      * Inject critical inline CSS into <head> before any external stylesheets.
      * Prevents FOUC for Alpine.js x-cloak elements and hides theme chrome
      * in PWA standalone mode before the external CSS file loads.
@@ -374,6 +390,11 @@ class CD_Plugin {
         ?>
         <style id="cd-critical-css">
             [x-cloak] { display: none !important; }
+            /* Hide WP admin bar on all community pages — prevents unstyled
+               admin bar rendering when caching plugins strip admin-bar CSS */
+            body.cd-page #wpadminbar,
+            body.cd-page .screen-reader-shortcut { display: none !important; }
+            html.wp-toolbar { margin-top: 0 !important; padding-top: 0 !important; }
             @media (display-mode: standalone) {
                 .site-header,
                 .main-navigation,
@@ -386,8 +407,7 @@ class CD_Plugin {
                 .site-footer,
                 #colophon,
                 .wp-site-blocks > footer,
-                footer.wp-block-template-part,
-                #wpadminbar {
+                footer.wp-block-template-part {
                     display: none !important;
                 }
                 html { margin-top: 0 !important; }
@@ -419,12 +439,14 @@ class CD_Plugin {
         );
 
         // Alpine.js (vendored) - Depends on community-directory to ensure it loads AFTER
+        // Using simple footer loading (not defer) to prevent caching/optimization plugins
+        // from reordering or delaying Alpine.js script execution.
         wp_enqueue_script(
             'alpinejs',
             CD_PLUGIN_URL . 'public/js/alpine.min.js',
             array( 'community-directory' ),
             '3.14.3',
-            array( 'strategy' => 'defer' )
+            true
         );
 
         // Localize script with API config
