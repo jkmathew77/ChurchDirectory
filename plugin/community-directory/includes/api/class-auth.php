@@ -199,6 +199,7 @@ class CD_API_Auth extends CD_API_Base {
             'response_type' => 'code',
             'scope'         => 'openid email profile',
             'access_type'   => 'online',
+            'prompt'        => 'select_account',
             'state'         => $nonce,
         );
 

@@ -95,14 +95,15 @@ class CD_PWA {
         }
 
         $base_slug = get_option( 'cd_base_slug', 'community' );
-        $sw_url    = home_url( $base_slug . '/cd-sw.js' );
+        $sw_url    = home_url( $base_slug . '/cd-sw.js?v=' . CD_VERSION );
         $scope     = home_url( $base_slug . '/' );
         ?>
         <script>
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
                 navigator.serviceWorker.register(<?php echo wp_json_encode( $sw_url ); ?>, {
-                    scope: <?php echo wp_json_encode( $scope ); ?>
+                    scope: <?php echo wp_json_encode( $scope ); ?>,
+                    updateViaCache: 'none'
                 }).then(function(reg) {
                     // Check for updates
                     reg.addEventListener('updatefound', function() {

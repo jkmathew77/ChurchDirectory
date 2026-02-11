@@ -99,6 +99,7 @@ document.addEventListener('alpine:init', () => {
                 const errorMessages = {
                     'no_account': 'No directory account is associated with this Google account. Please log in with email/password or apply for membership.',
                     'invalid_state': 'Google sign-in session expired. Please try again.',
+                    'invalid_grant': 'Google sign-in session expired. Please click "Sign in with Google" to try again.',
                     'token_exchange_failed': 'Could not connect to Google. Please try again.',
                 };
                 this.errorMessage = errorMessages[error] || 'Sign-in error: ' + error;
@@ -547,138 +548,166 @@ document.addEventListener('alpine:init', () => {
     }));
 
     /* ─── Directory ─── */
-    Alpine.data('cdDirectory', () => ({
-        searchQuery: '',
-        members: [],
-        loading: false,
-        page: 1,
-        perPage: 24,
-        totalPages: 1,
-        totalMembers: 0,
+    Alpine.data('cdDirectory', () => {
+        try {
+            return {
+                searchQuery: '',
+                members: [],
+                loading: false,
+                page: 1,
+                perPage: 24,
+                totalPages: 1,
+                totalMembers: 0,
 
-        // Advanced filters
-        showFilters: false,
-        filterCity: '',
-        filterState: '',
-        filterOccupation: '',
-        filterEmployer: '',
+                // Advanced filters
+                showFilters: false,
+                filterCity: '',
+                filterState: '',
+                filterOccupation: '',
+                filterEmployer: '',
 
-        // WhatsApp groups
-        whatsappGroups: [],
-        whatsappLoading: false,
+                // WhatsApp groups
+                whatsappGroups: [],
+                whatsappLoading: false,
 
-        init() {
-            this.loadMembers();
-            this.loadWhatsAppGroups();
-        },
+                init() {
+                    // Safety: Force loading to stop after 5s if API hangs
+                    setTimeout(() => {
+                        if (this.loading) {
+                            console.warn('CD: Loading timed out, forcing UI state');
+                            this.loading = false;
+                        }
+                    }, 5000);
 
-        async loadMembers() {
-            this.loading = true;
-            try {
-                let url = '/directory?page=' + this.page + '&per_page=' + this.perPage;
-                if (this.searchQuery) {
-                    url += '&search=' + encodeURIComponent(this.searchQuery);
+                    this.loadMembers();
+                    this.loadWhatsAppGroups();
+                },
+
+                async loadMembers() {
+                    this.loading = true;
+                    try {
+                        let url = '/directory?page=' + this.page + '&per_page=' + this.perPage;
+                        if (this.searchQuery) {
+                            url += '&search=' + encodeURIComponent(this.searchQuery);
+                        }
+                        if (this.filterCity) url += '&city=' + encodeURIComponent(this.filterCity);
+                        if (this.filterState) url += '&state=' + encodeURIComponent(this.filterState);
+                        if (this.filterOccupation) url += '&occupation=' + encodeURIComponent(this.filterOccupation);
+                        if (this.filterEmployer) url += '&employer=' + encodeURIComponent(this.filterEmployer);
+
+                        const result = await cdApi.get(url);
+                        this.members = result.data.members || [];
+
+                        // Decode obfuscated emails
+                        if (result.data.email_obfuscated) {
+                            this.members.forEach(m => { if (m.email) m.email = cdDecodeEmail(m.email); });
+                        }
+
+                        if (result.meta) {
+                            this.totalPages = result.meta.pages;
+                            this.totalMembers = result.meta.total;
+                        }
+                    } catch (err) {
+                        console.error('Directory load error:', err);
+                        this.members = [];
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async loadWhatsAppGroups() {
+                    this.whatsappLoading = true;
+                    try {
+                        const result = await cdApi.get('/whatsapp-groups');
+                        this.whatsappGroups = result.data.groups || [];
+                    } catch (err) {
+                        this.whatsappGroups = [];
+                    } finally {
+                        this.whatsappLoading = false;
+                    }
+                },
+
+                search() {
+                    this.page = 1;
+                    this.loadMembers();
+                },
+
+                applyFilters() {
+                    this.page = 1;
+                    this.loadMembers();
+                },
+
+                clearFilters() {
+                    this.filterCity = '';
+                    this.filterState = '';
+                    this.filterOccupation = '';
+                    this.filterEmployer = '';
+                    this.page = 1;
+                    this.loadMembers();
+                },
+
+                hasActiveFilters() {
+                    return this.filterCity || this.filterState || this.filterOccupation || this.filterEmployer;
+                },
+
+                nextPage() {
+                    if (this.page < this.totalPages) {
+                        this.page++;
+                        this.loadMembers();
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                },
+
+                prevPage() {
+                    if (this.page > 1) {
+                        this.page--;
+                        this.loadMembers();
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                },
+
+                // Display name with optional salutation
+                displayName(member) {
+                    var prefix = member.salutation ? member.salutation + ' ' : '';
+                    return prefix + member.first_name + ' ' + member.last_name;
+                },
+
+                logout() {
+                    window.location.href = cdConfig.logoutUrl || (cdConfig.baseUrl + '/login/?logged_out=1');
+                },
+
+                // Helper for avatar background color
+                getAvatarColor(name) {
+                    const colors = ['#d32f2f', '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#1976d2', '#0288d1', '#0097a7', '#00796b', '#388e3c', '#afb42b', '#fbc02d', '#ffa000', '#f57c00', '#e64a19', '#5d4037', '#616161'];
+                    let hash = 0;
+                    for (let i = 0; i < name.length; i++) {
+                        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+                    }
+                    return colors[Math.abs(hash) % colors.length];
+                },
+
+                getInitials(first, last) {
+                    return ((first || '').charAt(0) + (last || '').charAt(0)).toUpperCase();
                 }
-                if (this.filterCity) url += '&city=' + encodeURIComponent(this.filterCity);
-                if (this.filterState) url += '&state=' + encodeURIComponent(this.filterState);
-                if (this.filterOccupation) url += '&occupation=' + encodeURIComponent(this.filterOccupation);
-                if (this.filterEmployer) url += '&employer=' + encodeURIComponent(this.filterEmployer);
-
-                const result = await cdApi.get(url);
-                this.members = result.data.members || [];
-
-                // Decode obfuscated emails
-                if (result.data.email_obfuscated) {
-                    this.members.forEach(m => { if (m.email) m.email = cdDecodeEmail(m.email); });
-                }
-
-                if (result.meta) {
-                    this.totalPages = result.meta.pages;
-                    this.totalMembers = result.meta.total;
-                }
-            } catch (err) {
-                console.error('Directory load error:', err);
-                this.members = [];
-            } finally {
-                this.loading = false;
-            }
-        },
-
-        async loadWhatsAppGroups() {
-            this.whatsappLoading = true;
-            try {
-                const result = await cdApi.get('/whatsapp-groups');
-                this.whatsappGroups = result.data.groups || [];
-            } catch (err) {
-                this.whatsappGroups = [];
-            } finally {
-                this.whatsappLoading = false;
-            }
-        },
-
-        search() {
-            this.page = 1;
-            this.loadMembers();
-        },
-
-        applyFilters() {
-            this.page = 1;
-            this.loadMembers();
-        },
-
-        clearFilters() {
-            this.filterCity = '';
-            this.filterState = '';
-            this.filterOccupation = '';
-            this.filterEmployer = '';
-            this.page = 1;
-            this.loadMembers();
-        },
-
-        hasActiveFilters() {
-            return this.filterCity || this.filterState || this.filterOccupation || this.filterEmployer;
-        },
-
-        nextPage() {
-            if (this.page < this.totalPages) {
-                this.page++;
-                this.loadMembers();
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-        },
-
-        prevPage() {
-            if (this.page > 1) {
-                this.page--;
-                this.loadMembers();
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            }
-        },
-
-        // Display name with optional salutation
-        displayName(member) {
-            var prefix = member.salutation ? member.salutation + ' ' : '';
-            return prefix + member.first_name + ' ' + member.last_name;
-        },
-
-        logout() {
-            window.location.href = cdConfig.logoutUrl || (cdConfig.baseUrl + '/login/?logged_out=1');
-        },
-
-        // Helper for avatar background color
-        getAvatarColor(name) {
-            const colors = ['#d32f2f', '#c2185b', '#7b1fa2', '#512da8', '#303f9f', '#1976d2', '#0288d1', '#0097a7', '#00796b', '#388e3c', '#afb42b', '#fbc02d', '#ffa000', '#f57c00', '#e64a19', '#5d4037', '#616161'];
-            let hash = 0;
-            for (let i = 0; i < name.length; i++) {
-                hash = name.charCodeAt(i) + ((hash << 5) - hash);
-            }
-            return colors[Math.abs(hash) % colors.length];
-        },
-
-        getInitials(first, last) {
-            return (first.charAt(0) + last.charAt(0)).toUpperCase();
+            }; // End returned object
+        } catch (e) {
+            console.error('CD: Critical Error in cdDirectory', e);
+            return {
+                init() { },
+                loading: false,
+                members: [],
+                searchQuery: '',
+                page: 1,
+                totalPages: 0,
+                whatsappGroups: [],
+                getError() { return 'Application error: ' + e.message; },
+                displayName() { return 'Error'; },
+                getAvatarColor() { return '#ccc'; },
+                getInitials() { return '!!'; },
+                hasActiveFilters() { return false; }
+            };
         }
-    }));
+    });
 
     /* ─── Member Profile View ─── */
     Alpine.data('cdMemberProfile', () => ({
@@ -736,7 +765,7 @@ document.addEventListener('alpine:init', () => {
             if (!value) return '';
             const digits = value.replace(/\D/g, '');
             if (digits.length === 10) {
-                return '(' + digits.slice(0,3) + ') ' + digits.slice(3,6) + '-' + digits.slice(6);
+                return '(' + digits.slice(0, 3) + ') ' + digits.slice(3, 6) + '-' + digits.slice(6);
             }
             return value;
         },
@@ -989,7 +1018,7 @@ document.addEventListener('alpine:init', () => {
                     const video = this.$refs.cameraVideo;
                     if (video) {
                         video.srcObject = stream;
-                        video.play().catch(() => {});
+                        video.play().catch(() => { });
                     }
                 });
             };
@@ -1422,19 +1451,19 @@ document.addEventListener('alpine:init', () => {
 });
 
 /* ─── PWA: Install Prompt, Update Banner, Session Management ─── */
-(function() {
+(function () {
     'use strict';
 
     // Only run on community pages
     if (typeof cdConfig === 'undefined') return;
 
     var isPwa = window.matchMedia('(display-mode: standalone)').matches ||
-                window.navigator.standalone === true;
+        window.navigator.standalone === true;
 
     /* ── Install Prompt (Android) ── */
     var deferredPrompt = null;
 
-    window.addEventListener('beforeinstallprompt', function(e) {
+    window.addEventListener('beforeinstallprompt', function (e) {
         e.preventDefault();
         deferredPrompt = e;
 
@@ -1455,24 +1484,24 @@ document.addEventListener('alpine:init', () => {
         banner.className = 'cd-pwa-install-banner';
         banner.innerHTML =
             '<div class="cd-pwa-install-content">' +
-                '<span class="cd-pwa-install-text">Install this app for quick access</span>' +
-                '<div class="cd-pwa-install-actions">' +
-                    '<button class="cd-pwa-install-btn" id="cd-pwa-install-accept">Install</button>' +
-                    '<button class="cd-pwa-install-dismiss" id="cd-pwa-install-dismiss" aria-label="Dismiss">&times;</button>' +
-                '</div>' +
+            '<span class="cd-pwa-install-text">Install this app for quick access</span>' +
+            '<div class="cd-pwa-install-actions">' +
+            '<button class="cd-pwa-install-btn" id="cd-pwa-install-accept">Install</button>' +
+            '<button class="cd-pwa-install-dismiss" id="cd-pwa-install-dismiss" aria-label="Dismiss">&times;</button>' +
+            '</div>' +
             '</div>';
 
         document.body.appendChild(banner);
 
         // Slide in
-        requestAnimationFrame(function() {
+        requestAnimationFrame(function () {
             banner.classList.add('cd-pwa-install-visible');
         });
 
-        document.getElementById('cd-pwa-install-accept').addEventListener('click', function() {
+        document.getElementById('cd-pwa-install-accept').addEventListener('click', function () {
             if (deferredPrompt) {
                 deferredPrompt.prompt();
-                deferredPrompt.userChoice.then(function(result) {
+                deferredPrompt.userChoice.then(function (result) {
                     deferredPrompt = null;
                     removeInstallBanner();
                     if (result.outcome === 'dismissed') {
@@ -1482,7 +1511,7 @@ document.addEventListener('alpine:init', () => {
             }
         });
 
-        document.getElementById('cd-pwa-install-dismiss').addEventListener('click', function() {
+        document.getElementById('cd-pwa-install-dismiss').addEventListener('click', function () {
             localStorage.setItem('cd-pwa-dismissed', Date.now().toString());
             removeInstallBanner();
         });
@@ -1492,7 +1521,7 @@ document.addEventListener('alpine:init', () => {
         var banner = document.getElementById('cd-pwa-install-banner');
         if (banner) {
             banner.classList.remove('cd-pwa-install-visible');
-            setTimeout(function() { banner.remove(); }, 300);
+            setTimeout(function () { banner.remove(); }, 300);
         }
     }
 
@@ -1506,26 +1535,26 @@ document.addEventListener('alpine:init', () => {
             sessionStorage.setItem('cd-pwa-ios-shown', '1');
 
             // Delay slightly so page loads first
-            setTimeout(function() {
+            setTimeout(function () {
                 var overlay = document.createElement('div');
                 overlay.id = 'cd-pwa-ios-overlay';
                 overlay.className = 'cd-pwa-ios-overlay';
                 overlay.innerHTML =
                     '<div class="cd-pwa-ios-card">' +
-                        '<button class="cd-pwa-ios-close" id="cd-pwa-ios-close" aria-label="Close">&times;</button>' +
-                        '<div class="cd-pwa-ios-icon">&#x2B06;&#xFE0F;</div>' +
-                        '<h3>Install This App</h3>' +
-                        '<p>Tap the <strong>Share</strong> button <span style="font-size:1.2em;">&#x1F4E4;</span> in Safari, then select <strong>"Add to Home Screen"</strong></p>' +
-                        '<button class="cd-pwa-ios-got-it" id="cd-pwa-ios-got-it">Got It</button>' +
+                    '<button class="cd-pwa-ios-close" id="cd-pwa-ios-close" aria-label="Close">&times;</button>' +
+                    '<div class="cd-pwa-ios-icon">&#x2B06;&#xFE0F;</div>' +
+                    '<h3>Install This App</h3>' +
+                    '<p>Tap the <strong>Share</strong> button <span style="font-size:1.2em;">&#x1F4E4;</span> in Safari, then select <strong>"Add to Home Screen"</strong></p>' +
+                    '<button class="cd-pwa-ios-got-it" id="cd-pwa-ios-got-it">Got It</button>' +
                     '</div>';
 
                 document.body.appendChild(overlay);
-                requestAnimationFrame(function() { overlay.classList.add('cd-pwa-ios-visible'); });
+                requestAnimationFrame(function () { overlay.classList.add('cd-pwa-ios-visible'); });
 
                 function closeIosOverlay() {
                     localStorage.setItem('cd-pwa-ios-dismissed', Date.now().toString());
                     overlay.classList.remove('cd-pwa-ios-visible');
-                    setTimeout(function() { overlay.remove(); }, 300);
+                    setTimeout(function () { overlay.remove(); }, 300);
                 }
 
                 document.getElementById('cd-pwa-ios-close').addEventListener('click', closeIosOverlay);
@@ -1535,7 +1564,7 @@ document.addEventListener('alpine:init', () => {
     }
 
     /* ── Update Banner ── */
-    window.addEventListener('cd-sw-update', function(e) {
+    window.addEventListener('cd-sw-update', function (e) {
         // Don't show duplicate
         if (document.getElementById('cd-pwa-update-banner')) return;
 
@@ -1545,24 +1574,24 @@ document.addEventListener('alpine:init', () => {
         banner.className = 'cd-pwa-update-banner';
         banner.innerHTML =
             '<div class="cd-pwa-update-content">' +
-                '<span>A new version is available.</span>' +
-                '<button class="cd-pwa-update-btn" id="cd-pwa-update-btn">Tap to update</button>' +
-                '<button class="cd-pwa-update-dismiss" id="cd-pwa-update-dismiss" aria-label="Dismiss">&times;</button>' +
+            '<span>A new version is available.</span>' +
+            '<button class="cd-pwa-update-btn" id="cd-pwa-update-btn">Tap to update</button>' +
+            '<button class="cd-pwa-update-dismiss" id="cd-pwa-update-dismiss" aria-label="Dismiss">&times;</button>' +
             '</div>';
 
         document.body.appendChild(banner);
-        requestAnimationFrame(function() { banner.classList.add('cd-pwa-update-visible'); });
+        requestAnimationFrame(function () { banner.classList.add('cd-pwa-update-visible'); });
 
-        document.getElementById('cd-pwa-update-btn').addEventListener('click', function() {
+        document.getElementById('cd-pwa-update-btn').addEventListener('click', function () {
             window._cdSwUpdating = true;
             if (reg.waiting) {
                 reg.waiting.postMessage({ type: 'SKIP_WAITING' });
             }
         });
 
-        document.getElementById('cd-pwa-update-dismiss').addEventListener('click', function() {
+        document.getElementById('cd-pwa-update-dismiss').addEventListener('click', function () {
             banner.classList.remove('cd-pwa-update-visible');
-            setTimeout(function() { banner.remove(); }, 300);
+            setTimeout(function () { banner.remove(); }, 300);
         });
     });
 
@@ -1571,7 +1600,7 @@ document.addEventListener('alpine:init', () => {
         var lastSessionCheck = Date.now();
         var SESSION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
-        document.addEventListener('visibilitychange', function() {
+        document.addEventListener('visibilitychange', function () {
             if (document.visibilityState !== 'visible') return;
             if ((Date.now() - lastSessionCheck) < SESSION_CHECK_INTERVAL) return;
 
@@ -1581,16 +1610,16 @@ document.addEventListener('alpine:init', () => {
                 credentials: 'same-origin',
                 headers: { 'X-WP-Nonce': cdConfig.nonce }
             })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.data && data.data.valid === false) {
-                    var returnPath = encodeURIComponent(window.location.pathname + window.location.search);
-                    window.location.href = cdConfig.baseUrl + '/login/?expired=1&return=' + returnPath;
-                }
-            })
-            .catch(function() {
-                // Network error — don't redirect, user might be offline
-            });
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.data && data.data.valid === false) {
+                        var returnPath = encodeURIComponent(window.location.pathname + window.location.search);
+                        window.location.href = cdConfig.baseUrl + '/login/?expired=1&return=' + returnPath;
+                    }
+                })
+                .catch(function () {
+                    // Network error — don't redirect, user might be offline
+                });
         });
     }
 
