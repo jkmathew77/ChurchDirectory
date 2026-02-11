@@ -30,21 +30,21 @@ class CD_API_Admin extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/admin/applications', array(
             'methods'             => WP_REST_Server::READABLE,
             'callback'            => array( $this, 'list_applications' ),
-            'permission_callback' => array( $this, 'permission_secretary' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // PUT /admin/applications/{id} — approve/reject/hold/info
         register_rest_route( CD_API_NAMESPACE, '/admin/applications/(?P<id>\d+)', array(
             'methods'             => 'PUT',
             'callback'            => array( $this, 'update_application' ),
-            'permission_callback' => array( $this, 'permission_secretary' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // POST /admin/applications/{id}/resend-invite
         register_rest_route( CD_API_NAMESPACE, '/admin/applications/(?P<id>\d+)/resend-invite', array(
             'methods'             => 'POST',
             'callback'            => array( $this, 'resend_invite' ),
-            'permission_callback' => array( $this, 'permission_secretary' ),
+            'permission_callback' => array( $this, 'permission_officer' ),
         ) );
 
         // GET /admin/officers — list active officers

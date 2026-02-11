@@ -571,6 +571,25 @@ document.addEventListener('alpine:init', () => {
                 whatsappGroups: [],
                 whatsappLoading: false,
 
+                // Officer admin state
+                isOfficer: !!(cdConfig && cdConfig.isOfficer),
+                activeTab: 'directory',
+                pendingAppCount: 0,
+
+                // Applications state
+                applications: [],
+                appsLoading: false,
+                appsError: '',
+                appsPage: 1,
+                appsTotalPages: 1,
+                appStatusFilter: '',
+                appCounts: { all: 0, new: 0, under_review: 0, on_hold: 0, approved: 0, not_approved: 0 },
+                expandedAppId: null,
+                appActionNotes: '',
+                appActioning: false,
+                appActionSuccess: '',
+                appActionError: '',
+
                 init() {
                     // Safety: Force loading to stop after 5s if API hangs
                     setTimeout(() => {
@@ -582,6 +601,11 @@ document.addEventListener('alpine:init', () => {
 
                     this.loadMembers();
                     this.loadWhatsAppGroups();
+
+                    // Officers: fetch pending count on init
+                    if (this.isOfficer) {
+                        this.loadPendingAppCount();
+                    }
                 },
 
                 async loadMembers() {
@@ -691,6 +715,106 @@ document.addEventListener('alpine:init', () => {
 
                 getInitials(first, last) {
                     return ((first || '').charAt(0) + (last || '').charAt(0)).toUpperCase();
+                },
+
+                // ── Officer Admin Methods ──
+
+                switchTab(tab) {
+                    this.activeTab = tab;
+                    if (tab === 'admin' && this.applications.length === 0) {
+                        this.loadApplications();
+                    }
+                },
+
+                async loadPendingAppCount() {
+                    try {
+                        const result = await cdApi.get('/admin/applications?status=new&per_page=1');
+                        if (result.data && result.data.counts) {
+                            var counts = result.data.counts;
+                            this.pendingAppCount = (counts.new || 0) + (counts.under_review || 0) + (counts.on_hold || 0);
+                        }
+                    } catch (err) {
+                        // Silently fail — user may not have officer permissions
+                    }
+                },
+
+                async loadApplications() {
+                    this.appsLoading = true;
+                    this.appsError = '';
+                    this.appActionSuccess = '';
+                    this.appActionError = '';
+                    try {
+                        var url = '/admin/applications?page=' + this.appsPage + '&per_page=20';
+                        if (this.appStatusFilter) {
+                            url += '&status=' + encodeURIComponent(this.appStatusFilter);
+                        }
+                        const result = await cdApi.get(url);
+                        this.applications = result.data.applications || [];
+                        this.appCounts = result.data.counts || {};
+                        if (result.meta) {
+                            this.appsTotalPages = result.meta.pages || 1;
+                        }
+                        // Update pending count
+                        this.pendingAppCount = (this.appCounts.new || 0) + (this.appCounts.under_review || 0) + (this.appCounts.on_hold || 0);
+                    } catch (err) {
+                        this.appsError = err.message;
+                        this.applications = [];
+                    } finally {
+                        this.appsLoading = false;
+                    }
+                },
+
+                toggleAppDetail(appId) {
+                    if (this.expandedAppId === appId) {
+                        this.expandedAppId = null;
+                    } else {
+                        this.expandedAppId = appId;
+                        this.appActionNotes = '';
+                        this.appActionSuccess = '';
+                        this.appActionError = '';
+                    }
+                },
+
+                async appAction(appId, action) {
+                    if (action === 'reject' && !confirm('Are you sure you want to reject this application?')) return;
+                    if (action === 'approve' && !confirm('Approve this application? An invite email will be sent.')) return;
+
+                    this.appActioning = true;
+                    this.appActionSuccess = '';
+                    this.appActionError = '';
+                    try {
+                        await cdApi.put('/admin/applications/' + appId, {
+                            action: action,
+                            notes: this.appActionNotes || '',
+                        });
+                        var labels = { approve: 'Application approved.', reject: 'Application rejected.', hold: 'Application placed on hold.', request_info: 'Information requested from applicant.' };
+                        this.appActionSuccess = labels[action] || 'Action completed.';
+                        this.appActionNotes = '';
+                        // Refresh the list after a brief delay for UI feedback
+                        setTimeout(() => {
+                            this.loadApplications();
+                            this.expandedAppId = null;
+                        }, 1200);
+                    } catch (err) {
+                        this.appActionError = err.message;
+                    } finally {
+                        this.appActioning = false;
+                    }
+                },
+
+                formatAppStatus(status) {
+                    var map = { new: 'New', under_review: 'Under Review', on_hold: 'On Hold', approved: 'Approved', not_approved: 'Rejected' };
+                    return map[status] || status;
+                },
+
+                formatDate(dateStr) {
+                    if (!dateStr) return '';
+                    try {
+                        var d = new Date(dateStr);
+                        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                    } catch (e) {
+                        return dateStr;
+                    }
                 }
             }; // End returned object
         } catch (e) {
@@ -699,15 +823,25 @@ document.addEventListener('alpine:init', () => {
                 init() { },
                 loading: false,
                 members: [],
+                households: [],
                 searchQuery: '',
                 page: 1,
                 totalPages: 0,
                 whatsappGroups: [],
+                isOfficer: false,
+                activeTab: 'directory',
+                pendingAppCount: 0,
+                applications: [],
+                appsLoading: false,
+                appCounts: {},
                 getError() { return 'Application error: ' + e.message; },
                 displayName() { return 'Error'; },
                 getAvatarColor() { return '#ccc'; },
                 getInitials() { return '!!'; },
-                hasActiveFilters() { return false; }
+                hasActiveFilters() { return false; },
+                switchTab() {},
+                formatAppStatus() { return ''; },
+                formatDate() { return ''; }
             };
         }
     });

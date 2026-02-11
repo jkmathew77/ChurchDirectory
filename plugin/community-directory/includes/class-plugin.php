@@ -670,6 +670,7 @@ class CD_Plugin {
             'logoutUrl' => wp_logout_url( $login_url ),
             'isLoggedIn' => is_user_logged_in(),
             'currentMemberUuid' => $current_member_uuid,
+            'isOfficer' => is_user_logged_in() && ( current_user_can( 'cd_officer' ) || current_user_can( 'cd_secretary' ) || current_user_can( 'cd_admin' ) ),
         ) );
 
         // Pass page-specific data via inline script

@@ -2197,6 +2197,292 @@
     box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
+/* ─── Officer Tab Switcher ─── */
+.cd-officer-tabs {
+    display: flex;
+    gap: 0;
+    margin-bottom: 24px;
+    border-bottom: 2px solid var(--cd-border);
+}
+
+.cd-officer-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--cd-text-muted);
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.cd-officer-tab:hover {
+    color: var(--cd-text);
+}
+
+.cd-officer-tab-active {
+    color: var(--cd-primary);
+    border-bottom-color: var(--cd-primary);
+}
+
+.cd-officer-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: var(--cd-danger);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+/* ─── Officer Admin Panel ─── */
+.cd-admin-panel {
+    padding-top: 8px;
+}
+
+.cd-admin-section {
+    margin-bottom: 2rem;
+}
+
+/* ─── Application Filter Tabs ─── */
+.cd-app-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 16px;
+}
+
+.cd-app-filter-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--cd-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    color: var(--cd-text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.cd-app-filter-btn:hover {
+    border-color: var(--cd-primary);
+    color: var(--cd-primary);
+}
+
+.cd-app-filter-btn.active {
+    background: var(--cd-primary);
+    border-color: var(--cd-primary);
+    color: #fff;
+}
+
+.cd-app-filter-btn.active .cd-filter-count {
+    background: rgba(255, 255, 255, 0.25);
+    color: #fff;
+}
+
+.cd-app-filter-btn .cd-filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 9px;
+    background: var(--cd-border);
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+/* ─── Application Cards ─── */
+.cd-apps-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cd-app-card {
+    background: var(--cd-bg-white);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius-lg);
+    overflow: hidden;
+    transition: box-shadow 0.15s;
+}
+
+.cd-app-card:hover {
+    box-shadow: var(--cd-shadow);
+}
+
+.cd-app-card-expanded {
+    box-shadow: var(--cd-shadow-lg);
+    border-color: var(--cd-primary);
+}
+
+.cd-app-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    cursor: pointer;
+    gap: 12px;
+}
+
+.cd-app-summary:hover {
+    background: var(--cd-bg);
+}
+
+.cd-app-summary-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.cd-app-summary-info strong {
+    font-size: 0.95rem;
+}
+
+.cd-app-summary-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.cd-app-expand-icon {
+    font-size: 0.75rem;
+    color: var(--cd-text-light);
+}
+
+/* ─── Application Status Badges ─── */
+.cd-app-status-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.cd-app-status-new {
+    background: var(--cd-primary-light);
+    color: var(--cd-primary);
+}
+
+.cd-app-status-under_review {
+    background: var(--cd-warning-light);
+    color: var(--cd-warning);
+}
+
+.cd-app-status-on_hold {
+    background: #f3f4f6;
+    color: #6b7280;
+}
+
+.cd-app-status-approved {
+    background: var(--cd-success-light);
+    color: var(--cd-success);
+}
+
+.cd-app-status-not_approved {
+    background: var(--cd-danger-light);
+    color: var(--cd-danger);
+}
+
+/* ─── Application Detail Panel ─── */
+.cd-app-detail {
+    padding: 0 16px 16px;
+    border-top: 1px solid var(--cd-border);
+}
+
+.cd-app-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+    padding: 12px 0;
+    font-size: 0.9rem;
+}
+
+.cd-app-detail-sub {
+    padding: 8px 0;
+    border-top: 1px solid var(--cd-bg);
+}
+
+.cd-app-detail-sub h4 {
+    margin: 0 0 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--cd-text);
+}
+
+.cd-app-detail-sub p {
+    margin: 0 0 4px;
+    font-size: 0.9rem;
+}
+
+.cd-app-notes-input {
+    padding: 8px 0;
+}
+
+.cd-app-notes-input textarea {
+    resize: vertical;
+    min-height: 48px;
+}
+
+.cd-app-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-top: 8px;
+    align-items: center;
+}
+
+/* ─── Responsive: Officer Admin ─── */
+@media (max-width: 600px) {
+    .cd-officer-tabs {
+        gap: 0;
+    }
+
+    .cd-officer-tab {
+        padding: 8px 14px;
+        font-size: 0.85rem;
+    }
+
+    .cd-app-summary {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .cd-app-summary-meta {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .cd-app-detail-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .cd-app-filters {
+        gap: 4px;
+    }
+
+    .cd-app-filter-btn {
+        padding: 4px 10px;
+        font-size: 0.75rem;
+    }
+}
+
 /* ─── Readonly Input ─── */
 .cd-input-readonly {
     background: var(--cd-bg);

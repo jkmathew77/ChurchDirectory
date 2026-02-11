@@ -2353,5 +2353,202 @@ For actions that are hard to reverse, the system provides a **60-second grace pe
 
 ---
 
+---
+
+## 17. Implementation Addendum — Features Added Beyond Original PRD (v0.3.x)
+
+The following features were implemented during development based on real-world needs and user feedback. They extend the original PRD scope.
+
+### 17.1 Child/Student Education Fields (v0.3.89)
+
+Added to directory profile for household members with role `child`:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `school_type` | Enum: `high_school`, `college`, `university` | Determines which sub-fields appear |
+| `school_name` | Text | e.g., "Lincoln High School" |
+| `graduation_date` | Month+Year (VARCHAR(7), `YYYY-MM`) | Not a specific date — month picker |
+| `major_studies` | Text | Shown only for college/university |
+| `minor_studies` | Text | Shown only for college/university |
+| `sunday_school_teacher_id` | FK → members | Linked to directory member via search; shown only for high_school or no school type |
+| `sunday_school_teacher_name` | Derived | Auto-resolved from linked member on every profile load |
+
+**Conditional field display:**
+- Work & Personal section (occupation/employer) is **hidden** for children
+- Sunday School Teacher shown only for high school or below
+- Major/Minor shown only for college/university
+- Wedding Anniversary hidden for children
+
+### 17.2 Smart Emergency Contact Lookup (v0.3.90)
+
+Emergency contact field enhanced with directory member search:
+
+- Search input with debounced autocomplete (reuses directory search API)
+- Selecting a member links them via `emergency_contact_member_id` FK
+- Linked member's phone auto-syncs as emergency contact phone (kept fresh on every `get_member` call)
+- Phone field becomes readonly when linked (shows "Auto-synced from linked member")
+- "Use as typed (not linked)" option allows manual entry without link
+- Clear button removes link and allows re-search
+
+### 17.3 Household Address Inheritance (v0.3.90)
+
+Non-head household members can inherit the household's primary address:
+
+- `has_different_address` flag on `household_members` table (TINYINT, default 0)
+- Checkbox in edit profile: "Same as household address" (checked = inherit, unchecked = own address)
+- When inheriting: address fields hidden, inherited address shown read-only
+- Head of household always shows own address fields (they ARE the household address)
+- Useful for children in college who have a different address
+
+### 17.4 Multi-Photo Household Gallery (v0.3.91)
+
+Households can have up to 10 family photos instead of a single photo:
+
+**Database:**
+- `photos` TEXT column on `households` table (JSON array of URLs)
+- Legacy `photo_url` column maintained for backwards compatibility (always set to first photo)
+- Auto-migration: existing single `photo_url` converted to `photos` JSON array in heal function
+
+**Edit Profile (head/spouse):**
+- Photo grid showing all uploaded photos as square thumbnails
+- Individual delete button per photo (hover to reveal X)
+- "Add Family Photo" button with counter (e.g., "3 / 10")
+- Button hidden when at max 10 photos
+- Max 5MB per photo, allowed types: JPG, PNG, GIF, WEBP
+- EXIF stripping on all uploads (GPS protection)
+
+**Member Profile View (all members):**
+- Carousel with prev/next navigation buttons
+- Photo counter "2 / 5" shown when multiple photos exist
+- Single photo shows without controls
+
+**API:**
+- `POST /members/me/household/photo` — appends to array, returns updated `photos` array
+- `DELETE /members/me/household/photo` — accepts `photo_url` body param for targeted deletion
+
+### 17.5 Directory Search: Household Cards (v0.3.91)
+
+Directory search now returns matching households alongside member results:
+
+- When a search query matches a household name, household cards appear in a "Households" section above the "Members" section
+- Household cards show: family photo thumbnail, household name, address, and member avatar circles
+- Member avatars in household cards link to individual member profiles
+- Only shown when search query is present (not on initial directory load)
+- Limited to 10 household results per search
+- Search placeholder updated to "Search members or households..."
+
+### 17.6 Google Workspace Contact Sync on All CRUD (v0.3.88)
+
+Extended Google Contacts sync beyond initial application approval:
+
+| Operation | Trigger Point | Notes |
+|-----------|---------------|-------|
+| Create | Application approval | Original behavior |
+| Create | Add household member (email flow) | After member+profile inserted |
+| Create | Add household member (managed flow) | After member+profile inserted |
+| Create | CSV import | After each member inserted |
+| Update | Member edits own profile | After profile DB update |
+| Update | Admin edits member | After COMMIT |
+| Delete | Admin deletes member | Before transaction (captures google_contact_id first) |
+| Delete | Deactivate household members | Inside foreach after status set to inactive |
+| Delete | Approve deletion request | After member status set to inactive |
+
+- Central dispatcher: `CD_Google_Contacts::sync_member($member_id, $operation)`
+- Fire-and-forget: failures never block primary operation
+- If `google_contact_id` is NULL on update, falls back to create (handles pre-sync members)
+- Failures queued for cron retry with operation type
+
+### 17.7 Household Lifecycle Features (v0.3.85–0.3.89)
+
+Beyond basic household CRUD, the following lifecycle operations are implemented:
+
+- **Transfer Primary Membership**: Head can transfer to spouse/other; head becomes "other"
+- **Spin-Off**: Spouse/other can leave and create new household, optionally bringing children
+- **Leave Household**: Spouse/other can leave without creating new household
+- **Request Merge**: Head can search for target household, submit merge request for admin approval
+- **Self-Service Deletion Request**: Any member can request account deletion with optional reason
+
+### 17.8 PWA Enhancements (v0.3.80–0.3.91)
+
+- **Install Banner**: Android install prompt with 30-day dismiss snooze
+- **iOS Install Instructions**: Overlay explaining Share → Add to Home Screen, 30-day snooze
+- **Update Banner**: Fixed-top banner "A new version is available. [Tap to update]" on service worker update
+- **Session Management**: 5-minute visibility-based session check; redirects to login on expiry with return URL preservation
+- **Deep Link Preservation**: Login page accepts `?return=` param to redirect back after auth
+- **Standalone Mode**: Safe-area padding, admin bar hidden, theme nav/footer preserved
+
+### 17.9 Plugin Debug Logger (v0.3.80)
+
+- Dedicated `CD_Logger` class replacing all `error_log()` calls
+- Log levels: `debug`, `info`, `warn`, `error`
+- Logs to `wp-content/cd-debug.log` (separate from WordPress debug log)
+- Admin view: WP Admin → Community → Debug Log (read-only, searchable)
+- Auto-rotation: logs truncated when exceeding 1MB
+
+### 17.10 Phase 5 Features (v0.3.88)
+
+**Data Export CSV:**
+- `GET /admin/members/export` endpoint (admin-only)
+- Filters: status, search, date range
+- Decrypts PII fields for export
+- Audit logs every export (who, when, scope, IP)
+
+**Profile Merge Admin Tool:**
+- Duplicate detection by email, name, or phone
+- Side-by-side comparison UI
+- Merge secondary into primary (fields, household, Google contact)
+- Admin-only with audit logging
+
+**Reporting/Analytics Dashboard:**
+- Member growth by month (Chart.js)
+- Status breakdown donut chart
+- Google Sync health indicator
+- Recent audit activity timeline
+
+---
+
+## 18. Officer Front-End Experience (Implementation Specification)
+
+Per PRD Section 5.13.2, officers manage applications entirely from the front-end directory interface without WP Admin access.
+
+### 18.1 Navigation
+
+When a user with `cd_officer` (or `cd_secretary`/`cd_admin`) capability accesses the directory:
+
+- The directory page header shows a **tab switcher**: "Directory" | "Member Administration"
+- "Member Administration" tab shows a **badge** with pending applications count (status `new` + `under_review`)
+- Tab state is controlled via Alpine.js (no page reload)
+
+### 18.2 Member Administration View
+
+Visible only to officers/secretary/admin. Contains:
+
+**Applications Queue:**
+- Table of applications sorted by submission date (newest first)
+- Columns: Name, Email, Date Submitted, Status, Actions
+- Status filter: All, New, Under Review, On Hold
+- Click row to expand application detail inline
+
+**Application Detail (Expanded):**
+- Full application data (all fields from Section 5.11)
+- Internal notes from other officers (append-only)
+- Action buttons: Approve, Not Approved (requires reason), Request More Info, Place On Hold
+- Status history timeline
+
+**Recent Activity:**
+- Last 20 approval/rejection actions by any officer
+- Shows: action, officer name, applicant name, timestamp
+
+### 18.3 API Endpoints (Officer-Accessible)
+
+Officers use the existing admin API endpoints with `permission_officer()` check:
+- `GET /admin/applications` — list applications
+- `PUT /admin/applications/{id}` — approve/reject/hold
+- `GET /admin/applications/{id}` — get full application detail
+- `POST /admin/applications/{id}/notes` — add internal note
+- `GET /admin/recent-activity` — last 20 officer actions
+
+---
+
 *Document version: 2.1 — February 2026*
 *Previous version: 2.0 — February 2026*
