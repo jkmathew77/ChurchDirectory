@@ -395,6 +395,10 @@ class CD_API_Admin extends CD_API_Base {
                 $profile_update['sunday_school_teacher_id'] = absint( $params['sunday_school_teacher_id'] ) ?: null;
                 $profile_format[] = '%d';
             }
+            if ( isset( $params['emergency_contact_member_id'] ) ) {
+                $profile_update['emergency_contact_member_id'] = absint( $params['emergency_contact_member_id'] ) ?: null;
+                $profile_format[] = '%d';
+            }
 
             if ( ! empty( $profile_update ) ) {
                 $wpdb->update(

@@ -197,31 +197,50 @@ get_header();
                     <!-- Section: Address -->
                     <div class="cd-form-section">
                         <h3><?php esc_html_e( 'Address', 'community-directory' ); ?></h3>
-                        <div class="cd-form-group">
-                            <label class="cd-label"><?php esc_html_e( 'Address Line 1', 'community-directory' ); ?></label>
-                            <input type="text" class="cd-input" x-model="form.address_line_1" placeholder="Street address, P.O. box, company name, c/o">
-                        </div>
-                        <div class="cd-form-group">
-                            <label class="cd-label"><?php esc_html_e( 'Address Line 2', 'community-directory' ); ?></label>
-                            <input type="text" class="cd-input" x-model="form.address_line_2" placeholder="Apartment, suite, unit, building, floor, etc.">
-                        </div>
-                         <div class="cd-grid-address">
-                            <div class="cd-form-group cd-span-city">
-                                <label class="cd-label"><?php esc_html_e( 'City', 'community-directory' ); ?></label>
-                                <input type="text" class="cd-input" x-model="form.city">
+
+                        <!-- Household address inheritance (non-head members with a household) -->
+                        <template x-if="household && householdRole !== 'head'">
+                            <div>
+                                <label class="cd-address-inherit">
+                                    <input type="checkbox" :checked="!hasDifferentAddress" @change="hasDifferentAddress = !$event.target.checked">
+                                    <span><?php esc_html_e( 'Same as household address', 'community-directory' ); ?></span>
+                                </label>
+                                <template x-if="!hasDifferentAddress && household.address && (household.address.line_1 || household.address.city)">
+                                    <div class="cd-address-inherited-display">
+                                        <span x-text="[household.address.line_1, household.address.line_2, [household.address.city, household.address.state, household.address.zip].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></span>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <!-- Show address fields if: no household, OR head of household, OR has different address -->
+                        <div x-show="!household || householdRole === 'head' || hasDifferentAddress">
+                            <div class="cd-form-group">
+                                <label class="cd-label"><?php esc_html_e( 'Address Line 1', 'community-directory' ); ?></label>
+                                <input type="text" class="cd-input" x-model="form.address_line_1" placeholder="Street address, P.O. box, company name, c/o">
                             </div>
                             <div class="cd-form-group">
-                                <label class="cd-label"><?php esc_html_e( 'State', 'community-directory' ); ?></label>
-                                <input type="text" class="cd-input" x-model="form.state">
+                                <label class="cd-label"><?php esc_html_e( 'Address Line 2', 'community-directory' ); ?></label>
+                                <input type="text" class="cd-input" x-model="form.address_line_2" placeholder="Apartment, suite, unit, building, floor, etc.">
+                            </div>
+                             <div class="cd-grid-address">
+                                <div class="cd-form-group cd-span-city">
+                                    <label class="cd-label"><?php esc_html_e( 'City', 'community-directory' ); ?></label>
+                                    <input type="text" class="cd-input" x-model="form.city">
+                                </div>
+                                <div class="cd-form-group">
+                                    <label class="cd-label"><?php esc_html_e( 'State', 'community-directory' ); ?></label>
+                                    <input type="text" class="cd-input" x-model="form.state">
+                                </div>
+                                <div class="cd-form-group">
+                                    <label class="cd-label"><?php esc_html_e( 'Zip', 'community-directory' ); ?></label>
+                                    <input type="text" class="cd-input" x-model="form.zip">
+                                </div>
                             </div>
                             <div class="cd-form-group">
-                                <label class="cd-label"><?php esc_html_e( 'Zip', 'community-directory' ); ?></label>
-                                <input type="text" class="cd-input" x-model="form.zip">
+                                <label class="cd-label"><?php esc_html_e( 'Mailing Address (if different)', 'community-directory' ); ?></label>
+                                <textarea class="cd-input" x-model="form.address_mailing" rows="2" placeholder="Leave blank if same as home address"></textarea>
                             </div>
-                        </div>
-                        <div class="cd-form-group">
-                            <label class="cd-label"><?php esc_html_e( 'Mailing Address (if different)', 'community-directory' ); ?></label>
-                            <textarea class="cd-input" x-model="form.address_mailing" rows="2" placeholder="Leave blank if same as home address"></textarea>
                         </div>
                     </div>
 
@@ -291,10 +310,10 @@ get_header();
                                 </div>
                             </div>
 
-                            <!-- Graduation date — all school types -->
+                            <!-- Graduation date (month + year) — all school types -->
                             <div class="cd-form-group" x-show="form.school_type">
-                                <label class="cd-label"><?php esc_html_e( 'Expected Graduation Date', 'community-directory' ); ?></label>
-                                <input type="date" class="cd-input" x-model="form.graduation_date">
+                                <label class="cd-label"><?php esc_html_e( 'Expected Graduation', 'community-directory' ); ?></label>
+                                <input type="month" class="cd-input" x-model="form.graduation_date" placeholder="YYYY-MM">
                             </div>
 
                             <!-- Major/Minor — only for college / university -->
@@ -317,11 +336,44 @@ get_header();
                          <div class="cd-grid-2">
                              <div class="cd-form-group">
                                 <label class="cd-label"><?php esc_html_e( 'Contact Name', 'community-directory' ); ?></label>
-                                <input type="text" class="cd-input" x-model="form.emergency_contact_name">
+                                <!-- Smart lookup: search directory members -->
+                                <div class="cd-teacher-search">
+                                    <input type="text" class="cd-input" x-model="ecSearchQuery"
+                                        @input.debounce.400ms="searchEmergencyContact()"
+                                        @focus="if(form.emergency_contact_member_id && !ecSearchQuery) ecSearchQuery = form.emergency_contact_name"
+                                        :placeholder="form.emergency_contact_member_id ? '' : '<?php echo esc_js( __( 'Search directory or type name...', 'community-directory' ) ); ?>'">
+                                    <template x-if="form.emergency_contact_name && !ecSearchQuery">
+                                        <div class="cd-teacher-selected">
+                                            <span x-text="form.emergency_contact_name"></span>
+                                            <template x-if="form.emergency_contact_member_id">
+                                                <small class="cd-text-muted" style="margin-left: 4px;">(<?php esc_html_e( 'linked', 'community-directory' ); ?>)</small>
+                                            </template>
+                                            <button type="button" class="cd-btn cd-btn-icon" @click="clearEmergencyContact()" title="<?php esc_attr_e( 'Clear', 'community-directory' ); ?>">&times;</button>
+                                        </div>
+                                    </template>
+                                    <template x-if="ecResults.length > 0">
+                                        <ul class="cd-search-dropdown">
+                                            <template x-for="ec in ecResults" :key="ec.member_id">
+                                                <li @click="selectEmergencyContact(ec)" class="cd-search-dropdown-item">
+                                                    <span x-text="ec.first_name + ' ' + ec.last_name"></span>
+                                                    <small class="cd-text-muted" x-show="ec.phone" x-text="' — ' + ec.phone" style="margin-left: 4px;"></small>
+                                                </li>
+                                            </template>
+                                            <li class="cd-search-dropdown-item cd-text-muted" @click="setManualEmergencyContact()">
+                                                <?php esc_html_e( 'Use as typed (not linked)', 'community-directory' ); ?>
+                                            </li>
+                                        </ul>
+                                    </template>
+                                </div>
                             </div>
                              <div class="cd-form-group">
                                 <label class="cd-label"><?php esc_html_e( 'Contact Phone', 'community-directory' ); ?></label>
-                                <input type="tel" class="cd-input" x-model="form.emergency_contact_phone">
+                                <input type="tel" class="cd-input" x-model="form.emergency_contact_phone"
+                                    :readonly="!!form.emergency_contact_member_id"
+                                    :class="{ 'cd-input-readonly': !!form.emergency_contact_member_id }">
+                                <small x-show="form.emergency_contact_member_id" class="cd-text-muted">
+                                    <?php esc_html_e( 'Auto-synced from linked member', 'community-directory' ); ?>
+                                </small>
                             </div>
                         </div>
                     </div>
@@ -350,8 +402,8 @@ get_header();
                         </div>
                     </div>
 
-                    <!-- Section: Work & Personal -->
-                    <div class="cd-form-section">
+                    <!-- Section: Work & Personal (hidden for children) -->
+                    <div class="cd-form-section" x-show="householdRole !== 'child'">
                         <h3><?php esc_html_e( 'Work & Personal', 'community-directory' ); ?></h3>
                         <div class="cd-grid-2">
                             <div class="cd-form-group">

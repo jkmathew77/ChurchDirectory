@@ -208,7 +208,7 @@ get_header();
                     </p>
                     <p x-show="member.graduation_date">
                         <span class="cd-detail-label"><?php esc_html_e( 'Expected Graduation:', 'community-directory' ); ?></span>
-                        <span x-text="member.graduation_date"></span>
+                        <span x-text="(() => { if (!member.graduation_date) return ''; const parts = member.graduation_date.split('-'); if (parts.length < 2) return member.graduation_date; const d = new Date(parts[0], parts[1] - 1); return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long' }); })()"></span>
                     </p>
                     <p x-show="member.sunday_school_teacher_name">
                         <span class="cd-detail-label"><?php esc_html_e( 'Sunday School Teacher:', 'community-directory' ); ?></span>

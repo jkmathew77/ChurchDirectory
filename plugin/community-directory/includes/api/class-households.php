@@ -693,15 +693,16 @@ class CD_API_Households extends CD_API_Base {
 
         return $this->success( array(
             'household' => array(
-                'id'              => (int) $hm->household_id,
-                'name'            => $hm->household_name,
-                'address'         => $address,
-                'status'          => $hm->household_status,
-                'photo_url'       => $hm->household_photo_url ?? '',
-                'my_role'         => $hm->role,
-                'my_role_label'   => self::role_label( $hm->role ),
-                'can_manage'      => in_array( $hm->role, array( 'head', 'spouse' ), true ),
-                'members'         => $hm_members,
+                'id'                    => (int) $hm->household_id,
+                'name'                  => $hm->household_name,
+                'address'               => $address,
+                'status'                => $hm->household_status,
+                'photo_url'             => $hm->household_photo_url ?? '',
+                'my_role'               => $hm->role,
+                'my_role_label'         => self::role_label( $hm->role ),
+                'can_manage'            => in_array( $hm->role, array( 'head', 'spouse' ), true ),
+                'has_different_address'  => (bool) ( $hm->has_different_address ?? 0 ),
+                'members'               => $hm_members,
             ),
         ) );
     }

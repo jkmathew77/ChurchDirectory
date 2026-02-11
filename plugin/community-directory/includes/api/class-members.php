@@ -367,6 +367,21 @@ class CD_API_Members extends CD_API_Base {
             $row->sunday_school_teacher_name = $teacher_name ?: '';
         }
 
+        // If emergency contact is linked to a member, re-sync their phone (keeps it fresh)
+        if ( ! empty( $row->emergency_contact_member_id ) && $is_own_profile ) {
+            $ec_data = $wpdb->get_row( $wpdb->prepare(
+                "SELECT CONCAT(first_name, ' ', last_name) AS ec_name, phones FROM {$profiles_table} WHERE member_id = %d",
+                (int) $row->emergency_contact_member_id
+            ) );
+            if ( $ec_data ) {
+                $row->emergency_contact_name = $ec_data->ec_name;
+                $ec_phones = json_decode( $ec_data->phones ?? '', true );
+                if ( ! empty( $ec_phones[0]['value'] ) ) {
+                    $row->emergency_contact_phone = $ec_phones[0]['value'];
+                }
+            }
+        }
+
         return $this->success( array(
             'member'           => $row,
             'is_own_profile'   => $is_own_profile,
@@ -536,6 +551,27 @@ class CD_API_Members extends CD_API_Base {
             $data['sunday_school_teacher_id'] = absint( $params['sunday_school_teacher_id'] ) ?: null;
             $format[] = '%d';
         }
+        if ( isset( $params['emergency_contact_member_id'] ) ) {
+            $ec_id = absint( $params['emergency_contact_member_id'] );
+            $data['emergency_contact_member_id'] = $ec_id ?: null;
+            $format[] = '%d';
+
+            // If linked to a directory member, auto-sync their phone as emergency contact phone
+            if ( $ec_id ) {
+                $ec_phones = $wpdb->get_var( $wpdb->prepare(
+                    "SELECT phones FROM {$profiles_table} WHERE member_id = %d",
+                    $ec_id
+                ) );
+                $ec_phone_arr = json_decode( $ec_phones ?? '', true );
+                if ( ! empty( $ec_phone_arr[0]['value'] ) ) {
+                    $data['emergency_contact_phone'] = CD_Encryption::encrypt( sanitize_text_field( $ec_phone_arr[0]['value'] ) );
+                    // Check if format already has emergency_contact_phone, if not add it
+                    if ( ! isset( $params['emergency_contact_phone'] ) ) {
+                        $format[] = '%s';
+                    }
+                }
+            }
+        }
 
         // JSON fields - explicit sanitization
         if ( isset( $params['emails'] ) && is_array( $params['emails'] ) ) {
@@ -614,6 +650,18 @@ class CD_API_Members extends CD_API_Base {
         if ( $updated === false ) {
             CD_Logger::error( 'Update Profile: ' . $wpdb->last_error );
             return $this->error( 'db_error', __( 'Could not save profile.', 'community-directory' ), 500 );
+        }
+
+        // Update has_different_address flag on household_members if provided
+        if ( isset( $params['has_different_address'] ) ) {
+            $hm_table = CD_Database::table( 'household_members' );
+            $wpdb->update(
+                $hm_table,
+                array( 'has_different_address' => $params['has_different_address'] ? 1 : 0 ),
+                array( 'member_id' => $member_id, 'left_at' => null ),
+                array( '%d' ),
+                array( '%d', '%s' )
+            );
         }
 
         // Google Contacts sync — update

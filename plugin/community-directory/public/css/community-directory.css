@@ -2030,3 +2030,37 @@
     border-radius: var(--cd-radius-lg);
     display: block;
 }
+
+/* ─── Readonly Input ─── */
+.cd-input-readonly {
+    background: var(--cd-bg);
+    cursor: not-allowed;
+    opacity: 0.8;
+}
+
+/* ─── Address Inherit Checkbox ─── */
+.cd-address-inherit {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background: var(--cd-primary-light);
+    border-radius: var(--cd-radius);
+    font-size: 0.9rem;
+}
+
+.cd-address-inherit input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--cd-primary);
+}
+
+.cd-address-inherited-display {
+    padding: 8px 12px;
+    background: var(--cd-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius);
+    color: var(--cd-text-muted);
+    font-size: 0.9rem;
+}

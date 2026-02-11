@@ -806,6 +806,7 @@ document.addEventListener('alpine:init', () => {
             minor_studies: '',
             sunday_school_teacher_id: null,
             sunday_school_teacher_name: '',
+            emergency_contact_member_id: null,
             privacy_settings: {
                 email: 'visible',
                 phone: 'visible',
@@ -827,6 +828,9 @@ document.addEventListener('alpine:init', () => {
         householdRole: null,
         teacherSearchQuery: '',
         teacherResults: [],
+        ecSearchQuery: '',
+        ecResults: [],
+        hasDifferentAddress: false,
 
         // Household state
         household: null,
@@ -909,6 +913,7 @@ document.addEventListener('alpine:init', () => {
                 this.form.minor_studies = data.minor_studies || '';
                 this.form.sunday_school_teacher_id = data.sunday_school_teacher_id || null;
                 this.form.sunday_school_teacher_name = data.sunday_school_teacher_name || '';
+                this.form.emergency_contact_member_id = data.emergency_contact_member_id || null;
 
                 // Household role (determines which fields to show)
                 this.householdRole = result.data.household_role || null;
@@ -1170,6 +1175,48 @@ document.addEventListener('alpine:init', () => {
             this.teacherResults = [];
         },
 
+        // Emergency contact directory search
+        async searchEmergencyContact() {
+            if (this.ecSearchQuery.length < 2) {
+                this.ecResults = [];
+                return;
+            }
+            try {
+                const result = await cdApi.get('/directory?search=' + encodeURIComponent(this.ecSearchQuery) + '&per_page=8');
+                this.ecResults = (result.data.members || []).map(m => ({
+                    member_id: m.id || m.member_id,
+                    first_name: m.first_name,
+                    last_name: m.last_name,
+                    phone: m.phone || '',
+                }));
+            } catch (err) {
+                this.ecResults = [];
+            }
+        },
+
+        selectEmergencyContact(ec) {
+            this.form.emergency_contact_name = ec.first_name + ' ' + ec.last_name;
+            this.form.emergency_contact_phone = ec.phone || '';
+            this.form.emergency_contact_member_id = ec.member_id;
+            this.ecSearchQuery = '';
+            this.ecResults = [];
+        },
+
+        setManualEmergencyContact() {
+            this.form.emergency_contact_name = this.ecSearchQuery;
+            this.form.emergency_contact_member_id = null;
+            this.ecSearchQuery = '';
+            this.ecResults = [];
+        },
+
+        clearEmergencyContact() {
+            this.form.emergency_contact_name = '';
+            this.form.emergency_contact_phone = '';
+            this.form.emergency_contact_member_id = null;
+            this.ecSearchQuery = '';
+            this.ecResults = [];
+        },
+
         // Household photo upload
         uploadHouseholdPhoto(event) {
             const file = event.target.files[0];
@@ -1256,6 +1303,9 @@ document.addEventListener('alpine:init', () => {
             try {
                 const result = await cdApi.get('/members/me/household');
                 this.household = result.data.household || null;
+                if (this.household) {
+                    this.hasDifferentAddress = this.household.has_different_address || false;
+                }
             } catch (err) {
                 // Not critical — just means no household
                 this.household = null;
@@ -1531,6 +1581,11 @@ document.addEventListener('alpine:init', () => {
                     phones: this.form.phones.filter(p => p.value.trim() !== ''),
                     social_links: this.form.social_links.filter(s => s.url.trim() !== ''),
                 };
+
+                // Include address inheritance flag if in a household
+                if (this.household) {
+                    payload.has_different_address = this.hasDifferentAddress;
+                }
 
                 await cdApi.put('/members/me', payload);
 

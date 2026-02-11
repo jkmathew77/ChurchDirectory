@@ -159,12 +159,13 @@ class CD_Plugin {
 
         // ── 5) Child-specific profile columns ──
         $child_columns = array(
-            'graduation_date'          => "DATE DEFAULT NULL",
+            'graduation_date'          => "VARCHAR(7) DEFAULT NULL",
             'school_name'              => "VARCHAR(200) DEFAULT NULL",
             'school_type'              => "VARCHAR(30) DEFAULT NULL",
             'major_studies'            => "VARCHAR(200) DEFAULT NULL",
             'minor_studies'            => "VARCHAR(200) DEFAULT NULL",
-            'sunday_school_teacher_id' => "BIGINT UNSIGNED DEFAULT NULL",
+            'sunday_school_teacher_id'    => "BIGINT UNSIGNED DEFAULT NULL",
+            'emergency_contact_member_id' => "BIGINT UNSIGNED DEFAULT NULL",
         );
         foreach ( $child_columns as $name => $definition ) {
             $exists = $wpdb->get_var( $wpdb->prepare(
@@ -188,6 +189,18 @@ class CD_Plugin {
         if ( ! $hh_photo ) {
             $wpdb->query( "ALTER TABLE {$hh_table} ADD COLUMN photo_url VARCHAR(500) DEFAULT NULL" );
             CD_Logger::info( 'DB heal: added column photo_url on ' . $hh_table );
+        }
+
+        // ── 7) household_members.has_different_address column ──
+        $hm_table = CD_Database::table( 'household_members' );
+        $hm_addr = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'has_different_address'",
+            $wpdb->dbname, $hm_table
+        ) );
+        if ( ! $hm_addr ) {
+            $wpdb->query( "ALTER TABLE {$hm_table} ADD COLUMN has_different_address TINYINT(1) NOT NULL DEFAULT 0" );
+            CD_Logger::info( 'DB heal: added column has_different_address on ' . $hm_table );
         }
 
         // Force DB version to current so migration runner doesn't re-run broken migrations
