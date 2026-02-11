@@ -47,6 +47,45 @@ get_header();
                 >
             </div>
 
+            <!-- Advanced Filters Toggle -->
+            <div class="cd-filter-toggle-wrap" style="margin-bottom: 1rem;">
+                <button type="button" class="cd-filter-toggle" @click="showFilters = !showFilters" :class="{ 'active': showFilters || hasActiveFilters() }">
+                    <span x-show="!showFilters"><?php esc_html_e( 'Advanced Filters', 'community-directory' ); ?> &#9660;</span>
+                    <span x-show="showFilters"><?php esc_html_e( 'Advanced Filters', 'community-directory' ); ?> &#9650;</span>
+                    <span x-show="hasActiveFilters() && !showFilters" class="cd-filter-badge">&#8226;</span>
+                </button>
+            </div>
+
+            <!-- Advanced Filters Panel -->
+            <div class="cd-filter-panel" x-show="showFilters" x-cloak x-transition>
+                <div class="cd-grid-2">
+                    <div class="cd-form-group">
+                        <label class="cd-label"><?php esc_html_e( 'City', 'community-directory' ); ?></label>
+                        <input type="text" class="cd-input" x-model="filterCity" placeholder="<?php esc_attr_e( 'e.g. Dallas', 'community-directory' ); ?>">
+                    </div>
+                    <div class="cd-form-group">
+                        <label class="cd-label"><?php esc_html_e( 'State', 'community-directory' ); ?></label>
+                        <input type="text" class="cd-input" x-model="filterState" placeholder="<?php esc_attr_e( 'e.g. TX', 'community-directory' ); ?>">
+                    </div>
+                    <div class="cd-form-group">
+                        <label class="cd-label"><?php esc_html_e( 'Occupation', 'community-directory' ); ?></label>
+                        <input type="text" class="cd-input" x-model="filterOccupation" placeholder="<?php esc_attr_e( 'e.g. Engineer', 'community-directory' ); ?>">
+                    </div>
+                    <div class="cd-form-group">
+                        <label class="cd-label"><?php esc_html_e( 'Employer', 'community-directory' ); ?></label>
+                        <input type="text" class="cd-input" x-model="filterEmployer" placeholder="<?php esc_attr_e( 'e.g. Google', 'community-directory' ); ?>">
+                    </div>
+                </div>
+                <div class="cd-filter-actions">
+                    <button type="button" class="cd-btn cd-btn-sm cd-btn-primary" @click="applyFilters()">
+                        <?php esc_html_e( 'Apply Filters', 'community-directory' ); ?>
+                    </button>
+                    <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="clearFilters()" x-show="hasActiveFilters()">
+                        <?php esc_html_e( 'Clear Filters', 'community-directory' ); ?>
+                    </button>
+                </div>
+            </div>
+
             <!-- Loading State -->
             <div x-show="loading" class="cd-loading-state">
                 <div class="cd-spinner"></div>
@@ -64,27 +103,26 @@ get_header();
                     <a :href="'<?php echo esc_url( $member_url_base ); ?>' + member.uuid" class="cd-member-card">
                         <div class="cd-member-avatar-wrapper">
                             <template x-if="member.avatar_url">
-                                <img 
-                                    :src="member.avatar_url" 
-                                    class="cd-member-avatar-img" 
+                                <img
+                                    :src="member.avatar_url"
+                                    class="cd-member-avatar-img"
                                     @error="$el.style.display='none'; $el.nextElementSibling.style.display='flex'"
                                 >
                             </template>
-                            <!-- Use x-show instead of x-if for fallback to ensure error handler can find sibling -->
-                            <div 
-                                class="cd-member-avatar-fallback" 
+                            <div
+                                class="cd-member-avatar-fallback"
                                 :style="'background-color: ' + getAvatarColor(member.first_name + ' ' + member.last_name) + '; display: ' + (member.avatar_url ? 'none' : 'flex')"
                             >
                                 <span x-text="getInitials(member.first_name, member.last_name)"></span>
                             </div>
                         </div>
-                        
+
                         <div class="cd-member-info">
-                            <h3 x-text="member.first_name + ' ' + member.last_name"></h3>
+                            <h3 x-text="displayName(member)"></h3>
                             <div class="cd-member-meta" x-show="member.city">
                                 <span x-text="member.city + (member.state ? ', ' + member.state : '')"></span>
                             </div>
-                            
+
                             <!-- Ministry Tags -->
                             <div class="cd-member-tags" x-show="member.ministry_tags && member.ministry_tags.length > 0">
                                 <template x-for="tag in member.ministry_tags.slice(0, 3)">
@@ -104,6 +142,26 @@ get_header();
                     <?php esc_html_e( 'Page', 'community-directory' ); ?> <span x-text="page"></span> <?php esc_html_e( 'of', 'community-directory' ); ?> <span x-text="totalPages"></span>
                 </span>
                 <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" :disabled="page >= totalPages" @click="nextPage()"><?php esc_html_e( 'Next', 'community-directory' ); ?> &raquo;</button>
+            </div>
+
+            <!-- WhatsApp Groups Section -->
+            <div class="cd-whatsapp-section" x-show="whatsappGroups.length > 0" style="display: none;">
+                <h2 class="cd-section-title"><?php esc_html_e( 'WhatsApp Groups', 'community-directory' ); ?></h2>
+                <p class="cd-text-muted" style="margin-bottom: 1rem;"><?php esc_html_e( 'Stay connected with the community through our WhatsApp groups.', 'community-directory' ); ?></p>
+                <div class="cd-whatsapp-grid">
+                    <template x-for="group in whatsappGroups" :key="group.id">
+                        <div class="cd-whatsapp-card">
+                            <div class="cd-whatsapp-icon" x-text="group.icon || '&#128172;'"></div>
+                            <div class="cd-whatsapp-info">
+                                <h4 x-text="group.name"></h4>
+                                <p x-show="group.description" x-text="group.description" class="cd-text-muted"></p>
+                            </div>
+                            <a :href="group.invite_url" target="_blank" rel="noopener noreferrer" class="cd-whatsapp-join">
+                                <?php esc_html_e( 'Join', 'community-directory' ); ?>
+                            </a>
+                        </div>
+                    </template>
+                </div>
             </div>
         </div>
     </div>

@@ -76,7 +76,7 @@ get_header();
 
                         <!-- Name & Meta -->
                         <div class="cd-profile-name-block">
-                            <h1 class="cd-profile-name" x-text="member.first_name + ' ' + member.last_name"></h1>
+                            <h1 class="cd-profile-name" x-text="displayName()"></h1>
                             <p class="cd-text-muted cd-profile-meta" x-show="member.city || member.state">
                                 <span x-text="(member.city || '') + (member.city && member.state ? ', ' : '') + (member.state || '')"></span>
                             </p>

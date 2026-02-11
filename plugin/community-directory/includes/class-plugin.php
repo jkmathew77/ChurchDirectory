@@ -44,6 +44,9 @@ class CD_Plugin {
         // Google Contacts OAuth callback
         CD_Google_Contacts::register_ajax();
 
+        // PWA support
+        CD_PWA::init();
+
         // Flush rewrite rules once after plugin update adds new routes
         $this->maybe_flush_rewrites();
     }
@@ -174,6 +177,23 @@ class CD_Plugin {
             'index.php?cd_page=invite&cd_invite_email=$matches[1]',
             'top'
         );
+
+        // PWA routes
+        add_rewrite_rule(
+            '^' . $base_slug . '/manifest\.json$',
+            'index.php?cd_page=manifest',
+            'top'
+        );
+        add_rewrite_rule(
+            '^' . $base_slug . '/cd-sw\.js$',
+            'index.php?cd_page=service_worker',
+            'top'
+        );
+        add_rewrite_rule(
+            '^' . $base_slug . '/offline/?$',
+            'index.php?cd_page=offline',
+            'top'
+        );
     }
 
     /**
@@ -194,6 +214,18 @@ class CD_Plugin {
         $page = get_query_var( 'cd_page' );
         if ( empty( $page ) ) {
             return;
+        }
+
+        // PWA routes — serve directly and exit (no theme template needed)
+        $pwa_enabled = '1' === get_option( 'cd_pwa_enabled', '0' );
+        if ( 'manifest' === $page && $pwa_enabled ) {
+            CD_PWA::serve_manifest();
+        }
+        if ( 'service_worker' === $page && $pwa_enabled ) {
+            CD_PWA::serve_service_worker();
+        }
+        if ( 'offline' === $page ) {
+            CD_PWA::serve_offline_page();
         }
 
         $base_slug = get_option( 'cd_base_slug', 'community' );
@@ -302,10 +334,25 @@ class CD_Plugin {
             return;
         }
 
+        // Content-Security-Policy (PRD Section 10.2.7)
+        $csp_directives = array(
+            "default-src 'self'",
+            "script-src 'self' 'unsafe-inline' https://apis.google.com https://www.gstatic.com",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data: https://*.googleusercontent.com",
+            "connect-src 'self' https://accounts.google.com",
+            "frame-src https://accounts.google.com",
+            "font-src 'self'",
+            "object-src 'none'",
+            "base-uri 'self'",
+        );
+        header( 'Content-Security-Policy: ' . implode( '; ', $csp_directives ) );
+
         header( 'X-Content-Type-Options: nosniff' );
         header( 'X-Frame-Options: DENY' );
-        header( 'Referrer-Policy: no-referrer' );
-        header( 'Permissions-Policy: geolocation=(), camera=(), microphone=()' );
+        header( 'X-XSS-Protection: 1; mode=block' );
+        header( 'Referrer-Policy: same-origin' );
+        header( 'Permissions-Policy: geolocation=(), camera=(self), microphone=()' );
         header( 'Cache-Control: no-store, no-cache, must-revalidate, private' );
         header( 'Pragma: no-cache' );
 
@@ -442,7 +489,7 @@ class CD_Plugin {
      * Checks a stored version and flushes if it's behind.
      */
     private function maybe_flush_rewrites() {
-        $current_rewrite_version = 3; // Bump this when adding new rewrite rules
+        $current_rewrite_version = 4; // Bump this when adding new rewrite rules
         $stored = (int) get_option( 'cd_rewrite_version', 1 );
 
         if ( $stored < $current_rewrite_version ) {

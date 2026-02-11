@@ -101,6 +101,43 @@ class CD_API_Households extends CD_API_Base {
             'callback'            => array( $this, 'remove_household_member' ),
             'permission_callback' => array( $this, 'permission_member' ),
         ) );
+
+        // ── Lifecycle endpoints ──
+
+        // POST /members/me/household/leave — leave household
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/leave', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'leave_household' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
+        // POST /members/me/household/transfer-head — transfer primary role
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/transfer-head', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'transfer_head' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
+        // POST /members/me/household/spin-off — spin off into new household
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/spin-off', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'spin_off' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
+        // POST /members/me/household/merge-request — request merge with another household
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/merge-request', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'request_merge' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
+        // GET /households/search — lightweight search for merge target picker
+        register_rest_route( CD_API_NAMESPACE, '/households/search', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'search_households' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
     }
 
     /**
@@ -349,6 +386,11 @@ class CD_API_Households extends CD_API_Base {
         }
 
         $wpdb->update( $households_table, $update, array( 'id' => $id ), $format, array( '%d' ) );
+
+        // Cascade: deactivate all household members when household is deactivated
+        if ( isset( $update['status'] ) && 'inactive' === $update['status'] && 'active' === $household->status ) {
+            $this->deactivate_household_members( $id );
+        }
 
         CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_CREATED, get_current_user_id(), $id, array(
             'action' => 'updated',
@@ -1075,5 +1117,440 @@ class CD_API_Households extends CD_API_Base {
         ) );
 
         return $this->success( array( 'message' => __( 'Member removed from household.', 'community-directory' ) ) );
+    }
+
+    /* ──────────────────────────────────────
+     * LIFECYCLE WORKFLOWS
+     * ──────────────────────────────────── */
+
+    /**
+     * Leave the current member's household.
+     * Head must transfer first; children cannot leave on their own.
+     */
+    public function leave_household( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm ) {
+            return $this->error( 'not_in_household', __( 'You are not part of a household.', 'community-directory' ) );
+        }
+
+        if ( 'head' === $hm->role ) {
+            return $this->error( 'head_cannot_leave', __( 'You must transfer the primary role before leaving the household.', 'community-directory' ) );
+        }
+
+        if ( 'child' === $hm->role ) {
+            return $this->error( 'child_cannot_leave', __( 'Child members cannot leave on their own. Ask the primary membership holder to remove you.', 'community-directory' ), 403 );
+        }
+
+        $household_id = (int) $hm->household_id;
+
+        // Set left_at
+        $wpdb->update(
+            $hm_table,
+            array( 'left_at' => current_time( 'mysql' ) ),
+            array( 'member_id' => $member->id, 'left_at' => null ),
+            array( '%s' ),
+            array( '%d', '%s' )
+        );
+
+        // Check if household is now empty
+        $remaining = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$hm_table} WHERE household_id = %d AND left_at IS NULL",
+            $household_id
+        ) );
+        if ( 0 === $remaining ) {
+            $wpdb->update( $households_table, array( 'status' => 'inactive' ), array( 'id' => $household_id ), array( '%s' ), array( '%d' ) );
+        }
+
+        CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_LEAVE, get_current_user_id(), $household_id, array(
+            'member_id' => $member->id,
+            'role'      => $hm->role,
+        ) );
+
+        return $this->success( array( 'message' => __( 'You have left the household.', 'community-directory' ) ) );
+    }
+
+    /**
+     * Transfer the primary (head) role to another household member.
+     * Only the current head can do this. Target must not be a child.
+     */
+    public function transfer_head( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table       = CD_Database::table( 'household_members' );
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm ) {
+            return $this->error( 'not_in_household', __( 'You are not part of a household.', 'community-directory' ) );
+        }
+        if ( 'head' !== $hm->role ) {
+            return $this->error( 'not_head', __( 'Only the primary membership holder can transfer this role.', 'community-directory' ), 403 );
+        }
+
+        $target_member_id = (int) $request->get_param( 'target_member_id' );
+        if ( ! $target_member_id ) {
+            return $this->error( 'missing_target', __( 'Please select a member to transfer to.', 'community-directory' ) );
+        }
+
+        $household_id = (int) $hm->household_id;
+
+        // Verify target is in same household and not a child
+        $target = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE household_id = %d AND member_id = %d AND left_at IS NULL",
+            $household_id, $target_member_id
+        ) );
+        if ( ! $target ) {
+            return $this->error( 'target_not_in_household', __( 'That member is not in your household.', 'community-directory' ), 404 );
+        }
+        if ( 'child' === $target->role ) {
+            return $this->error( 'target_is_child', __( 'Cannot transfer the primary role to a child member.', 'community-directory' ) );
+        }
+
+        // Swap roles in a transaction
+        $wpdb->query( 'START TRANSACTION' );
+
+        $wpdb->update(
+            $hm_table,
+            array( 'role' => 'other' ),
+            array( 'household_id' => $household_id, 'member_id' => $member->id, 'left_at' => null ),
+            array( '%s' ),
+            array( '%d', '%d', '%s' )
+        );
+
+        $wpdb->update(
+            $hm_table,
+            array( 'role' => 'head' ),
+            array( 'household_id' => $household_id, 'member_id' => $target_member_id, 'left_at' => null ),
+            array( '%s' ),
+            array( '%d', '%d', '%s' )
+        );
+
+        $wpdb->query( 'COMMIT' );
+
+        // Get target's name for the response
+        $target_name = $wpdb->get_var( $wpdb->prepare(
+            "SELECT CONCAT(first_name, ' ', last_name) FROM {$profiles_table} WHERE member_id = %d",
+            $target_member_id
+        ) );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_TRANSFER_HEAD, get_current_user_id(), $household_id, array(
+            'old_head' => $member->id,
+            'new_head' => $target_member_id,
+        ) );
+
+        return $this->success( array(
+            'message' => sprintf( __( 'Primary role transferred to %s.', 'community-directory' ), $target_name ?: __( 'the selected member', 'community-directory' ) ),
+        ) );
+    }
+
+    /**
+     * Spin off into a new household. Non-head, non-child members only.
+     * Optionally bring children along.
+     */
+    public function spin_off( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm ) {
+            return $this->error( 'not_in_household', __( 'You are not part of a household.', 'community-directory' ) );
+        }
+        if ( 'head' === $hm->role ) {
+            return $this->error( 'head_cannot_spinoff', __( 'The primary membership holder must transfer the role first before spinning off.', 'community-directory' ) );
+        }
+        if ( 'child' === $hm->role ) {
+            return $this->error( 'child_cannot_spinoff', __( 'Child members cannot create their own household.', 'community-directory' ), 403 );
+        }
+
+        $household_name = sanitize_text_field( $request->get_param( 'household_name' ) );
+        if ( empty( $household_name ) ) {
+            return $this->error( 'missing_name', __( 'Please enter a name for your new household.', 'community-directory' ) );
+        }
+
+        $addr = $this->sanitize_address( $request );
+        $encrypted_address = $this->encrypt_address( $addr );
+        $bring_children = $request->get_param( 'bring_children' );
+        if ( ! is_array( $bring_children ) ) {
+            $bring_children = array();
+        }
+        $bring_children = array_map( 'absint', $bring_children );
+
+        $old_household_id = (int) $hm->household_id;
+
+        $wpdb->query( 'START TRANSACTION' );
+
+        // 1. Set left_at on caller's old membership
+        $wpdb->update(
+            $hm_table,
+            array( 'left_at' => current_time( 'mysql' ) ),
+            array( 'member_id' => $member->id, 'left_at' => null ),
+            array( '%s' ),
+            array( '%d', '%s' )
+        );
+
+        // 2. Move children if requested
+        $children_moved = array();
+        foreach ( $bring_children as $child_id ) {
+            $child_hm = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$hm_table} WHERE household_id = %d AND member_id = %d AND role = 'child' AND left_at IS NULL",
+                $old_household_id, $child_id
+            ) );
+            if ( $child_hm ) {
+                $wpdb->update(
+                    $hm_table,
+                    array( 'left_at' => current_time( 'mysql' ) ),
+                    array( 'id' => $child_hm->id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+                $children_moved[] = $child_id;
+            }
+        }
+
+        // 3. Create new household
+        $wpdb->insert( $households_table, array(
+            'name'            => $household_name,
+            'primary_address' => $encrypted_address,
+            'status'          => 'active',
+            'created_by'      => get_current_user_id(),
+            'created_at'      => current_time( 'mysql' ),
+        ), array( '%s', '%s', '%s', '%d', '%s' ) );
+
+        $new_household_id = $wpdb->insert_id;
+        if ( ! $new_household_id ) {
+            $wpdb->query( 'ROLLBACK' );
+            return $this->error( 'create_failed', __( 'Failed to create new household.', 'community-directory' ), 500 );
+        }
+
+        // 4. Insert caller as head of new household
+        $wpdb->insert( $hm_table, array(
+            'household_id' => $new_household_id,
+            'member_id'    => $member->id,
+            'role'         => 'head',
+            'joined_at'    => current_time( 'mysql' ),
+        ), array( '%d', '%d', '%s', '%s' ) );
+
+        // 5. Insert children into new household
+        foreach ( $children_moved as $child_id ) {
+            $wpdb->insert( $hm_table, array(
+                'household_id' => $new_household_id,
+                'member_id'    => $child_id,
+                'role'         => 'child',
+                'joined_at'    => current_time( 'mysql' ),
+            ), array( '%d', '%d', '%s', '%s' ) );
+        }
+
+        // 6. Check if old household is now empty
+        $remaining = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$hm_table} WHERE household_id = %d AND left_at IS NULL",
+            $old_household_id
+        ) );
+        if ( 0 === $remaining ) {
+            $wpdb->update( $households_table, array( 'status' => 'inactive' ), array( 'id' => $old_household_id ), array( '%s' ), array( '%d' ) );
+        }
+
+        $wpdb->query( 'COMMIT' );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_SPINOFF, get_current_user_id(), $new_household_id, array(
+            'old_household_id' => $old_household_id,
+            'member_id'        => $member->id,
+            'children_moved'   => $children_moved,
+        ) );
+
+        return $this->success( array(
+            'message'      => sprintf( __( 'Your new household "%s" has been created.', 'community-directory' ), $household_name ),
+            'household_id' => $new_household_id,
+        ), array(), 201 );
+    }
+
+    /**
+     * Request to merge current household into another (head only).
+     * Creates a pending request for admin approval.
+     */
+    public function request_merge( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+        $hr_table          = CD_Database::table( 'household_requests' );
+
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm ) {
+            return $this->error( 'not_in_household', __( 'You are not part of a household.', 'community-directory' ) );
+        }
+        if ( 'head' !== $hm->role ) {
+            return $this->error( 'not_head', __( 'Only the primary membership holder can request a merge.', 'community-directory' ), 403 );
+        }
+
+        $target_household_id = (int) $request->get_param( 'target_household_id' );
+        if ( ! $target_household_id ) {
+            return $this->error( 'missing_target', __( 'Please select a target household.', 'community-directory' ) );
+        }
+
+        $source_household_id = (int) $hm->household_id;
+
+        if ( $target_household_id === $source_household_id ) {
+            return $this->error( 'same_household', __( 'Cannot merge a household with itself.', 'community-directory' ) );
+        }
+
+        // Verify target exists and is active
+        $target_hh = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$households_table} WHERE id = %d AND status = 'active'",
+            $target_household_id
+        ) );
+        if ( ! $target_hh ) {
+            return $this->error( 'target_not_found', __( 'Target household not found or not active.', 'community-directory' ), 404 );
+        }
+
+        // Check for duplicate pending request
+        $existing = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$hr_table} WHERE type = 'merge' AND household_id = %d AND target_household_id = %d AND status = 'pending'",
+            $source_household_id, $target_household_id
+        ) );
+        if ( $existing ) {
+            return $this->error( 'duplicate_request', __( 'A merge request for these households is already pending.', 'community-directory' ) );
+        }
+
+        $wpdb->insert( $hr_table, array(
+            'type'                 => 'merge',
+            'requesting_member_id' => $member->id,
+            'household_id'         => $source_household_id,
+            'target_household_id'  => $target_household_id,
+            'status'               => 'pending',
+            'created_at'           => current_time( 'mysql' ),
+        ), array( '%s', '%d', '%d', '%d', '%s', '%s' ) );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_MERGE_REQUESTED, get_current_user_id(), $source_household_id, array(
+            'target_household_id' => $target_household_id,
+            'requesting_member'   => $member->id,
+        ) );
+
+        return $this->success( array(
+            'message' => __( 'Merge request submitted. An admin will review and process it.', 'community-directory' ),
+        ) );
+    }
+
+    /**
+     * Search households by name (for merge target picker).
+     * Returns only id and name, no PII.
+     */
+    public function search_households( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $q = sanitize_text_field( $request->get_param( 'q' ) ?: '' );
+        if ( strlen( $q ) < 2 ) {
+            return $this->success( array( 'households' => array() ) );
+        }
+
+        $households_table = CD_Database::table( 'households' );
+        $like = '%' . $wpdb->esc_like( $q ) . '%';
+
+        $rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT id, name FROM {$households_table} WHERE status = 'active' AND name LIKE %s ORDER BY name ASC LIMIT 10",
+            $like
+        ) );
+
+        return $this->success( array( 'households' => $rows ?: array() ) );
+    }
+
+    /**
+     * Deactivate all active members of a household when the household is deactivated.
+     * Sets left_at, deactivates member records, destroys WP sessions, and revokes capabilities.
+     *
+     * @param int $household_id The household being deactivated.
+     */
+    private function deactivate_household_members( $household_id ) {
+        global $wpdb;
+
+        $hm_table      = CD_Database::table( 'household_members' );
+        $members_table = CD_Database::table( 'members' );
+
+        // Get all active members in this household
+        $active_members = $wpdb->get_results( $wpdb->prepare(
+            "SELECT hm.member_id, m.wp_user_id, m.status AS member_status
+             FROM {$hm_table} hm
+             JOIN {$members_table} m ON m.id = hm.member_id
+             WHERE hm.household_id = %d AND hm.left_at IS NULL",
+            $household_id
+        ) );
+
+        if ( empty( $active_members ) ) {
+            return;
+        }
+
+        $now = current_time( 'mysql' );
+
+        foreach ( $active_members as $am ) {
+            // Mark as left from household
+            $wpdb->update(
+                $hm_table,
+                array( 'left_at' => $now ),
+                array( 'household_id' => $household_id, 'member_id' => $am->member_id, 'left_at' => null ),
+                array( '%s' ),
+                array( '%d', '%d', '%s' )
+            );
+
+            // Deactivate the member record if currently active
+            if ( 'active' === $am->member_status ) {
+                $wpdb->update(
+                    $members_table,
+                    array( 'status' => 'inactive' ),
+                    array( 'id' => $am->member_id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+
+                // Force logout: destroy sessions and revoke capability
+                if ( $am->wp_user_id ) {
+                    $sessions = WP_Session_Tokens::get_instance( $am->wp_user_id );
+                    $sessions->destroy_all();
+                    CD_Capabilities::revoke_cap( $am->wp_user_id, 'cd_member' );
+                }
+
+                CD_Audit_Logger::log( CD_Audit_Logger::MEMBER_DEACTIVATED, get_current_user_id(), $am->member_id, array(
+                    'reason'       => 'household_deactivated',
+                    'household_id' => $household_id,
+                ) );
+            }
+        }
     }
 }

@@ -31,7 +31,7 @@ get_header();
                 </div>
 
                 <!-- Token error state -->
-                <div x-show="!loading && !tokenValid && errorMessage" x-transition>
+                <div x-show="!loading && !tokenValid && errorMessage" x-cloak x-transition>
                     <div class="cd-error-icon">&#10007;</div>
                     <h2><?php esc_html_e( 'Invalid Invitation', 'community-directory' ); ?></h2>
                     <p x-text="errorMessage"></p>
@@ -43,7 +43,7 @@ get_header();
                 </div>
 
                 <!-- Account creation form -->
-                <div x-show="!loading && tokenValid && !success" x-transition>
+                <div x-show="!loading && tokenValid && !success" x-cloak x-transition>
                     <h2><?php esc_html_e( 'Create Your Account', 'community-directory' ); ?></h2>
                     <p>
                         <?php esc_html_e( 'Welcome', 'community-directory' ); ?>
@@ -121,7 +121,7 @@ get_header();
                 </div>
 
                 <!-- Success state -->
-                <div x-show="success" x-transition>
+                <div x-show="success" x-cloak x-transition>
                     <div class="cd-success-icon">&#10003;</div>
                     <h2><?php esc_html_e( 'Account Created!', 'community-directory' ); ?></h2>
                     <p><?php esc_html_e( 'Your account has been created and you are now logged in. Redirecting to the directory...', 'community-directory' ); ?></p>

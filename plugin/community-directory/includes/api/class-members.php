@@ -45,6 +45,20 @@ class CD_API_Members extends CD_API_Base {
             'callback'            => array( $this, 'delete_avatar' ),
             'permission_callback' => array( $this, 'permission_member' ),
         ) );
+
+        // POST /members/me/deletion-request — request account deletion
+        register_rest_route( CD_API_NAMESPACE, '/members/me/deletion-request', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'request_deletion' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
+        // GET /whatsapp-groups — list active WhatsApp groups for members
+        register_rest_route( CD_API_NAMESPACE, '/whatsapp-groups', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'list_whatsapp_groups' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
     }
 
     /**
@@ -52,6 +66,17 @@ class CD_API_Members extends CD_API_Base {
      * Returns: UUID, Name, Avatar, Primary Email, Primary Phone, City, State, Ministry Tags.
      */
     public function search_directory( WP_REST_Request $request ) {
+        // Rate limit: 30 searches per minute per user (PRD Section 10.3)
+        $current_uid = get_current_user_id();
+        if ( $this->is_rate_limited( 'dir_search_' . $current_uid, 30, 60 ) ) {
+            return $this->error( 'rate_limited', __( 'Too many searches. Please wait a moment and try again.', 'community-directory' ), 429 );
+        }
+
+        // Bot detection (PRD Section 10.2.4)
+        if ( $this->detect_bot( 'directory_search' ) ) {
+            return $this->error( 'blocked', __( 'Request blocked. Please try again later.', 'community-directory' ), 403 );
+        }
+
         global $wpdb;
 
         $members_table  = CD_Database::table( 'members' );
@@ -74,6 +99,28 @@ class CD_API_Members extends CD_API_Base {
             $args[] = $search_like;
         }
 
+        // Advanced filters
+        $filter_city = sanitize_text_field( $request->get_param( 'city' ) ?: '' );
+        if ( $filter_city ) {
+            $where .= ' AND p.city LIKE %s';
+            $args[] = '%' . $wpdb->esc_like( $filter_city ) . '%';
+        }
+        $filter_state = sanitize_text_field( $request->get_param( 'state' ) ?: '' );
+        if ( $filter_state ) {
+            $where .= ' AND p.state LIKE %s';
+            $args[] = '%' . $wpdb->esc_like( $filter_state ) . '%';
+        }
+        $filter_occupation = sanitize_text_field( $request->get_param( 'occupation' ) ?: '' );
+        if ( $filter_occupation ) {
+            $where .= ' AND p.occupation LIKE %s';
+            $args[] = '%' . $wpdb->esc_like( $filter_occupation ) . '%';
+        }
+        $filter_employer = sanitize_text_field( $request->get_param( 'employer' ) ?: '' );
+        if ( $filter_employer ) {
+            $where .= ' AND p.employer LIKE %s';
+            $args[] = '%' . $wpdb->esc_like( $filter_employer ) . '%';
+        }
+
         $total_query = "SELECT COUNT(*) FROM {$members_table} m LEFT JOIN {$profiles_table} p ON m.id = p.member_id WHERE {$where}";
         if ( ! empty( $args ) ) {
             $total = (int) $wpdb->get_var( $wpdb->prepare( $total_query, $args ) );
@@ -81,8 +128,8 @@ class CD_API_Members extends CD_API_Base {
             $total = (int) $wpdb->get_var( $total_query );
         }
 
-        $query = "SELECT m.uuid, p.first_name, p.last_name, p.avatar_url,
-                         p.emails, p.phones, p.city, p.state, p.ministry_tags, p.privacy_settings
+        $query = "SELECT m.uuid, p.salutation, p.first_name, p.last_name, p.avatar_url,
+                         p.emails, p.phones, p.city, p.state, p.occupation, p.employer, p.ministry_tags, p.privacy_settings
                   FROM {$members_table} m
                   LEFT JOIN {$profiles_table} p ON m.id = p.member_id
                   WHERE {$where}
@@ -107,7 +154,9 @@ class CD_API_Members extends CD_API_Base {
             // Apply privacy: default to visible if not set
             $primary_email = '';
             if ( ( $privacy['email'] ?? 'visible' ) === 'visible' && ! empty( $emails ) && is_array( $emails ) ) {
-                $primary_email = $emails[0]['value'] ?? '';
+                // Base64-encode for anti-scraping (PRD Section 10.2.4)
+                $raw_email = $emails[0]['value'] ?? '';
+                $primary_email = $raw_email ? base64_encode( $raw_email ) : '';
             }
 
             $primary_phone = '';
@@ -119,6 +168,7 @@ class CD_API_Members extends CD_API_Base {
 
             $results[] = array(
                 'uuid'          => $row->uuid,
+                'salutation'    => $row->salutation ?: '',
                 'first_name'    => $row->first_name,
                 'last_name'     => $row->last_name,
                 'avatar_url'    => $row->avatar_url,
@@ -126,12 +176,15 @@ class CD_API_Members extends CD_API_Base {
                 'phone'         => $primary_phone,
                 'city'          => $show_address ? $row->city : '',
                 'state'         => $show_address ? $row->state : '',
+                'occupation'    => $row->occupation ?: '',
+                'employer'      => $row->employer ?: '',
                 'ministry_tags' => $ministry_tags ?: array(),
             );
         }
 
         return $this->success( array(
-            'members' => $results,
+            'members'          => $results,
+            'email_obfuscated' => true,
         ), array(
             'page'     => $page,
             'per_page' => $per,
@@ -144,6 +197,17 @@ class CD_API_Members extends CD_API_Base {
      * Get single member profile by UUID.
      */
     public function get_member( WP_REST_Request $request ) {
+        // Rate limit: 60 profile views per minute per user (PRD Section 10.3)
+        $current_uid = get_current_user_id();
+        if ( $this->is_rate_limited( 'profile_view_' . $current_uid, 60, 60 ) ) {
+            return $this->error( 'rate_limited', __( 'Too many profile views. Please wait a moment and try again.', 'community-directory' ), 429 );
+        }
+
+        // Bot detection (PRD Section 10.2.4)
+        if ( $this->detect_bot( 'profile_view' ) ) {
+            return $this->error( 'blocked', __( 'Request blocked. Please try again later.', 'community-directory' ), 403 );
+        }
+
         global $wpdb;
         $uuid = sanitize_text_field( $request->get_param( 'uuid' ) );
 
@@ -232,6 +296,16 @@ class CD_API_Members extends CD_API_Base {
             $row->emergency_contact_phone = '';
         }
 
+        // Base64-encode email values for anti-scraping (PRD Section 10.2.4)
+        if ( is_array( $row->emails ) ) {
+            foreach ( $row->emails as &$email_entry ) {
+                if ( ! empty( $email_entry['value'] ) ) {
+                    $email_entry['value'] = base64_encode( $email_entry['value'] );
+                }
+            }
+            unset( $email_entry );
+        }
+
         // Fetch household data for this member
         $household = null;
         $hm_table         = CD_Database::table( 'household_members' );
@@ -283,9 +357,10 @@ class CD_API_Members extends CD_API_Base {
         }
 
         return $this->success( array(
-            'member'         => $row,
-            'is_own_profile' => $is_own_profile,
-            'household'      => $household,
+            'member'           => $row,
+            'is_own_profile'   => $is_own_profile,
+            'household'        => $household,
+            'email_obfuscated' => true,
         ) );
     }
 
@@ -310,6 +385,12 @@ class CD_API_Members extends CD_API_Base {
         $format = array();
 
         // Text fields
+        if ( isset( $params['salutation'] ) ) {
+            $allowed_salutations = array( '', 'Mr', 'Mrs', 'Ms', 'Dr', 'Fr.', 'Dn.', 'Sr.', 'Rev.', 'Prof.' );
+            $sal = sanitize_text_field( $params['salutation'] );
+            $data['salutation'] = in_array( $sal, $allowed_salutations, true ) ? $sal : '';
+            $format[] = '%s';
+        }
         if ( isset( $params['first_name'] ) ) {
             $data['first_name'] = sanitize_text_field( $params['first_name'] );
             $format[] = '%s';
@@ -539,6 +620,24 @@ class CD_API_Members extends CD_API_Base {
             return $this->error( 'upload_failed', $attachment_id->get_error_message(), 500 );
         }
 
+        // Strip EXIF metadata (PRD Section 10.2.9) — re-save via image editor
+        // GD/Imagick discard EXIF when re-rendering pixel data
+        $att_file_path = get_attached_file( $attachment_id );
+        if ( $att_file_path && file_exists( $att_file_path ) ) {
+            $editor = wp_get_image_editor( $att_file_path );
+            if ( ! is_wp_error( $editor ) ) {
+                $editor->save( $att_file_path );
+
+                // Verify EXIF stripped for JPEG/TIFF (if exif extension available)
+                if ( function_exists( 'exif_read_data' ) && in_array( $file['type'], array( 'image/jpeg', 'image/tiff' ), true ) ) {
+                    $exif = @exif_read_data( $att_file_path );
+                    if ( $exif && ! empty( $exif['GPSLatitude'] ) ) {
+                        error_log( 'CD Security Warning: EXIF GPS data persisted after re-save for attachment ' . $attachment_id );
+                    }
+                }
+            }
+        }
+
         $url = wp_get_attachment_url( $attachment_id );
 
         // Update profile
@@ -587,5 +686,77 @@ class CD_API_Members extends CD_API_Base {
         }
 
         return $this->success( array( 'message' => __( 'Avatar removed.', 'community-directory' ) ) );
+    }
+
+    /**
+     * Request account deletion. Creates a pending request for admin review.
+     */
+    public function request_deletion( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $dr_table = CD_Database::table( 'deletion_requests' );
+
+        // Check for existing pending request
+        $existing = $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$dr_table} WHERE member_id = %d AND status = 'pending'",
+            $member->id
+        ) );
+        if ( $existing ) {
+            return $this->error( 'duplicate_request', __( 'You already have a pending deletion request.', 'community-directory' ) );
+        }
+
+        $reason = sanitize_textarea_field( $request->get_param( 'reason' ) ?: '' );
+
+        $wpdb->insert( $dr_table, array(
+            'member_id'    => $member->id,
+            'reason'       => $reason,
+            'requested_at' => current_time( 'mysql' ),
+            'status'       => 'pending',
+        ), array( '%d', '%s', '%s', '%s' ) );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::DELETION_REQUESTED, get_current_user_id(), $member->id, array(
+            'reason' => $reason,
+        ) );
+
+        return $this->success( array(
+            'message' => __( 'Your account deletion request has been submitted for review.', 'community-directory' ),
+        ) );
+    }
+
+    /**
+     * List active WhatsApp groups visible to the current member.
+     * GET /whatsapp-groups
+     */
+    public function list_whatsapp_groups( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $table = CD_Database::table( 'whatsapp_groups' );
+
+        $rows = $wpdb->get_results(
+            "SELECT id, name, description, invite_url, icon, visibility, visibility_tag
+             FROM {$table}
+             WHERE is_active = 1
+             ORDER BY display_order ASC, name ASC"
+        );
+
+        $groups = array();
+        foreach ( $rows as $row ) {
+            $groups[] = array(
+                'id'             => (int) $row->id,
+                'name'           => $row->name,
+                'description'    => $row->description ?: '',
+                'invite_url'     => $row->invite_url,
+                'icon'           => $row->icon ?: '',
+                'visibility'     => $row->visibility,
+                'visibility_tag' => $row->visibility_tag ?: '',
+            );
+        }
+
+        return $this->success( array( 'groups' => $groups ) );
     }
 }

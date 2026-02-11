@@ -140,7 +140,7 @@ get_header();
                         </div>
 
                         <!-- Step 2: Address & Church Background -->
-                        <div x-show="step === 1">
+                        <div x-show="step === 1" x-cloak>
                             <h2><?php esc_html_e( 'Address & Church Background', 'community-directory' ); ?></h2>
 
                             <div class="cd-form-group">
@@ -228,7 +228,7 @@ get_header();
                                 </div>
                                 <p class="cd-help-text"><?php esc_html_e( 'If widowed or divorced, please disclose to the Priest.', 'community-directory' ); ?></p>
 
-                                <div x-show="form.marital_status === 'married'" x-transition class="cd-nested-form">
+                                <div x-show="form.marital_status === 'married'" x-cloak x-transition class="cd-nested-form">
                                     <div class="cd-form-row">
                                         <div class="cd-form-group cd-form-half">
                                             <label for="cd-marriage-date"><?php esc_html_e( 'Date of Marriage', 'community-directory' ); ?></label>
@@ -253,7 +253,7 @@ get_header();
                         </div>
 
                         <!-- Step 3: Family Members -->
-                        <div x-show="step === 2">
+                        <div x-show="step === 2" x-cloak>
                             <h2><?php esc_html_e( 'Family Members', 'community-directory' ); ?></h2>
                             <p class="cd-text-muted"><?php esc_html_e( 'Optionally add your spouse and children. They can be added or updated later.', 'community-directory' ); ?></p>
 
@@ -265,7 +265,7 @@ get_header();
                                     <?php esc_html_e( 'I would like to add my spouse', 'community-directory' ); ?>
                                 </label>
 
-                                <div x-show="hasSpouse" x-transition class="cd-nested-form">
+                                <div x-show="hasSpouse" x-cloak x-transition class="cd-nested-form">
                                     <div class="cd-form-row">
                                         <div class="cd-form-group cd-form-grow">
                                             <label><?php esc_html_e( 'First Name', 'community-directory' ); ?></label>
@@ -372,7 +372,7 @@ get_header();
                         </div>
 
                         <!-- Step 4: Interests & Review -->
-                        <div x-show="step === 3">
+                        <div x-show="step === 3" x-cloak>
                             <h2><?php esc_html_e( 'Talents, Interests & Review', 'community-directory' ); ?></h2>
 
                             <!-- Ministry Interests -->
@@ -511,6 +511,7 @@ get_header();
                                 type="button"
                                 class="cd-btn cd-btn-secondary"
                                 x-show="step > 0"
+                                x-cloak
                                 @click="prevStep()"
                             >
                                 <?php esc_html_e( 'Back', 'community-directory' ); ?>
@@ -528,6 +529,7 @@ get_header();
                                 type="button"
                                 class="cd-btn cd-btn-primary"
                                 x-show="step === steps.length - 1"
+                                x-cloak
                                 @click="submitApplication()"
                                 :disabled="!agreedToTerms || loading"
                             >

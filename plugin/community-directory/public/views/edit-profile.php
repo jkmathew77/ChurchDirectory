@@ -62,39 +62,33 @@ get_header();
                                 </div>
                             </template>
 
-                            <!-- Camera capture view -->
-                            <template x-if="showCamera">
-                                <div class="cd-camera-wrap">
-                                    <video x-ref="cameraVideo" autoplay playsinline class="cd-camera-video"></video>
-                                    <canvas x-ref="cameraCanvas" style="display:none;"></canvas>
-                                </div>
-                            </template>
+                            <!-- Camera capture view (use x-show so refs persist for capture) -->
+                            <div class="cd-camera-wrap" x-show="showCamera" x-cloak>
+                                <video x-ref="cameraVideo" autoplay playsinline muted class="cd-camera-video"></video>
+                            </div>
+                            <canvas x-ref="cameraCanvas" style="display:none;"></canvas>
 
                             <div class="cd-avatar-actions">
-                                <template x-if="!showCamera">
-                                    <div class="cd-avatar-btn-row">
-                                        <label class="cd-btn cd-btn-sm cd-btn-secondary">
-                                            <?php esc_html_e( 'Upload Photo', 'community-directory' ); ?>
-                                            <input type="file" @change="uploadAvatar" accept="image/*" style="display:none;">
-                                        </label>
-                                        <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="startCamera()">
-                                            &#128247; <?php esc_html_e( 'Take Photo', 'community-directory' ); ?>
-                                        </button>
-                                        <button type="button" class="cd-btn cd-btn-sm cd-btn-danger" @click="deleteAvatar" x-show="form.avatar_url" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">
-                                            &#128465;
-                                        </button>
-                                    </div>
-                                </template>
-                                <template x-if="showCamera">
-                                    <div class="cd-avatar-btn-row">
-                                        <button type="button" class="cd-btn cd-btn-sm cd-btn-primary" @click="capturePhoto()">
-                                            &#128247; <?php esc_html_e( 'Capture', 'community-directory' ); ?>
-                                        </button>
-                                        <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="stopCamera()">
-                                            <?php esc_html_e( 'Cancel', 'community-directory' ); ?>
-                                        </button>
-                                    </div>
-                                </template>
+                                <div class="cd-avatar-btn-row" x-show="!showCamera">
+                                    <label class="cd-btn cd-btn-sm cd-btn-secondary">
+                                        <?php esc_html_e( 'Upload Photo', 'community-directory' ); ?>
+                                        <input type="file" @change="uploadAvatar" accept="image/*" style="display:none;">
+                                    </label>
+                                    <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="startCamera()">
+                                        &#128247; <?php esc_html_e( 'Take Photo', 'community-directory' ); ?>
+                                    </button>
+                                    <button type="button" class="cd-btn cd-btn-sm cd-btn-danger" @click="deleteAvatar" x-show="form.avatar_url" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">
+                                        &#128465;
+                                    </button>
+                                </div>
+                                <div class="cd-avatar-btn-row" x-show="showCamera" x-cloak>
+                                    <button type="button" class="cd-btn cd-btn-sm cd-btn-primary" @click="capturePhoto()">
+                                        &#128247; <?php esc_html_e( 'Capture', 'community-directory' ); ?>
+                                    </button>
+                                    <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="stopCamera()">
+                                        <?php esc_html_e( 'Cancel', 'community-directory' ); ?>
+                                    </button>
+                                </div>
                                 <span x-show="uploadingAvatar" class="cd-spinner-sm"></span>
                             </div>
                         </div>
@@ -103,13 +97,28 @@ get_header();
                     <!-- Section: Basic Info -->
                     <div class="cd-form-section">
                         <h3><?php esc_html_e( 'Basic Information', 'community-directory' ); ?></h3>
+                        <div class="cd-form-group" style="max-width: 160px;">
+                            <label class="cd-label"><?php esc_html_e( 'Salutation', 'community-directory' ); ?></label>
+                            <select class="cd-select" x-model="form.salutation">
+                                <option value=""><?php esc_html_e( '— None —', 'community-directory' ); ?></option>
+                                <option value="Mr">Mr</option>
+                                <option value="Mrs">Mrs</option>
+                                <option value="Ms">Ms</option>
+                                <option value="Dr">Dr</option>
+                                <option value="Fr.">Fr.</option>
+                                <option value="Dn.">Dn.</option>
+                                <option value="Sr.">Sr.</option>
+                                <option value="Rev.">Rev.</option>
+                                <option value="Prof.">Prof.</option>
+                            </select>
+                        </div>
                         <div class="cd-grid-2">
                             <div class="cd-form-group">
-                                <label class="cd-label"><?php esc_html_e( 'First Name', 'community-directory' ); ?></label>
+                                <label class="cd-label"><?php esc_html_e( 'First Name', 'community-directory' ); ?> *</label>
                                 <input type="text" class="cd-input" x-model="form.first_name" required>
                             </div>
                             <div class="cd-form-group">
-                                <label class="cd-label"><?php esc_html_e( 'Last Name', 'community-directory' ); ?></label>
+                                <label class="cd-label"><?php esc_html_e( 'Last Name', 'community-directory' ); ?> *</label>
                                 <input type="text" class="cd-input" x-model="form.last_name" required>
                             </div>
                         </div>
@@ -380,9 +389,47 @@ get_header();
                                     + <?php esc_html_e( 'Add Household Member', 'community-directory' ); ?>
                                 </button>
                             </template>
+
+                            <!-- Lifecycle action buttons (context-sensitive by role) -->
+                            <div class="cd-hh-lifecycle-actions" style="margin-top: 16px; padding-top: 12px; border-top: 1px solid #eee;">
+                                <!-- Head sees: Transfer Primary + Request Merge -->
+                                <template x-if="household.my_role === 'head'">
+                                    <div class="cd-btn-row">
+                                        <button type="button" class="cd-btn cd-btn-secondary cd-btn-sm" @click="showTransferHead = true">
+                                            <?php esc_html_e( 'Transfer Primary', 'community-directory' ); ?>
+                                        </button>
+                                        <button type="button" class="cd-btn cd-btn-secondary cd-btn-sm" @click="showMergeRequest = true">
+                                            <?php esc_html_e( 'Request Merge', 'community-directory' ); ?>
+                                        </button>
+                                    </div>
+                                </template>
+
+                                <!-- Spouse/Other sees: Spin-Off + Leave -->
+                                <template x-if="household.my_role === 'spouse' || household.my_role === 'other'">
+                                    <div class="cd-btn-row">
+                                        <button type="button" class="cd-btn cd-btn-secondary cd-btn-sm" @click="showSpinOff = true">
+                                            <?php esc_html_e( 'Start My Own Household', 'community-directory' ); ?>
+                                        </button>
+                                        <button type="button" class="cd-btn cd-btn-secondary cd-btn-sm cd-btn-danger-outline" @click="showLeaveConfirm = true">
+                                            <?php esc_html_e( 'Leave Household', 'community-directory' ); ?>
+                                        </button>
+                                    </div>
+                                </template>
+                            </div>
                         </div>
                     </template>
                 </div>
+            </div>
+        </div>
+
+        <!-- ──── Danger Zone ──── -->
+        <div class="cd-card cd-danger-zone" x-show="!loading" style="border: 1px solid #f5c6cb; margin-top: 24px;">
+            <div class="cd-form-section">
+                <h3 style="color: #cc1818;"><?php esc_html_e( 'Danger Zone', 'community-directory' ); ?></h3>
+                <p class="cd-text-muted"><?php esc_html_e( 'Request permanent removal of your account from the church directory.', 'community-directory' ); ?></p>
+                <button type="button" class="cd-btn cd-btn-danger cd-btn-sm" @click="showDeletionRequest = true">
+                    <?php esc_html_e( 'Request Account Deletion', 'community-directory' ); ?>
+                </button>
             </div>
         </div>
     </div>
@@ -528,6 +575,172 @@ get_header();
                 <button type="button" class="cd-btn cd-btn-primary" @click="addHouseholdMember" :disabled="householdSaving">
                     <span x-show="!householdSaving"><?php esc_html_e( 'Add Member', 'community-directory' ); ?></span>
                     <span x-show="householdSaving"><?php esc_html_e( 'Adding...', 'community-directory' ); ?></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ──── Leave Household Confirm ──── -->
+    <div x-show="showLeaveConfirm" class="cd-modal-overlay" x-cloak x-transition>
+        <div class="cd-modal">
+            <div class="cd-modal-header">
+                <h3><?php esc_html_e( 'Leave Household', 'community-directory' ); ?></h3>
+                <button type="button" class="cd-btn-icon" @click="showLeaveConfirm = false">&times;</button>
+            </div>
+            <div class="cd-modal-body">
+                <p><?php esc_html_e( 'Are you sure you want to leave this household? You can join or create a new one later.', 'community-directory' ); ?></p>
+            </div>
+            <div class="cd-modal-footer">
+                <button type="button" class="cd-btn cd-btn-secondary" @click="showLeaveConfirm = false"><?php esc_html_e( 'Cancel', 'community-directory' ); ?></button>
+                <button type="button" class="cd-btn cd-btn-danger" @click="leaveHousehold" :disabled="householdSaving">
+                    <span x-show="!householdSaving"><?php esc_html_e( 'Leave Household', 'community-directory' ); ?></span>
+                    <span x-show="householdSaving"><?php esc_html_e( 'Leaving...', 'community-directory' ); ?></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ──── Transfer Head Modal ──── -->
+    <div x-show="showTransferHead" class="cd-modal-overlay" x-cloak x-transition>
+        <div class="cd-modal">
+            <div class="cd-modal-header">
+                <h3><?php esc_html_e( 'Transfer Primary Membership', 'community-directory' ); ?></h3>
+                <button type="button" class="cd-btn-icon" @click="showTransferHead = false">&times;</button>
+            </div>
+            <div class="cd-modal-body">
+                <p class="cd-text-muted"><?php esc_html_e( 'Select which household member should become the new primary membership holder. Your role will change to "Other".', 'community-directory' ); ?></p>
+                <div class="cd-form-group">
+                    <label class="cd-label"><?php esc_html_e( 'New Primary Member', 'community-directory' ); ?></label>
+                    <select class="cd-select" x-model="transferTargetId">
+                        <option value=""><?php esc_html_e( '— Select —', 'community-directory' ); ?></option>
+                        <template x-for="m in (household ? household.members : []).filter(m => m.role !== 'head' && m.role !== 'child')" :key="m.member_id">
+                            <option :value="m.member_id" x-text="(m.first_name || '') + ' ' + (m.last_name || '') + ' (' + m.role_label + ')'"></option>
+                        </template>
+                    </select>
+                </div>
+            </div>
+            <div class="cd-modal-footer">
+                <button type="button" class="cd-btn cd-btn-secondary" @click="showTransferHead = false"><?php esc_html_e( 'Cancel', 'community-directory' ); ?></button>
+                <button type="button" class="cd-btn cd-btn-primary" @click="transferHead" :disabled="householdSaving || !transferTargetId">
+                    <span x-show="!householdSaving"><?php esc_html_e( 'Transfer', 'community-directory' ); ?></span>
+                    <span x-show="householdSaving"><?php esc_html_e( 'Transferring...', 'community-directory' ); ?></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ──── Spin-Off Modal ──── -->
+    <div x-show="showSpinOff" class="cd-modal-overlay" x-cloak x-transition>
+        <div class="cd-modal">
+            <div class="cd-modal-header">
+                <h3><?php esc_html_e( 'Start My Own Household', 'community-directory' ); ?></h3>
+                <button type="button" class="cd-btn-icon" @click="showSpinOff = false">&times;</button>
+            </div>
+            <div class="cd-modal-body">
+                <p class="cd-text-muted"><?php esc_html_e( 'You will leave the current household and start a new one as the primary member.', 'community-directory' ); ?></p>
+                <div class="cd-form-group">
+                    <label class="cd-label"><?php esc_html_e( 'New Household Name', 'community-directory' ); ?> *</label>
+                    <input type="text" class="cd-input" x-model="spinOffForm.name" placeholder="<?php esc_attr_e( 'e.g. The Smith Family', 'community-directory' ); ?>">
+                </div>
+                <div class="cd-form-group">
+                    <label class="cd-label"><?php esc_html_e( 'Address (optional)', 'community-directory' ); ?></label>
+                    <input type="text" class="cd-input" x-model="spinOffForm.line_1" placeholder="<?php esc_attr_e( 'Street address', 'community-directory' ); ?>">
+                </div>
+                <div class="cd-grid-address">
+                    <div class="cd-form-group">
+                        <input type="text" class="cd-input" x-model="spinOffForm.city" placeholder="<?php esc_attr_e( 'City', 'community-directory' ); ?>">
+                    </div>
+                    <div class="cd-form-group">
+                        <input type="text" class="cd-input" x-model="spinOffForm.state" placeholder="<?php esc_attr_e( 'State', 'community-directory' ); ?>">
+                    </div>
+                    <div class="cd-form-group">
+                        <input type="text" class="cd-input" x-model="spinOffForm.zip" placeholder="<?php esc_attr_e( 'ZIP', 'community-directory' ); ?>">
+                    </div>
+                </div>
+
+                <!-- Children to bring along -->
+                <template x-if="household && household.members.filter(m => m.role === 'child').length > 0">
+                    <div class="cd-form-group" style="margin-top: 12px;">
+                        <label class="cd-label"><?php esc_html_e( 'Bring children with you?', 'community-directory' ); ?></label>
+                        <template x-for="child in household.members.filter(m => m.role === 'child')" :key="child.member_id">
+                            <label class="cd-checkbox" style="display: block; margin-bottom: 4px;">
+                                <input type="checkbox" :value="child.member_id" x-model="spinOffForm.bring_children">
+                                <span x-text="(child.first_name || '') + ' ' + (child.last_name || '')"></span>
+                            </label>
+                        </template>
+                    </div>
+                </template>
+            </div>
+            <div class="cd-modal-footer">
+                <button type="button" class="cd-btn cd-btn-secondary" @click="showSpinOff = false"><?php esc_html_e( 'Cancel', 'community-directory' ); ?></button>
+                <button type="button" class="cd-btn cd-btn-primary" @click="submitSpinOff" :disabled="householdSaving || !spinOffForm.name.trim()">
+                    <span x-show="!householdSaving"><?php esc_html_e( 'Create & Leave', 'community-directory' ); ?></span>
+                    <span x-show="householdSaving"><?php esc_html_e( 'Creating...', 'community-directory' ); ?></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ──── Merge Request Modal ──── -->
+    <div x-show="showMergeRequest" class="cd-modal-overlay" x-cloak x-transition>
+        <div class="cd-modal">
+            <div class="cd-modal-header">
+                <h3><?php esc_html_e( 'Request Household Merge', 'community-directory' ); ?></h3>
+                <button type="button" class="cd-btn-icon" @click="showMergeRequest = false">&times;</button>
+            </div>
+            <div class="cd-modal-body">
+                <p class="cd-text-muted"><?php esc_html_e( 'Search for the household you want to merge into. All members from your household will be moved to the target. An admin must approve this request.', 'community-directory' ); ?></p>
+                <div class="cd-form-group">
+                    <label class="cd-label"><?php esc_html_e( 'Search Households', 'community-directory' ); ?></label>
+                    <input type="text" class="cd-input" x-model="mergeSearchQuery" @input.debounce.400ms="searchHouseholds()" placeholder="<?php esc_attr_e( 'Type at least 2 characters...', 'community-directory' ); ?>">
+                    <span x-show="mergeSearching" class="cd-spinner-sm" style="margin-left: 8px;"></span>
+                </div>
+
+                <template x-if="mergeSearchResults.length > 0">
+                    <div class="cd-form-group">
+                        <label class="cd-label"><?php esc_html_e( 'Select Target Household', 'community-directory' ); ?></label>
+                        <template x-for="h in mergeSearchResults" :key="h.id">
+                            <label class="cd-radio-label" style="display: block; margin-bottom: 6px; cursor: pointer;">
+                                <input type="radio" name="merge_target" :value="h.id" x-model="mergeTargetHouseholdId">
+                                <span x-text="h.name"></span>
+                            </label>
+                        </template>
+                    </div>
+                </template>
+
+                <template x-if="mergeSearchQuery.length >= 2 && mergeSearchResults.length === 0 && !mergeSearching">
+                    <p class="cd-text-muted"><?php esc_html_e( 'No matching households found.', 'community-directory' ); ?></p>
+                </template>
+            </div>
+            <div class="cd-modal-footer">
+                <button type="button" class="cd-btn cd-btn-secondary" @click="showMergeRequest = false; mergeSearchQuery = ''; mergeSearchResults = []; mergeTargetHouseholdId = '';"><?php esc_html_e( 'Cancel', 'community-directory' ); ?></button>
+                <button type="button" class="cd-btn cd-btn-primary" @click="submitMergeRequest" :disabled="householdSaving || !mergeTargetHouseholdId">
+                    <span x-show="!householdSaving"><?php esc_html_e( 'Submit Request', 'community-directory' ); ?></span>
+                    <span x-show="householdSaving"><?php esc_html_e( 'Submitting...', 'community-directory' ); ?></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ──── Deletion Request Modal ──── -->
+    <div x-show="showDeletionRequest" class="cd-modal-overlay" x-cloak x-transition>
+        <div class="cd-modal">
+            <div class="cd-modal-header">
+                <h3 style="color: #cc1818;"><?php esc_html_e( 'Request Account Deletion', 'community-directory' ); ?></h3>
+                <button type="button" class="cd-btn-icon" @click="showDeletionRequest = false">&times;</button>
+            </div>
+            <div class="cd-modal-body">
+                <p><?php esc_html_e( 'This will submit a request to the church administrator to remove your account from the directory. This action cannot be undone once processed.', 'community-directory' ); ?></p>
+                <div class="cd-form-group">
+                    <label class="cd-label"><?php esc_html_e( 'Reason (optional)', 'community-directory' ); ?></label>
+                    <textarea class="cd-input" x-model="deletionReason" rows="3" placeholder="<?php esc_attr_e( 'Please let us know why you are leaving...', 'community-directory' ); ?>"></textarea>
+                </div>
+            </div>
+            <div class="cd-modal-footer">
+                <button type="button" class="cd-btn cd-btn-secondary" @click="showDeletionRequest = false"><?php esc_html_e( 'Cancel', 'community-directory' ); ?></button>
+                <button type="button" class="cd-btn cd-btn-danger" @click="submitDeletionRequest" :disabled="saving">
+                    <span x-show="!saving"><?php esc_html_e( 'Submit Deletion Request', 'community-directory' ); ?></span>
+                    <span x-show="saving"><?php esc_html_e( 'Submitting...', 'community-directory' ); ?></span>
                 </button>
             </div>
         </div>

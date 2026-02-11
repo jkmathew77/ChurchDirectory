@@ -54,6 +54,12 @@ const cdApi = {
     },
 };
 
+/* ─── Email Obfuscation Helper ─── */
+function cdDecodeEmail(encoded) {
+    if (!encoded) return '';
+    try { return atob(encoded); } catch (e) { return encoded; }
+}
+
 /* ─── Initialize Alpine Components ─── */
 document.addEventListener('alpine:init', () => {
 
@@ -102,6 +108,11 @@ document.addEventListener('alpine:init', () => {
             if (params.get('logged_out')) {
                 this.successMessage = 'You have been logged out.';
             }
+
+            // Handle PWA session expiry
+            if (params.get('expired') === '1' || window.cdSessionExpired) {
+                this.errorMessage = 'Your session has expired. Please sign in again.';
+            }
         },
 
         async loginWithEmail() {
@@ -115,13 +126,26 @@ document.addEventListener('alpine:init', () => {
 
             this.loading = true;
             try {
-                const result = await cdApi.post('/auth/login', {
+                var loginData = {
                     email: this.email,
                     password: this.password,
-                });
+                };
 
-                // Redirect to directory on success
-                if (result.data && result.data.redirect) {
+                // In PWA context, auto-enable remember me for 30-day sessions
+                if (window.cdIsPwa) {
+                    loginData.remember = true;
+                    loginData.pwa = true;
+                }
+
+                const result = await cdApi.post('/auth/login', loginData);
+
+                // Deep link preservation: if we came from session expiry, return to original page
+                const params = new URLSearchParams(window.location.search);
+                const returnUrl = params.get('return');
+
+                if (returnUrl && returnUrl.startsWith('/')) {
+                    window.location.href = returnUrl;
+                } else if (result.data && result.data.redirect) {
                     window.location.href = result.data.redirect;
                 } else {
                     window.location.href = cdConfig.baseUrl + '/directory/';
@@ -522,7 +546,7 @@ document.addEventListener('alpine:init', () => {
         },
     }));
 
-    /* ─── Directory (Phase 3 stub) ─── */
+    /* ─── Directory ─── */
     Alpine.data('cdDirectory', () => ({
         searchQuery: '',
         members: [],
@@ -532,8 +556,20 @@ document.addEventListener('alpine:init', () => {
         totalPages: 1,
         totalMembers: 0,
 
+        // Advanced filters
+        showFilters: false,
+        filterCity: '',
+        filterState: '',
+        filterOccupation: '',
+        filterEmployer: '',
+
+        // WhatsApp groups
+        whatsappGroups: [],
+        whatsappLoading: false,
+
         init() {
             this.loadMembers();
+            this.loadWhatsAppGroups();
         },
 
         async loadMembers() {
@@ -543,9 +579,18 @@ document.addEventListener('alpine:init', () => {
                 if (this.searchQuery) {
                     url += '&search=' + encodeURIComponent(this.searchQuery);
                 }
+                if (this.filterCity) url += '&city=' + encodeURIComponent(this.filterCity);
+                if (this.filterState) url += '&state=' + encodeURIComponent(this.filterState);
+                if (this.filterOccupation) url += '&occupation=' + encodeURIComponent(this.filterOccupation);
+                if (this.filterEmployer) url += '&employer=' + encodeURIComponent(this.filterEmployer);
 
                 const result = await cdApi.get(url);
                 this.members = result.data.members || [];
+
+                // Decode obfuscated emails
+                if (result.data.email_obfuscated) {
+                    this.members.forEach(m => { if (m.email) m.email = cdDecodeEmail(m.email); });
+                }
 
                 if (result.meta) {
                     this.totalPages = result.meta.pages;
@@ -559,9 +604,39 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        async loadWhatsAppGroups() {
+            this.whatsappLoading = true;
+            try {
+                const result = await cdApi.get('/whatsapp-groups');
+                this.whatsappGroups = result.data.groups || [];
+            } catch (err) {
+                this.whatsappGroups = [];
+            } finally {
+                this.whatsappLoading = false;
+            }
+        },
+
         search() {
             this.page = 1;
             this.loadMembers();
+        },
+
+        applyFilters() {
+            this.page = 1;
+            this.loadMembers();
+        },
+
+        clearFilters() {
+            this.filterCity = '';
+            this.filterState = '';
+            this.filterOccupation = '';
+            this.filterEmployer = '';
+            this.page = 1;
+            this.loadMembers();
+        },
+
+        hasActiveFilters() {
+            return this.filterCity || this.filterState || this.filterOccupation || this.filterEmployer;
         },
 
         nextPage() {
@@ -578,6 +653,12 @@ document.addEventListener('alpine:init', () => {
                 this.loadMembers();
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             }
+        },
+
+        // Display name with optional salutation
+        displayName(member) {
+            var prefix = member.salutation ? member.salutation + ' ' : '';
+            return prefix + member.first_name + ' ' + member.last_name;
         },
 
         logout() {
@@ -620,11 +701,22 @@ document.addEventListener('alpine:init', () => {
                 this.member = result.data.member;
                 this.isOwnProfile = result.data.is_own_profile || false;
                 this.household = result.data.household || null;
+
+                // Decode obfuscated emails
+                if (result.data.email_obfuscated && this.member.emails) {
+                    this.member.emails = this.member.emails.map(e => ({ ...e, value: cdDecodeEmail(e.value) }));
+                }
             } catch (err) {
                 this.errorMessage = err.message;
             } finally {
                 this.loading = false;
             }
+        },
+
+        displayName() {
+            if (!this.member) return '';
+            var prefix = this.member.salutation ? this.member.salutation + ' ' : '';
+            return prefix + this.member.first_name + ' ' + this.member.last_name;
         },
 
         getAvatarColor(name) {
@@ -653,6 +745,7 @@ document.addEventListener('alpine:init', () => {
     /* ─── Edit Profile ─── */
     Alpine.data('cdEditProfile', () => ({
         form: {
+            salutation: '',
             first_name: '',
             last_name: '',
             bio: '',
@@ -710,6 +803,20 @@ document.addEventListener('alpine:init', () => {
         editHouseholdAddr: { line_1: '', line_2: '', city: '', state: '', zip: '' },
         addMemberForm: { first_name: '', last_name: '', email: '', role: 'child' },
 
+        // Lifecycle state
+        showLeaveConfirm: false,
+        showTransferHead: false,
+        showSpinOff: false,
+        showMergeRequest: false,
+        showDeletionRequest: false,
+        transferTargetId: '',
+        spinOffForm: { name: '', line_1: '', city: '', state: '', zip: '', bring_children: [] },
+        mergeSearchQuery: '',
+        mergeSearchResults: [],
+        mergeTargetHouseholdId: '',
+        mergeSearching: false,
+        deletionReason: '',
+
         async init() {
             const uuid = cdConfig.currentMemberUuid;
             if (!uuid) {
@@ -727,6 +834,7 @@ document.addEventListener('alpine:init', () => {
                 const data = result.data.member;
 
                 // Populate form
+                this.form.salutation = data.salutation || '';
                 this.form.first_name = data.first_name || '';
                 this.form.last_name = data.last_name || '';
                 this.form.avatar_url = data.avatar_url || '';
@@ -761,6 +869,11 @@ document.addEventListener('alpine:init', () => {
                 this.form.emails = Array.isArray(data.emails) ? data.emails : [];
                 this.form.phones = Array.isArray(data.phones) ? data.phones : [];
                 this.form.social_links = Array.isArray(data.social_links) ? data.social_links : [];
+
+                // Decode obfuscated emails from API
+                if (result.data.email_obfuscated) {
+                    this.form.emails = this.form.emails.map(e => ({ ...e, value: cdDecodeEmail(e.value) }));
+                }
 
                 // Minimum 1 empty slot
                 if (this.form.emails.length === 0) {
@@ -868,18 +981,25 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
 
+            const attachStream = (stream) => {
+                this.cameraStream = stream;
+                this.showCamera = true;
+                // Use requestAnimationFrame to ensure DOM is visible before attaching
+                requestAnimationFrame(() => {
+                    const video = this.$refs.cameraVideo;
+                    if (video) {
+                        video.srcObject = stream;
+                        video.play().catch(() => {});
+                    }
+                });
+            };
+
             try {
-                this.cameraStream = await navigator.mediaDevices.getUserMedia({
+                const stream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
                     audio: false,
                 });
-                this.showCamera = true;
-                this.$nextTick(() => {
-                    const video = this.$refs.cameraVideo;
-                    if (video) {
-                        video.srcObject = this.cameraStream;
-                    }
-                });
+                attachStream(stream);
             } catch (err) {
                 console.error('CD Camera Error:', err.name, err.message);
                 if (err.name === 'NotAllowedError') {
@@ -891,12 +1011,8 @@ document.addEventListener('alpine:init', () => {
                 } else if (err.name === 'OverconstrainedError') {
                     // Try again without constraints
                     try {
-                        this.cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-                        this.showCamera = true;
-                        this.$nextTick(() => {
-                            const video = this.$refs.cameraVideo;
-                            if (video) video.srcObject = this.cameraStream;
-                        });
+                        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                        attachStream(stream);
                         return;
                     } catch (e2) {
                         this.errorMessage = 'Could not access camera: ' + e2.message;
@@ -910,7 +1026,16 @@ document.addEventListener('alpine:init', () => {
         capturePhoto() {
             const video = this.$refs.cameraVideo;
             const canvas = this.$refs.cameraCanvas;
-            if (!video || !canvas) return;
+            if (!video || !canvas) {
+                this.errorMessage = 'Camera not ready. Please try again.';
+                return;
+            }
+
+            // Ensure video has actual dimensions (stream is playing)
+            if (!video.videoWidth || !video.videoHeight) {
+                this.errorMessage = 'Camera not ready yet. Please wait a moment and try again.';
+                return;
+            }
 
             // Square crop: use the smaller dimension
             const size = Math.min(video.videoWidth, video.videoHeight);
@@ -921,11 +1046,15 @@ document.addEventListener('alpine:init', () => {
             const sy = (video.videoHeight - size) / 2;
             ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
 
+            // Stop camera AFTER drawing to canvas (canvas is outside x-if now, so it persists)
             this.stopCamera();
 
             // Convert canvas to blob and upload
             canvas.toBlob((blob) => {
-                if (!blob) return;
+                if (!blob) {
+                    this.errorMessage = 'Failed to capture photo. Please try again.';
+                    return;
+                }
                 this.uploadingAvatar = true;
                 const formData = new FormData();
                 formData.append('file', blob, 'camera-photo.jpg');
@@ -934,6 +1063,7 @@ document.addEventListener('alpine:init', () => {
                 fetch(url, {
                     method: 'POST',
                     headers: { 'X-WP-Nonce': cdConfig.nonce },
+                    credentials: 'same-origin',
                     body: formData,
                 })
                     .then(response => response.json())
@@ -942,7 +1072,7 @@ document.addEventListener('alpine:init', () => {
                             this.form.avatar_url = data.data.url;
                             this.successMessage = 'Photo captured and uploaded.';
                         } else {
-                            throw new Error(data.message || 'Upload failed');
+                            throw new Error(data.message || data.error?.message || 'Upload failed');
                         }
                     })
                     .catch(err => {
@@ -1099,6 +1229,132 @@ document.addEventListener('alpine:init', () => {
             }
         },
 
+        // ── Lifecycle Methods ──
+
+        async leaveHousehold() {
+            this.householdError = '';
+            this.householdSaving = true;
+            try {
+                const result = await cdApi.post('/members/me/household/leave', {});
+                this.householdMessage = result.data.message || 'You have left the household.';
+                this.showLeaveConfirm = false;
+                this.household = null;
+                await this.loadHousehold();
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.householdSaving = false;
+            }
+        },
+
+        async transferHead() {
+            if (!this.transferTargetId) {
+                this.householdError = 'Please select a member to transfer leadership to.';
+                return;
+            }
+            this.householdError = '';
+            this.householdSaving = true;
+            try {
+                const result = await cdApi.post('/members/me/household/transfer-head', {
+                    target_member_id: parseInt(this.transferTargetId),
+                });
+                this.householdMessage = result.data.message || 'Leadership transferred.';
+                this.showTransferHead = false;
+                this.transferTargetId = '';
+                await this.loadHousehold();
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.householdSaving = false;
+            }
+        },
+
+        async submitSpinOff() {
+            if (!this.spinOffForm.name.trim()) {
+                this.householdError = 'Please enter a household name.';
+                return;
+            }
+            this.householdError = '';
+            this.householdSaving = true;
+            try {
+                const result = await cdApi.post('/members/me/household/spin-off', {
+                    household_name: this.spinOffForm.name.trim(),
+                    address: {
+                        line_1: this.spinOffForm.line_1,
+                        city: this.spinOffForm.city,
+                        state: this.spinOffForm.state,
+                        zip: this.spinOffForm.zip,
+                    },
+                    bring_children: this.spinOffForm.bring_children,
+                });
+                this.householdMessage = result.data.message || 'New household created.';
+                this.showSpinOff = false;
+                this.spinOffForm = { name: '', line_1: '', city: '', state: '', zip: '', bring_children: [] };
+                await this.loadHousehold();
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.householdSaving = false;
+            }
+        },
+
+        async searchHouseholds() {
+            if (this.mergeSearchQuery.length < 2) {
+                this.mergeSearchResults = [];
+                return;
+            }
+            this.mergeSearching = true;
+            try {
+                const result = await cdApi.get('/households/search?q=' + encodeURIComponent(this.mergeSearchQuery));
+                this.mergeSearchResults = result.data.households || [];
+            } catch (err) {
+                this.mergeSearchResults = [];
+            } finally {
+                this.mergeSearching = false;
+            }
+        },
+
+        async submitMergeRequest() {
+            if (!this.mergeTargetHouseholdId) {
+                this.householdError = 'Please select a target household.';
+                return;
+            }
+            this.householdError = '';
+            this.householdSaving = true;
+            try {
+                const result = await cdApi.post('/members/me/household/merge-request', {
+                    target_household_id: parseInt(this.mergeTargetHouseholdId),
+                });
+                this.householdMessage = result.data.message || 'Merge request submitted for admin approval.';
+                this.showMergeRequest = false;
+                this.mergeSearchQuery = '';
+                this.mergeSearchResults = [];
+                this.mergeTargetHouseholdId = '';
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.householdSaving = false;
+            }
+        },
+
+        async submitDeletionRequest() {
+            this.errorMessage = '';
+            this.saving = true;
+            try {
+                const result = await cdApi.post('/members/me/deletion-request', {
+                    reason: this.deletionReason,
+                });
+                this.successMessage = result.data.message || 'Your deletion request has been submitted.';
+                this.showDeletionRequest = false;
+                this.deletionReason = '';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch (err) {
+                this.errorMessage = err.message;
+            } finally {
+                this.saving = false;
+            }
+        },
+
         // Populate edit household modal when opened
         $watch: {
             showEditHousehold(val) {
@@ -1164,3 +1420,189 @@ document.addEventListener('alpine:init', () => {
     }));
 
 });
+
+/* ─── PWA: Install Prompt, Update Banner, Session Management ─── */
+(function() {
+    'use strict';
+
+    // Only run on community pages
+    if (typeof cdConfig === 'undefined') return;
+
+    var isPwa = window.matchMedia('(display-mode: standalone)').matches ||
+                window.navigator.standalone === true;
+
+    /* ── Install Prompt (Android) ── */
+    var deferredPrompt = null;
+
+    window.addEventListener('beforeinstallprompt', function(e) {
+        e.preventDefault();
+        deferredPrompt = e;
+
+        // Don't show if already in PWA or recently dismissed
+        if (isPwa) return;
+        var dismissed = localStorage.getItem('cd-pwa-dismissed');
+        if (dismissed && (Date.now() - parseInt(dismissed, 10)) < 30 * 24 * 60 * 60 * 1000) return;
+
+        showInstallBanner();
+    });
+
+    function showInstallBanner() {
+        // Don't show duplicate
+        if (document.getElementById('cd-pwa-install-banner')) return;
+
+        var banner = document.createElement('div');
+        banner.id = 'cd-pwa-install-banner';
+        banner.className = 'cd-pwa-install-banner';
+        banner.innerHTML =
+            '<div class="cd-pwa-install-content">' +
+                '<span class="cd-pwa-install-text">Install this app for quick access</span>' +
+                '<div class="cd-pwa-install-actions">' +
+                    '<button class="cd-pwa-install-btn" id="cd-pwa-install-accept">Install</button>' +
+                    '<button class="cd-pwa-install-dismiss" id="cd-pwa-install-dismiss" aria-label="Dismiss">&times;</button>' +
+                '</div>' +
+            '</div>';
+
+        document.body.appendChild(banner);
+
+        // Slide in
+        requestAnimationFrame(function() {
+            banner.classList.add('cd-pwa-install-visible');
+        });
+
+        document.getElementById('cd-pwa-install-accept').addEventListener('click', function() {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                deferredPrompt.userChoice.then(function(result) {
+                    deferredPrompt = null;
+                    removeInstallBanner();
+                    if (result.outcome === 'dismissed') {
+                        localStorage.setItem('cd-pwa-dismissed', Date.now().toString());
+                    }
+                });
+            }
+        });
+
+        document.getElementById('cd-pwa-install-dismiss').addEventListener('click', function() {
+            localStorage.setItem('cd-pwa-dismissed', Date.now().toString());
+            removeInstallBanner();
+        });
+    }
+
+    function removeInstallBanner() {
+        var banner = document.getElementById('cd-pwa-install-banner');
+        if (banner) {
+            banner.classList.remove('cd-pwa-install-visible');
+            setTimeout(function() { banner.remove(); }, 300);
+        }
+    }
+
+    /* ── iOS Install Instructions ── */
+    var isIos = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    if (isIos && !isPwa) {
+        var iosDismissed = localStorage.getItem('cd-pwa-ios-dismissed');
+        var shouldShowIos = !iosDismissed || (Date.now() - parseInt(iosDismissed, 10)) > 30 * 24 * 60 * 60 * 1000;
+
+        if (shouldShowIos && !sessionStorage.getItem('cd-pwa-ios-shown')) {
+            sessionStorage.setItem('cd-pwa-ios-shown', '1');
+
+            // Delay slightly so page loads first
+            setTimeout(function() {
+                var overlay = document.createElement('div');
+                overlay.id = 'cd-pwa-ios-overlay';
+                overlay.className = 'cd-pwa-ios-overlay';
+                overlay.innerHTML =
+                    '<div class="cd-pwa-ios-card">' +
+                        '<button class="cd-pwa-ios-close" id="cd-pwa-ios-close" aria-label="Close">&times;</button>' +
+                        '<div class="cd-pwa-ios-icon">&#x2B06;&#xFE0F;</div>' +
+                        '<h3>Install This App</h3>' +
+                        '<p>Tap the <strong>Share</strong> button <span style="font-size:1.2em;">&#x1F4E4;</span> in Safari, then select <strong>"Add to Home Screen"</strong></p>' +
+                        '<button class="cd-pwa-ios-got-it" id="cd-pwa-ios-got-it">Got It</button>' +
+                    '</div>';
+
+                document.body.appendChild(overlay);
+                requestAnimationFrame(function() { overlay.classList.add('cd-pwa-ios-visible'); });
+
+                function closeIosOverlay() {
+                    localStorage.setItem('cd-pwa-ios-dismissed', Date.now().toString());
+                    overlay.classList.remove('cd-pwa-ios-visible');
+                    setTimeout(function() { overlay.remove(); }, 300);
+                }
+
+                document.getElementById('cd-pwa-ios-close').addEventListener('click', closeIosOverlay);
+                document.getElementById('cd-pwa-ios-got-it').addEventListener('click', closeIosOverlay);
+            }, 2000);
+        }
+    }
+
+    /* ── Update Banner ── */
+    window.addEventListener('cd-sw-update', function(e) {
+        // Don't show duplicate
+        if (document.getElementById('cd-pwa-update-banner')) return;
+
+        var reg = e.detail.registration;
+        var banner = document.createElement('div');
+        banner.id = 'cd-pwa-update-banner';
+        banner.className = 'cd-pwa-update-banner';
+        banner.innerHTML =
+            '<div class="cd-pwa-update-content">' +
+                '<span>A new version is available.</span>' +
+                '<button class="cd-pwa-update-btn" id="cd-pwa-update-btn">Tap to update</button>' +
+                '<button class="cd-pwa-update-dismiss" id="cd-pwa-update-dismiss" aria-label="Dismiss">&times;</button>' +
+            '</div>';
+
+        document.body.appendChild(banner);
+        requestAnimationFrame(function() { banner.classList.add('cd-pwa-update-visible'); });
+
+        document.getElementById('cd-pwa-update-btn').addEventListener('click', function() {
+            window._cdSwUpdating = true;
+            if (reg.waiting) {
+                reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            }
+        });
+
+        document.getElementById('cd-pwa-update-dismiss').addEventListener('click', function() {
+            banner.classList.remove('cd-pwa-update-visible');
+            setTimeout(function() { banner.remove(); }, 300);
+        });
+    });
+
+    /* ── PWA Session Management ── */
+    if (isPwa && cdConfig.isLoggedIn) {
+        var lastSessionCheck = Date.now();
+        var SESSION_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+
+        document.addEventListener('visibilitychange', function() {
+            if (document.visibilityState !== 'visible') return;
+            if ((Date.now() - lastSessionCheck) < SESSION_CHECK_INTERVAL) return;
+
+            lastSessionCheck = Date.now();
+
+            fetch(cdConfig.apiUrl + '/auth/session-check', {
+                credentials: 'same-origin',
+                headers: { 'X-WP-Nonce': cdConfig.nonce }
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.data && data.data.valid === false) {
+                    var returnPath = encodeURIComponent(window.location.pathname + window.location.search);
+                    window.location.href = cdConfig.baseUrl + '/login/?expired=1&return=' + returnPath;
+                }
+            })
+            .catch(function() {
+                // Network error — don't redirect, user might be offline
+            });
+        });
+    }
+
+    /* ── Handle session expiry on login page ── */
+    if (window.location.search.indexOf('expired=1') !== -1) {
+        // The Alpine cdLogin component will pick up the expired param
+        // Set a flag for the login component to show the message
+        window.cdSessionExpired = true;
+    }
+
+    /* ── PWA login: auto-set remember + pwa flag ── */
+    if (isPwa) {
+        window.cdIsPwa = true;
+    }
+})();

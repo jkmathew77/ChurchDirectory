@@ -37,6 +37,11 @@ class CD_Audit_Logger {
     const HOUSEHOLD_ROLE_CHANGED    = 'household_role_changed';
     const HOUSEHOLD_MERGED          = 'household_merged';
     const HOUSEHOLD_SPINOFF         = 'household_spinoff';
+    const HOUSEHOLD_LEAVE           = 'household_leave';
+    const HOUSEHOLD_TRANSFER_HEAD   = 'household_transfer_head';
+    const HOUSEHOLD_MERGE_REQUESTED = 'household_merge_requested';
+    const HOUSEHOLD_MERGE_APPROVED  = 'household_merge_approved';
+    const HOUSEHOLD_MERGE_DENIED    = 'household_merge_denied';
     const OFFICER_ADDED             = 'officer_added';
     const OFFICER_REMOVED           = 'officer_removed';
     const OFFICER_ROTATION          = 'officer_rotation';
@@ -47,6 +52,7 @@ class CD_Audit_Logger {
     const GOOGLE_SYNC_RUN           = 'google_sync_run';
     const BULK_OPERATION            = 'bulk_operation';
     const SETTINGS_CHANGED          = 'settings_changed';
+    const BOT_DETECTED              = 'bot_detected';
 
     /**
      * Log an event.

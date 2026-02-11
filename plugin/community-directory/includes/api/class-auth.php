@@ -59,6 +59,13 @@ class CD_API_Auth extends CD_API_Base {
             'callback'            => array( $this, 'logout' ),
             'permission_callback' => array( $this, 'permission_public' ),
         ) );
+
+        // GET /auth/session-check — Lightweight session validity check for PWA
+        register_rest_route( CD_API_NAMESPACE, '/auth/session-check', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'session_check' ),
+            'permission_callback' => array( $this, 'permission_public' ),
+        ) );
     }
 
     /**
@@ -649,5 +656,14 @@ class CD_API_Auth extends CD_API_Base {
             CD_Audit_Logger::log( CD_Audit_Logger::LOGOUT, $user_id );
         }
         return $this->success( array( 'message' => __( 'Logged out.', 'community-directory' ) ) );
+    }
+
+    /**
+     * Lightweight session validity check for PWA.
+     * Returns whether the user has a valid session with cd_member capability.
+     */
+    public function session_check( WP_REST_Request $request ) {
+        $valid = is_user_logged_in() && current_user_can( 'cd_member' );
+        return $this->success( array( 'valid' => $valid ) );
     }
 }

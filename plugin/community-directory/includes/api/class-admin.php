@@ -144,6 +144,68 @@ class CD_API_Admin extends CD_API_Base {
             'callback'            => array( $this, 'resend_member_invite' ),
             'permission_callback' => array( $this, 'permission_admin' ),
         ) );
+
+        // ── Household Requests ──
+
+        // GET /admin/household-requests — list pending household requests
+        register_rest_route( CD_API_NAMESPACE, '/admin/household-requests', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'list_household_requests' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // PUT /admin/household-requests/{id} — approve/deny household request
+        register_rest_route( CD_API_NAMESPACE, '/admin/household-requests/(?P<id>\d+)', array(
+            'methods'             => 'PUT',
+            'callback'            => array( $this, 'update_household_request' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // ── Deletion Requests ──
+
+        // GET /admin/deletion-requests — list pending deletion requests
+        register_rest_route( CD_API_NAMESPACE, '/admin/deletion-requests', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'list_deletion_requests' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // PUT /admin/deletion-requests/{id} — approve/deny deletion request
+        register_rest_route( CD_API_NAMESPACE, '/admin/deletion-requests/(?P<id>\d+)', array(
+            'methods'             => 'PUT',
+            'callback'            => array( $this, 'update_deletion_request' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // ── WhatsApp Groups CRUD ──
+
+        // GET /admin/whatsapp-groups — list all groups
+        register_rest_route( CD_API_NAMESPACE, '/admin/whatsapp-groups', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'list_whatsapp_groups' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // POST /admin/whatsapp-groups — create group
+        register_rest_route( CD_API_NAMESPACE, '/admin/whatsapp-groups', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'create_whatsapp_group' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // PUT /admin/whatsapp-groups/{id} — update group
+        register_rest_route( CD_API_NAMESPACE, '/admin/whatsapp-groups/(?P<id>\d+)', array(
+            'methods'             => 'PUT',
+            'callback'            => array( $this, 'update_whatsapp_group' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
+
+        // DELETE /admin/whatsapp-groups/{id} — delete group
+        register_rest_route( CD_API_NAMESPACE, '/admin/whatsapp-groups/(?P<id>\d+)', array(
+            'methods'             => 'DELETE',
+            'callback'            => array( $this, 'delete_whatsapp_group' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
     }
 
     /* ──────────────────────────────────────
@@ -183,13 +245,20 @@ class CD_API_Admin extends CD_API_Base {
                 // Basic validation
                 $allowed = array( 'active', 'inactive', 'archived', 'deceased' );
                 if ( in_array( $status, $allowed, true ) ) {
-                    $wpdb->update( 
-                        $members_table, 
-                        array( 'status' => $status ), 
-                        array( 'id' => $id ), 
-                        array( '%s' ), 
-                        array( '%d' ) 
+                    $old_status = $member->status;
+                    $wpdb->update(
+                        $members_table,
+                        array( 'status' => $status ),
+                        array( 'id' => $id ),
+                        array( '%s' ),
+                        array( '%d' )
                     );
+
+                    // Handle household impact and force logout when deactivating
+                    if ( in_array( $status, array( 'inactive', 'archived', 'deceased' ), true ) && 'active' === $old_status ) {
+                        $this->handle_member_household_removal( $id );
+                        $this->force_logout_member( $id );
+                    }
                 }
             }
             
@@ -1863,5 +1932,581 @@ class CD_API_Admin extends CD_API_Base {
             'message'  => sprintf( __( '%d member(s) imported successfully.', 'community-directory' ), $imported ),
             'imported' => $imported,
         ) );
+    }
+
+    /* ──────────────────────────────────────
+     * HOUSEHOLD REQUESTS
+     * ──────────────────────────────────── */
+
+    /**
+     * List household requests (merge requests).
+     */
+    public function list_household_requests( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $hr_table         = CD_Database::table( 'household_requests' );
+        $profiles_table   = CD_Database::table( 'directory_profiles' );
+        $households_table = CD_Database::table( 'households' );
+        $hm_table         = CD_Database::table( 'household_members' );
+
+        $status = sanitize_text_field( $request->get_param( 'status' ) ?: 'pending' );
+
+        $where = '1=1';
+        $args  = array();
+        if ( 'all' !== $status ) {
+            $where .= ' AND hr.status = %s';
+            $args[] = $status;
+        }
+
+        $query = "SELECT hr.*,
+                    p.first_name AS requester_first, p.last_name AS requester_last,
+                    hs.name AS source_name,
+                    ht.name AS target_name,
+                    (SELECT COUNT(*) FROM {$hm_table} WHERE household_id = hr.household_id AND left_at IS NULL) AS source_count,
+                    (SELECT COUNT(*) FROM {$hm_table} WHERE household_id = hr.target_household_id AND left_at IS NULL) AS target_count
+                  FROM {$hr_table} hr
+                  LEFT JOIN {$profiles_table} p ON hr.requesting_member_id = p.member_id
+                  LEFT JOIN {$households_table} hs ON hr.household_id = hs.id
+                  LEFT JOIN {$households_table} ht ON hr.target_household_id = ht.id
+                  WHERE {$where}
+                  ORDER BY hr.created_at DESC";
+
+        $rows = ! empty( $args )
+            ? $wpdb->get_results( $wpdb->prepare( $query, $args ) )
+            : $wpdb->get_results( $query );
+
+        // Status counts
+        $counts_raw = $wpdb->get_results( "SELECT status, COUNT(*) as cnt FROM {$hr_table} GROUP BY status" );
+        $counts = array( 'all' => 0 );
+        foreach ( $counts_raw as $row ) {
+            $counts[ $row->status ] = (int) $row->cnt;
+            $counts['all'] += (int) $row->cnt;
+        }
+
+        return $this->success( array(
+            'requests' => $rows,
+            'counts'   => $counts,
+        ) );
+    }
+
+    /**
+     * Approve or deny a household request.
+     */
+    public function update_household_request( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $id     = (int) $request->get_param( 'id' );
+        $action = sanitize_text_field( $request->get_param( 'action' ) ?: '' );
+        $notes  = sanitize_textarea_field( $request->get_param( 'notes' ) ?: '' );
+
+        $hr_table = CD_Database::table( 'household_requests' );
+
+        $hr = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hr_table} WHERE id = %d",
+            $id
+        ) );
+        if ( ! $hr ) {
+            return $this->error( 'not_found', __( 'Request not found.', 'community-directory' ), 404 );
+        }
+        if ( 'pending' !== $hr->status ) {
+            return $this->error( 'already_processed', __( 'This request has already been processed.', 'community-directory' ) );
+        }
+
+        if ( 'deny' === $action ) {
+            $wpdb->update( $hr_table, array(
+                'status'      => 'rejected',
+                'reviewed_by' => get_current_user_id(),
+                'reviewed_at' => current_time( 'mysql' ),
+                'notes'       => $notes,
+            ), array( 'id' => $id ), array( '%s', '%d', '%s', '%s' ), array( '%d' ) );
+
+            CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_MERGE_DENIED, get_current_user_id(), $hr->household_id, array(
+                'request_id'          => $id,
+                'target_household_id' => $hr->target_household_id,
+            ) );
+
+            return $this->success( array( 'message' => __( 'Request denied.', 'community-directory' ) ) );
+        }
+
+        if ( 'approve' === $action && 'merge' === $hr->type ) {
+            return $this->process_merge( $hr, $notes );
+        }
+
+        return $this->error( 'invalid_action', __( 'Invalid action.', 'community-directory' ) );
+    }
+
+    /**
+     * Process a household merge: move all members from source to target.
+     */
+    private function process_merge( $hr, $notes ) {
+        global $wpdb;
+
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+        $hr_table          = CD_Database::table( 'household_requests' );
+
+        $source_id = (int) $hr->household_id;
+        $target_id = (int) $hr->target_household_id;
+
+        // Get all active members from source
+        $source_members = $wpdb->get_results( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE household_id = %d AND left_at IS NULL",
+            $source_id
+        ) );
+
+        // Check target household has a head and spouse status
+        $target_has_head = (bool) $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$hm_table} WHERE household_id = %d AND role = 'head' AND left_at IS NULL",
+            $target_id
+        ) );
+        $target_has_spouse = (bool) $wpdb->get_var( $wpdb->prepare(
+            "SELECT id FROM {$hm_table} WHERE household_id = %d AND role = 'spouse' AND left_at IS NULL",
+            $target_id
+        ) );
+
+        $wpdb->query( 'START TRANSACTION' );
+
+        $moved = 0;
+        foreach ( $source_members as $sm ) {
+            // Set left_at on source
+            $wpdb->update(
+                $hm_table,
+                array( 'left_at' => current_time( 'mysql' ) ),
+                array( 'id' => $sm->id ),
+                array( '%s' ),
+                array( '%d' )
+            );
+
+            // Determine role for target: demote if conflict
+            $new_role = $sm->role;
+            if ( 'head' === $new_role && $target_has_head ) {
+                $new_role = 'other';
+            }
+            if ( 'spouse' === $new_role && $target_has_spouse ) {
+                $new_role = 'other';
+            }
+
+            // Check for existing row in target (member may have been there before)
+            $existing = $wpdb->get_row( $wpdb->prepare(
+                "SELECT id FROM {$hm_table} WHERE household_id = %d AND member_id = %d",
+                $target_id, $sm->member_id
+            ) );
+
+            if ( $existing ) {
+                $wpdb->update( $hm_table, array(
+                    'left_at'   => null,
+                    'role'      => $new_role,
+                    'joined_at' => current_time( 'mysql' ),
+                ), array( 'id' => $existing->id ), array( '%s', '%s', '%s' ), array( '%d' ) );
+            } else {
+                $wpdb->insert( $hm_table, array(
+                    'household_id' => $target_id,
+                    'member_id'    => $sm->member_id,
+                    'role'         => $new_role,
+                    'joined_at'    => current_time( 'mysql' ),
+                ), array( '%d', '%d', '%s', '%s' ) );
+            }
+
+            $moved++;
+        }
+
+        // Deactivate source household
+        $wpdb->update( $households_table, array( 'status' => 'inactive' ), array( 'id' => $source_id ), array( '%s' ), array( '%d' ) );
+
+        // Update request
+        $wpdb->update( $hr_table, array(
+            'status'      => 'approved',
+            'reviewed_by' => get_current_user_id(),
+            'reviewed_at' => current_time( 'mysql' ),
+            'notes'       => $notes,
+        ), array( 'id' => $hr->id ), array( '%s', '%d', '%s', '%s' ), array( '%d' ) );
+
+        $wpdb->query( 'COMMIT' );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_MERGE_APPROVED, get_current_user_id(), $source_id, array(
+            'request_id'          => $hr->id,
+            'target_household_id' => $target_id,
+            'members_moved'       => $moved,
+        ) );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_MERGED, get_current_user_id(), $target_id, array(
+            'source_household_id' => $source_id,
+            'members_moved'       => $moved,
+        ) );
+
+        return $this->success( array(
+            'message' => sprintf( __( 'Merge approved. %d member(s) moved to the target household.', 'community-directory' ), $moved ),
+        ) );
+    }
+
+    /* ──────────────────────────────────────
+     * DELETION REQUESTS
+     * ──────────────────────────────────── */
+
+    /**
+     * List deletion requests.
+     */
+    public function list_deletion_requests( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $dr_table       = CD_Database::table( 'deletion_requests' );
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $members_table  = CD_Database::table( 'members' );
+        $hm_table       = CD_Database::table( 'household_members' );
+        $hh_table       = CD_Database::table( 'households' );
+
+        $status = sanitize_text_field( $request->get_param( 'status' ) ?: 'pending' );
+
+        $where = '1=1';
+        $args  = array();
+        if ( 'all' !== $status ) {
+            $where .= ' AND dr.status = %s';
+            $args[] = $status;
+        }
+
+        $query = "SELECT dr.*, p.first_name, p.last_name, p.emails
+                  FROM {$dr_table} dr
+                  LEFT JOIN {$profiles_table} p ON dr.member_id = p.member_id
+                  WHERE {$where}
+                  ORDER BY dr.requested_at DESC";
+
+        $rows = ! empty( $args )
+            ? $wpdb->get_results( $wpdb->prepare( $query, $args ) )
+            : $wpdb->get_results( $query );
+
+        // Add household info and email for each request
+        foreach ( $rows as $row ) {
+            $emails = json_decode( $row->emails, true ) ?: array();
+            $row->primary_email = ! empty( $emails[0]['value'] ) ? $emails[0]['value'] : '';
+            unset( $row->emails );
+
+            $hh = $wpdb->get_row( $wpdb->prepare(
+                "SELECT hm.role, h.name
+                 FROM {$hm_table} hm
+                 JOIN {$hh_table} h ON hm.household_id = h.id
+                 WHERE hm.member_id = %d AND hm.left_at IS NULL
+                 LIMIT 1",
+                $row->member_id
+            ) );
+            $row->household_name = $hh ? $hh->name : null;
+            $row->household_role = $hh ? $hh->role : null;
+        }
+
+        // Counts
+        $counts_raw = $wpdb->get_results( "SELECT status, COUNT(*) as cnt FROM {$dr_table} GROUP BY status" );
+        $counts = array( 'all' => 0 );
+        foreach ( $counts_raw as $row ) {
+            $counts[ $row->status ] = (int) $row->cnt;
+            $counts['all'] += (int) $row->cnt;
+        }
+
+        return $this->success( array(
+            'requests' => $rows,
+            'counts'   => $counts,
+        ) );
+    }
+
+    /**
+     * Process a deletion request: approve (deactivate member) or deny.
+     */
+    public function update_deletion_request( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $id     = (int) $request->get_param( 'id' );
+        $action = sanitize_text_field( $request->get_param( 'action' ) ?: '' );
+
+        $dr_table      = CD_Database::table( 'deletion_requests' );
+        $members_table = CD_Database::table( 'members' );
+
+        $dr = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$dr_table} WHERE id = %d",
+            $id
+        ) );
+        if ( ! $dr ) {
+            return $this->error( 'not_found', __( 'Request not found.', 'community-directory' ), 404 );
+        }
+        if ( 'pending' !== $dr->status ) {
+            return $this->error( 'already_processed', __( 'This request has already been processed.', 'community-directory' ) );
+        }
+
+        if ( 'deny' === $action ) {
+            $wpdb->update( $dr_table, array(
+                'status'          => 'denied',
+                'acknowledged_by' => get_current_user_id(),
+                'acknowledged_at' => current_time( 'mysql' ),
+            ), array( 'id' => $id ), array( '%s', '%d', '%s' ), array( '%d' ) );
+
+            return $this->success( array( 'message' => __( 'Deletion request denied.', 'community-directory' ) ) );
+        }
+
+        if ( 'approve' === $action ) {
+            // Handle household impact first
+            $this->handle_member_household_removal( $dr->member_id );
+
+            // Deactivate member
+            $wpdb->update( $members_table, array(
+                'status' => 'inactive',
+            ), array( 'id' => $dr->member_id ), array( '%s' ), array( '%d' ) );
+
+            // Force logout — destroy sessions and revoke capability
+            $this->force_logout_member( $dr->member_id );
+
+            // Update request
+            $wpdb->update( $dr_table, array(
+                'status'          => 'approved',
+                'acknowledged_by' => get_current_user_id(),
+                'acknowledged_at' => current_time( 'mysql' ),
+            ), array( 'id' => $id ), array( '%s', '%d', '%s' ), array( '%d' ) );
+
+            CD_Audit_Logger::log( CD_Audit_Logger::DELETION_PROCESSED, get_current_user_id(), $dr->member_id );
+
+            return $this->success( array( 'message' => __( 'Member deactivated and deletion request processed.', 'community-directory' ) ) );
+        }
+
+        return $this->error( 'invalid_action', __( 'Invalid action.', 'community-directory' ) );
+    }
+
+    /* ──────────────────────────────────────
+     * HELPER: HOUSEHOLD REMOVAL ON DEACTIVATION
+     * ──────────────────────────────────── */
+
+    /**
+     * Handle household impact when a member is deactivated/deleted.
+     * - If head and spouse exists: auto-promote spouse
+     * - Set left_at on household membership
+     * - If household now empty: set inactive
+     */
+    private function handle_member_household_removal( $member_id ) {
+        global $wpdb;
+
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+
+        $membership = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member_id
+        ) );
+
+        if ( ! $membership ) {
+            return; // Not in a household
+        }
+
+        $household_id = (int) $membership->household_id;
+
+        // If member is head, try to auto-promote spouse
+        if ( 'head' === $membership->role ) {
+            $spouse = $wpdb->get_row( $wpdb->prepare(
+                "SELECT * FROM {$hm_table} WHERE household_id = %d AND role = 'spouse' AND left_at IS NULL",
+                $household_id
+            ) );
+
+            if ( $spouse ) {
+                $wpdb->update(
+                    $hm_table,
+                    array( 'role' => 'head' ),
+                    array( 'id' => $spouse->id ),
+                    array( '%s' ),
+                    array( '%d' )
+                );
+
+                CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_ROLE_CHANGED, get_current_user_id(), $household_id, array(
+                    'member_id' => $spouse->member_id,
+                    'old_role'  => 'spouse',
+                    'new_role'  => 'head',
+                    'reason'    => 'auto_promote_on_head_deactivation',
+                ) );
+            }
+        }
+
+        // Set left_at on the member
+        $wpdb->update(
+            $hm_table,
+            array( 'left_at' => current_time( 'mysql' ) ),
+            array( 'member_id' => $member_id, 'left_at' => null ),
+            array( '%s' ),
+            array( '%d', '%s' )
+        );
+
+        // Check if household is now empty
+        $remaining = (int) $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$hm_table} WHERE household_id = %d AND left_at IS NULL",
+            $household_id
+        ) );
+        if ( 0 === $remaining ) {
+            $wpdb->update( $households_table, array( 'status' => 'inactive' ), array( 'id' => $household_id ), array( '%s' ), array( '%d' ) );
+        }
+    }
+
+    /**
+     * Force-logout a member by destroying all their WordPress sessions
+     * and revoking the cd_member capability.
+     *
+     * @param int $member_id The member table ID (not WP user ID).
+     */
+    private function force_logout_member( $member_id ) {
+        global $wpdb;
+
+        $members_table = CD_Database::table( 'members' );
+        $wp_user_id = $wpdb->get_var( $wpdb->prepare(
+            "SELECT wp_user_id FROM {$members_table} WHERE id = %d",
+            $member_id
+        ) );
+
+        if ( ! $wp_user_id ) {
+            return;
+        }
+
+        // Destroy all sessions for this user (forces logout everywhere)
+        $sessions = WP_Session_Tokens::get_instance( $wp_user_id );
+        $sessions->destroy_all();
+
+        // Revoke directory capability so they can't access even if re-authenticated
+        CD_Capabilities::revoke_cap( $wp_user_id, 'cd_member' );
+    }
+
+    /* ──────────────────────────────────────
+     * WHATSAPP GROUPS CRUD
+     * ──────────────────────────────────── */
+
+    /**
+     * List all WhatsApp groups (admin view — includes inactive).
+     */
+    public function list_whatsapp_groups( WP_REST_Request $request ) {
+        global $wpdb;
+        $table = CD_Database::table( 'whatsapp_groups' );
+
+        $rows = $wpdb->get_results(
+            "SELECT * FROM {$table} ORDER BY display_order ASC, name ASC"
+        );
+
+        $groups = array();
+        foreach ( $rows as $row ) {
+            $groups[] = array(
+                'id'             => (int) $row->id,
+                'name'           => $row->name,
+                'description'    => $row->description ?: '',
+                'invite_url'     => $row->invite_url,
+                'icon'           => $row->icon ?: '',
+                'visibility'     => $row->visibility,
+                'visibility_tag' => $row->visibility_tag ?: '',
+                'display_order'  => (int) $row->display_order,
+                'is_active'      => (bool) $row->is_active,
+                'created_at'     => $row->created_at,
+            );
+        }
+
+        return $this->success( array( 'groups' => $groups ) );
+    }
+
+    /**
+     * Create a WhatsApp group.
+     */
+    public function create_whatsapp_group( WP_REST_Request $request ) {
+        global $wpdb;
+        $table  = CD_Database::table( 'whatsapp_groups' );
+        $params = $request->get_json_params();
+
+        $name = sanitize_text_field( $params['name'] ?? '' );
+        $url  = esc_url_raw( $params['invite_url'] ?? '' );
+
+        if ( ! $name || ! $url ) {
+            return $this->error( 'missing_fields', __( 'Name and invite URL are required.', 'community-directory' ) );
+        }
+
+        $wpdb->insert( $table, array(
+            'name'           => $name,
+            'description'    => sanitize_textarea_field( $params['description'] ?? '' ),
+            'invite_url'     => $url,
+            'icon'           => sanitize_text_field( $params['icon'] ?? '' ),
+            'visibility'     => in_array( $params['visibility'] ?? 'all', array( 'all', 'tag' ), true ) ? $params['visibility'] : 'all',
+            'visibility_tag' => sanitize_text_field( $params['visibility_tag'] ?? '' ),
+            'display_order'  => (int) ( $params['display_order'] ?? 0 ),
+            'is_active'      => 1,
+            'created_by'     => get_current_user_id(),
+        ), array( '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d' ) );
+
+        if ( ! $wpdb->insert_id ) {
+            return $this->error( 'db_error', __( 'Could not create group.', 'community-directory' ), 500 );
+        }
+
+        return $this->success( array(
+            'id'      => $wpdb->insert_id,
+            'message' => __( 'WhatsApp group created.', 'community-directory' ),
+        ) );
+    }
+
+    /**
+     * Update a WhatsApp group.
+     */
+    public function update_whatsapp_group( WP_REST_Request $request ) {
+        global $wpdb;
+        $table = CD_Database::table( 'whatsapp_groups' );
+        $id    = (int) $request->get_param( 'id' );
+
+        $existing = $wpdb->get_row( $wpdb->prepare( "SELECT id FROM {$table} WHERE id = %d", $id ) );
+        if ( ! $existing ) {
+            return $this->error( 'not_found', __( 'Group not found.', 'community-directory' ), 404 );
+        }
+
+        $params = $request->get_json_params();
+        $data   = array();
+        $format = array();
+
+        if ( isset( $params['name'] ) ) {
+            $data['name'] = sanitize_text_field( $params['name'] );
+            $format[] = '%s';
+        }
+        if ( isset( $params['description'] ) ) {
+            $data['description'] = sanitize_textarea_field( $params['description'] );
+            $format[] = '%s';
+        }
+        if ( isset( $params['invite_url'] ) ) {
+            $data['invite_url'] = esc_url_raw( $params['invite_url'] );
+            $format[] = '%s';
+        }
+        if ( isset( $params['icon'] ) ) {
+            $data['icon'] = sanitize_text_field( $params['icon'] );
+            $format[] = '%s';
+        }
+        if ( isset( $params['visibility'] ) ) {
+            $data['visibility'] = in_array( $params['visibility'], array( 'all', 'tag' ), true ) ? $params['visibility'] : 'all';
+            $format[] = '%s';
+        }
+        if ( isset( $params['visibility_tag'] ) ) {
+            $data['visibility_tag'] = sanitize_text_field( $params['visibility_tag'] );
+            $format[] = '%s';
+        }
+        if ( isset( $params['display_order'] ) ) {
+            $data['display_order'] = (int) $params['display_order'];
+            $format[] = '%d';
+        }
+        if ( isset( $params['is_active'] ) ) {
+            $data['is_active'] = $params['is_active'] ? 1 : 0;
+            $format[] = '%d';
+        }
+
+        if ( empty( $data ) ) {
+            return $this->success( array( 'message' => __( 'No changes.', 'community-directory' ) ) );
+        }
+
+        $wpdb->update( $table, $data, array( 'id' => $id ), $format, array( '%d' ) );
+
+        return $this->success( array( 'message' => __( 'WhatsApp group updated.', 'community-directory' ) ) );
+    }
+
+    /**
+     * Delete a WhatsApp group.
+     */
+    public function delete_whatsapp_group( WP_REST_Request $request ) {
+        global $wpdb;
+        $table = CD_Database::table( 'whatsapp_groups' );
+        $id    = (int) $request->get_param( 'id' );
+
+        $deleted = $wpdb->delete( $table, array( 'id' => $id ), array( '%d' ) );
+        if ( ! $deleted ) {
+            return $this->error( 'not_found', __( 'Group not found.', 'community-directory' ), 404 );
+        }
+
+        return $this->success( array( 'message' => __( 'WhatsApp group deleted.', 'community-directory' ) ) );
     }
 }

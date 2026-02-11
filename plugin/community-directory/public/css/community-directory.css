@@ -178,6 +178,22 @@
     background: #b91c1c;
 }
 
+.cd-btn-danger-outline {
+    background: transparent;
+    color: var(--cd-danger);
+    border: 1px solid var(--cd-danger);
+}
+
+.cd-btn-danger-outline:hover:not(:disabled) {
+    background: var(--cd-danger-light);
+}
+
+.cd-btn-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .cd-btn-text {
     background: none;
     color: var(--cd-primary);
@@ -532,6 +548,28 @@
     flex-shrink: 0;
     width: 18px;
     height: 18px;
+    accent-color: var(--cd-primary);
+}
+
+.cd-radio-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 6px 10px;
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius);
+}
+
+.cd-radio-label:hover {
+    background: var(--cd-primary-light);
+}
+
+.cd-radio-label input[type="radio"] {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
     accent-color: var(--cd-primary);
 }
 
@@ -1558,3 +1596,297 @@
         border: 1px solid #ddd;
     }
 }
+
+/* ─── PWA Install Banner (Android) ─── */
+.cd-pwa-install-banner {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    background: #fff;
+    box-shadow: 0 -2px 16px rgba(0,0,0,0.15);
+    padding: 12px 16px;
+    transform: translateY(100%);
+    transition: transform 0.3s ease;
+}
+.cd-pwa-install-banner.cd-pwa-install-visible {
+    transform: translateY(0);
+}
+.cd-pwa-install-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 600px;
+    margin: 0 auto;
+    gap: 12px;
+}
+.cd-pwa-install-text {
+    font-size: 0.9375rem;
+    font-weight: 500;
+    color: #333;
+    flex: 1;
+}
+.cd-pwa-install-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+.cd-pwa-install-btn {
+    padding: 8px 20px;
+    background: var(--cd-primary, #8B0000);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.cd-pwa-install-btn:hover { opacity: 0.9; }
+.cd-pwa-install-dismiss {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #999;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px;
+}
+.cd-pwa-install-dismiss:hover { color: #666; }
+
+/* ─── PWA iOS Install Overlay ─── */
+.cd-pwa-ios-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10001;
+    background: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+.cd-pwa-ios-overlay.cd-pwa-ios-visible {
+    opacity: 1;
+}
+.cd-pwa-ios-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 24px;
+    max-width: 360px;
+    width: 100%;
+    text-align: center;
+    position: relative;
+    margin-bottom: env(safe-area-inset-bottom, 0);
+}
+.cd-pwa-ios-close {
+    position: absolute;
+    top: 12px;
+    right: 16px;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: #999;
+    cursor: pointer;
+}
+.cd-pwa-ios-icon {
+    font-size: 2.5rem;
+    margin-bottom: 12px;
+}
+.cd-pwa-ios-card h3 {
+    font-size: 1.125rem;
+    margin: 0 0 8px;
+    color: #333;
+}
+.cd-pwa-ios-card p {
+    font-size: 0.9375rem;
+    color: #666;
+    line-height: 1.5;
+    margin: 0 0 16px;
+}
+.cd-pwa-ios-got-it {
+    padding: 10px 24px;
+    background: var(--cd-primary, #8B0000);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.cd-pwa-ios-got-it:hover { opacity: 0.9; }
+
+/* ─── PWA Update Banner ─── */
+.cd-pwa-update-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    background: var(--cd-primary, #8B0000);
+    color: #fff;
+    padding: 10px 16px;
+    transform: translateY(-100%);
+    transition: transform 0.3s ease;
+}
+.cd-pwa-update-banner.cd-pwa-update-visible {
+    transform: translateY(0);
+}
+.cd-pwa-update-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    max-width: 600px;
+    margin: 0 auto;
+    font-size: 0.875rem;
+}
+.cd-pwa-update-btn {
+    padding: 6px 16px;
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.4);
+    border-radius: 4px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+.cd-pwa-update-btn:hover { background: rgba(255,255,255,0.3); }
+.cd-pwa-update-dismiss {
+    background: none;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    font-size: 1.25rem;
+    cursor: pointer;
+    line-height: 1;
+    padding: 4px;
+}
+.cd-pwa-update-dismiss:hover { color: #fff; }
+
+/* ─── PWA Standalone Mode — hide site nav ─── */
+@media (display-mode: standalone) {
+    /* Hide WordPress theme navigation and admin bar in PWA standalone */
+    .site-header,
+    .main-navigation,
+    .site-branding,
+    #masthead,
+    #site-navigation,
+    .header-navigation-area,
+    .wp-site-blocks > header,
+    header.wp-block-template-part,
+    .site-footer,
+    #colophon,
+    .wp-site-blocks > footer,
+    footer.wp-block-template-part,
+    #wpadminbar {
+        display: none !important;
+    }
+    body.cd-page {
+        padding-top: env(safe-area-inset-top) !important;
+        margin-top: 0 !important;
+    }
+    .cd-wrap {
+        min-height: 100vh;
+        padding-top: env(safe-area-inset-top);
+    }
+}
+
+/* ─── Advanced Search Filters ─── */
+.cd-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: 0.8125rem;
+    color: var(--cd-text-muted, #666);
+    background: none;
+    border: 1px solid #ddd;
+    border-radius: var(--cd-radius, 8px);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.cd-filter-toggle:hover { border-color: var(--cd-primary, #2563eb); color: var(--cd-primary, #2563eb); }
+.cd-filter-toggle .cd-filter-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    background: var(--cd-primary, #2563eb);
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+.cd-filter-panel {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    padding: 16px 0;
+    border-top: 1px solid #eee;
+    margin-top: 12px;
+}
+.cd-filter-panel .cd-form-group { margin-bottom: 0; }
+.cd-filter-panel .cd-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 4px; }
+.cd-filter-panel .cd-input,
+.cd-filter-panel .cd-select { font-size: 0.8125rem; padding: 6px 10px; }
+.cd-filter-actions {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+/* ─── WhatsApp Groups Section ─── */
+.cd-whatsapp-section { margin-top: 2rem; }
+.cd-whatsapp-section h2 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.cd-whatsapp-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+.cd-whatsapp-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: #fff;
+    border-radius: var(--cd-radius, 8px);
+    box-shadow: var(--cd-shadow, 0 1px 3px rgba(0,0,0,0.1));
+    transition: box-shadow 0.15s, transform 0.15s;
+    text-decoration: none;
+    color: inherit;
+}
+.cd-whatsapp-card:hover {
+    box-shadow: var(--cd-shadow-lg, 0 4px 12px rgba(0,0,0,0.15));
+    transform: translateY(-1px);
+}
+.cd-whatsapp-icon {
+    font-size: 1.75rem;
+    line-height: 1;
+    flex-shrink: 0;
+}
+.cd-whatsapp-info { flex: 1; min-width: 0; }
+.cd-whatsapp-info h4 { margin: 0 0 2px; font-size: 0.9375rem; font-weight: 600; }
+.cd-whatsapp-info p { margin: 0; font-size: 0.8125rem; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cd-whatsapp-join {
+    flex-shrink: 0;
+    padding: 6px 14px;
+    background: #25D366;
+    color: #fff;
+    border: none;
+    border-radius: 20px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.cd-whatsapp-join:hover { background: #20bd5a; color: #fff; }

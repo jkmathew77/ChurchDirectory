@@ -14,6 +14,18 @@ class CD_Admin_Menu {
         add_action( 'admin_init', array( $this, 'register_settings' ) );
         add_action( 'admin_notices', array( $this, 'show_admin_notices' ) );
         add_action( 'admin_post_cd_download_csv_template', array( $this, 'download_csv_template' ) );
+        add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
+    }
+
+    /**
+     * Enqueue admin assets on plugin pages.
+     */
+    public function enqueue_admin_assets( $hook ) {
+        // Only load media library on settings page for PWA icon upload
+        // Enqueue media library on our settings page for PWA icon upload
+        if ( false !== strpos( $hook, 'cd-settings' ) ) {
+            wp_enqueue_media();
+        }
     }
 
     /**
@@ -79,6 +91,16 @@ class CD_Admin_Menu {
             'manage_options',
             'cd-households',
             array( $this, 'render_households_page' )
+        );
+
+        // Requests (household merges + deletion requests)
+        add_submenu_page(
+            'community-directory',
+            __( 'Requests', 'community-directory' ),
+            __( 'Requests', 'community-directory' ),
+            'manage_options',
+            'cd-requests',
+            array( $this, 'render_requests_page' )
         );
 
         // Officers Group
@@ -179,6 +201,33 @@ class CD_Admin_Menu {
             'sanitize_callback' => 'sanitize_text_field',
             'default'           => 'St. Thekla Members',
         ) );
+
+        // PWA settings
+        register_setting( 'cd_general_settings', 'cd_pwa_enabled', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default'           => '0',
+        ) );
+        register_setting( 'cd_general_settings', 'cd_pwa_app_name', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default'           => 'St. Thekla Directory',
+        ) );
+        register_setting( 'cd_general_settings', 'cd_pwa_short_name', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_text_field',
+            'default'           => 'St. Thekla',
+        ) );
+        register_setting( 'cd_general_settings', 'cd_pwa_theme_color', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_hex_color',
+            'default'           => '#8B0000',
+        ) );
+        register_setting( 'cd_general_settings', 'cd_pwa_background_color', array(
+            'type'              => 'string',
+            'sanitize_callback' => 'sanitize_hex_color',
+            'default'           => '#FFFFFF',
+        ) );
     }
 
     /**
@@ -234,12 +283,16 @@ class CD_Admin_Menu {
         include CD_PLUGIN_DIR . 'includes/admin/views/households.php';
     }
 
+    public function render_requests_page() {
+        include CD_PLUGIN_DIR . 'includes/admin/views/requests.php';
+    }
+
     public function render_officers_page() {
         include CD_PLUGIN_DIR . 'includes/admin/views/officers.php';
     }
 
     public function render_whatsapp_page() {
-        echo '<div class="wrap"><h1>' . esc_html__( 'WhatsApp Groups', 'community-directory' ) . '</h1><p>Coming in Phase 3.</p></div>';
+        include CD_PLUGIN_DIR . 'includes/admin/views/whatsapp.php';
     }
 
     public function render_import_page() {
