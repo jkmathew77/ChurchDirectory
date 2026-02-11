@@ -145,10 +145,19 @@ get_header();
                 <div class="cd-card" x-show="household">
                     <h3 class="cd-section-title"><?php esc_html_e( 'Household', 'community-directory' ); ?></h3>
 
-                    <!-- Family Photo -->
-                    <template x-if="household && household.photo_url">
-                        <div class="cd-hh-family-photo" style="margin-bottom: 12px;">
-                            <img :src="household.photo_url" :alt="household.name" class="cd-hh-family-photo-img" style="width: 100%; max-height: 300px; object-fit: cover; border-radius: 8px;">
+                    <!-- Family Photo Carousel -->
+                    <template x-if="household && household.photos && household.photos.length > 0">
+                        <div class="cd-hh-carousel" x-data="{ current: 0 }">
+                            <div class="cd-hh-carousel-viewport">
+                                <img :src="household.photos[current]" :alt="household.name" class="cd-hh-carousel-img">
+                            </div>
+                            <template x-if="household.photos.length > 1">
+                                <div class="cd-hh-carousel-controls">
+                                    <button type="button" class="cd-hh-carousel-btn" @click="current = (current - 1 + household.photos.length) % household.photos.length" aria-label="<?php esc_attr_e( 'Previous', 'community-directory' ); ?>">&#8249;</button>
+                                    <span class="cd-hh-carousel-counter" x-text="(current + 1) + ' / ' + household.photos.length"></span>
+                                    <button type="button" class="cd-hh-carousel-btn" @click="current = (current + 1) % household.photos.length" aria-label="<?php esc_attr_e( 'Next', 'community-directory' ); ?>">&#8250;</button>
+                                </div>
+                            </template>
                         </div>
                     </template>
 

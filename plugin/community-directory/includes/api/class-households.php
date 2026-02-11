@@ -654,7 +654,7 @@ class CD_API_Households extends CD_API_Base {
         $members_table     = CD_Database::table( 'members' );
 
         $hm = $wpdb->get_row( $wpdb->prepare(
-            "SELECT hm.*, h.name AS household_name, h.primary_address, h.status AS household_status, h.photo_url AS household_photo_url
+            "SELECT hm.*, h.name AS household_name, h.primary_address, h.status AS household_status, h.photo_url AS household_photo_url, h.photos AS household_photos
              FROM {$hm_table} hm
              JOIN {$households_table} h ON hm.household_id = h.id
              WHERE hm.member_id = %d AND hm.left_at IS NULL",
@@ -691,6 +691,16 @@ class CD_API_Households extends CD_API_Base {
             unset( $m->wp_user_id );
         }
 
+        // Parse photos JSON array
+        $photos = json_decode( $hm->household_photos ?? '', true );
+        if ( ! is_array( $photos ) ) {
+            $photos = array();
+            // Backwards compat: use single photo_url if photos array empty
+            if ( ! empty( $hm->household_photo_url ) ) {
+                $photos = array( $hm->household_photo_url );
+            }
+        }
+
         return $this->success( array(
             'household' => array(
                 'id'                    => (int) $hm->household_id,
@@ -698,6 +708,7 @@ class CD_API_Households extends CD_API_Base {
                 'address'               => $address,
                 'status'                => $hm->household_status,
                 'photo_url'             => $hm->household_photo_url ?? '',
+                'photos'                => $photos,
                 'my_role'               => $hm->role,
                 'my_role_label'         => self::role_label( $hm->role ),
                 'can_manage'            => in_array( $hm->role, array( 'head', 'spouse' ), true ),
@@ -1572,38 +1583,55 @@ class CD_API_Households extends CD_API_Base {
             return $info;
         } );
 
+        // Check current photo count (max 10)
+        $current_photos_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT photos FROM {$households_table} WHERE id = %d",
+            $hm->household_id
+        ) );
+        $photos = json_decode( $current_photos_json ?? '', true );
+        if ( ! is_array( $photos ) ) {
+            $photos = array();
+            // Migrate legacy single photo_url
+            $legacy_url = $wpdb->get_var( $wpdb->prepare(
+                "SELECT photo_url FROM {$households_table} WHERE id = %d",
+                $hm->household_id
+            ) );
+            if ( ! empty( $legacy_url ) ) {
+                $photos[] = $legacy_url;
+            }
+        }
+
+        if ( count( $photos ) >= 10 ) {
+            return $this->error( 'limit_reached', __( 'Maximum 10 photos allowed. Please delete one before uploading a new one.', 'community-directory' ), 400 );
+        }
+
         $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
         if ( isset( $upload['error'] ) ) {
             return $this->error( 'upload_failed', $upload['error'], 500 );
         }
 
-        // Delete old photo file if exists
-        $old_url = $wpdb->get_var( $wpdb->prepare(
-            "SELECT photo_url FROM {$households_table} WHERE id = %d",
-            $hm->household_id
-        ) );
-        if ( ! empty( $old_url ) ) {
-            $old_id = attachment_url_to_postid( $old_url );
-            if ( $old_id ) {
-                wp_delete_attachment( $old_id, true );
-            }
-        }
+        $photos[] = $upload['url'];
 
         $wpdb->update(
             $households_table,
-            array( 'photo_url' => $upload['url'] ),
+            array(
+                'photos'    => wp_json_encode( $photos ),
+                'photo_url' => $photos[0], // Keep first photo as legacy thumbnail
+            ),
             array( 'id' => $hm->household_id ),
-            array( '%s' ),
+            array( '%s', '%s' ),
             array( '%d' )
         );
 
         CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_CREATED, get_current_user_id(), $hm->household_id, array(
             'action' => 'photo_uploaded',
+            'count'  => count( $photos ),
         ) );
 
         return $this->success( array(
-            'message' => __( 'Family photo uploaded.', 'community-directory' ),
+            'message' => sprintf( __( 'Family photo uploaded (%d of 10).', 'community-directory' ), count( $photos ) ),
             'url'     => $upload['url'],
+            'photos'  => $photos,
         ) );
     }
 
@@ -1632,27 +1660,53 @@ class CD_API_Households extends CD_API_Base {
             return $this->error( 'not_authorized', __( 'Only the primary membership holder or spouse can manage the family photo.', 'community-directory' ), 403 );
         }
 
-        $old_url = $wpdb->get_var( $wpdb->prepare(
-            "SELECT photo_url FROM {$households_table} WHERE id = %d",
+        $photo_url = sanitize_text_field( $request->get_param( 'photo_url' ) ?: '' );
+
+        // Load current photos array
+        $photos_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT photos FROM {$households_table} WHERE id = %d",
             $hm->household_id
         ) );
+        $photos = json_decode( $photos_json ?? '', true );
+        if ( ! is_array( $photos ) ) {
+            $photos = array();
+        }
 
-        if ( ! empty( $old_url ) ) {
-            $old_id = attachment_url_to_postid( $old_url );
-            if ( $old_id ) {
-                wp_delete_attachment( $old_id, true );
+        if ( ! empty( $photo_url ) ) {
+            // Delete specific photo
+            $photos = array_values( array_filter( $photos, function( $url ) use ( $photo_url ) {
+                return $url !== $photo_url;
+            } ) );
+            $del_id = attachment_url_to_postid( $photo_url );
+            if ( $del_id ) {
+                wp_delete_attachment( $del_id, true );
             }
+        } else {
+            // No URL specified — delete all photos
+            foreach ( $photos as $url ) {
+                $del_id = attachment_url_to_postid( $url );
+                if ( $del_id ) {
+                    wp_delete_attachment( $del_id, true );
+                }
+            }
+            $photos = array();
         }
 
         $wpdb->update(
             $households_table,
-            array( 'photo_url' => null ),
+            array(
+                'photos'    => ! empty( $photos ) ? wp_json_encode( $photos ) : null,
+                'photo_url' => ! empty( $photos ) ? $photos[0] : null,
+            ),
             array( 'id' => $hm->household_id ),
-            array( '%s' ),
+            array( '%s', '%s' ),
             array( '%d' )
         );
 
-        return $this->success( array( 'message' => __( 'Family photo removed.', 'community-directory' ) ) );
+        return $this->success( array(
+            'message' => __( 'Photo removed.', 'community-directory' ),
+            'photos'  => $photos,
+        ) );
     }
 
     /**

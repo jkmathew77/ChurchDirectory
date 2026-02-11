@@ -183,8 +183,66 @@ class CD_API_Members extends CD_API_Base {
             );
         }
 
+        // Search households by name (only when a search query is present)
+        $households_results = array();
+        if ( $search ) {
+            $households_table  = CD_Database::table( 'households' );
+            $hm_table          = CD_Database::table( 'household_members' );
+            $hm_profiles_table = CD_Database::table( 'directory_profiles' );
+            $hm_members_table  = CD_Database::table( 'members' );
+
+            $hh_search_like = '%' . $wpdb->esc_like( $search ) . '%';
+            $hh_rows = $wpdb->get_results( $wpdb->prepare(
+                "SELECT h.id, h.name, h.primary_address, h.photo_url, h.photos
+                 FROM {$households_table} h
+                 WHERE h.status = 'active' AND h.name LIKE %s
+                 ORDER BY h.name ASC
+                 LIMIT 10",
+                $hh_search_like
+            ) );
+
+            foreach ( $hh_rows as $hh ) {
+                // Get household members
+                $hh_members = $wpdb->get_results( $wpdb->prepare(
+                    "SELECT hm2.role, p.first_name, p.last_name, p.avatar_url, m2.uuid
+                     FROM {$hm_table} hm2
+                     JOIN {$hm_members_table} m2 ON hm2.member_id = m2.id
+                     LEFT JOIN {$hm_profiles_table} p ON hm2.member_id = p.member_id
+                     WHERE hm2.household_id = %d AND hm2.left_at IS NULL
+                     ORDER BY FIELD(hm2.role, 'head', 'spouse', 'child', 'other'), p.first_name ASC",
+                    $hh->id
+                ) );
+
+                $hh_member_list = array();
+                foreach ( $hh_members as $hh_m ) {
+                    $hh_member_list[] = array(
+                        'uuid'       => $hh_m->uuid,
+                        'first_name' => $hh_m->first_name,
+                        'last_name'  => $hh_m->last_name,
+                        'avatar_url' => $hh_m->avatar_url,
+                        'role'       => $hh_m->role,
+                        'role_label' => CD_API_Households::role_label( $hh_m->role ),
+                    );
+                }
+
+                $hh_photos = json_decode( $hh->photos ?? '', true );
+                if ( ! is_array( $hh_photos ) ) {
+                    $hh_photos = $hh->photo_url ? array( $hh->photo_url ) : array();
+                }
+
+                $households_results[] = array(
+                    'id'       => (int) $hh->id,
+                    'name'     => $hh->name,
+                    'address'  => CD_API_Households::decrypt_address( $hh->primary_address ),
+                    'photo_url'=> $hh_photos[0] ?? '',
+                    'members'  => $hh_member_list,
+                );
+            }
+        }
+
         return $this->success( array(
             'members'          => $results,
+            'households'       => $households_results,
             'email_obfuscated' => true,
         ), array(
             'page'     => $page,
@@ -315,7 +373,7 @@ class CD_API_Members extends CD_API_Base {
         $hm_members_table  = CD_Database::table( 'members' );
 
         $hm = $wpdb->get_row( $wpdb->prepare(
-            "SELECT hm.household_id, hm.role, h.name AS household_name, h.primary_address, h.photo_url AS household_photo_url
+            "SELECT hm.household_id, hm.role, h.name AS household_name, h.primary_address, h.photo_url AS household_photo_url, h.photos AS household_photos
              FROM {$hm_table} hm
              JOIN {$households_table} h ON hm.household_id = h.id
              WHERE hm.member_id = %d AND hm.left_at IS NULL AND h.status = 'active'",
@@ -348,11 +406,21 @@ class CD_API_Members extends CD_API_Base {
                 );
             }
 
+            // Parse photos JSON array with backwards compat for legacy photo_url
+            $hh_photos = json_decode( $hm->household_photos ?? '', true );
+            if ( ! is_array( $hh_photos ) ) {
+                $hh_photos = array();
+                if ( ! empty( $hm->household_photo_url ) ) {
+                    $hh_photos = array( $hm->household_photo_url );
+                }
+            }
+
             $household = array(
                 'id'        => (int) $hm->household_id,
                 'name'      => $hm->household_name,
                 'address'   => CD_API_Households::decrypt_address( $hm->primary_address ),
-                'photo_url' => $hm->household_photo_url ?? '',
+                'photo_url' => $hh_photos[0] ?? '',
+                'photos'    => $hh_photos,
                 'my_role'   => $hm->role,
                 'members'   => $members_list,
             );

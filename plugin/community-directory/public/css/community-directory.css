@@ -2003,18 +2003,50 @@
     color: var(--cd-primary);
 }
 
-/* ─── Household Family Photo ─── */
-.cd-hh-photo-wrap {
-    border-radius: var(--cd-radius-lg);
-    overflow: hidden;
-    max-height: 220px;
+/* ─── Household Family Photo Grid (Edit View) ─── */
+.cd-hh-photo-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 8px;
 }
 
-.cd-hh-photo-img {
+.cd-hh-photo-thumb {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: var(--cd-radius);
+    overflow: hidden;
+    border: 1px solid var(--cd-border);
+}
+
+.cd-hh-photo-thumb-img {
     width: 100%;
-    max-height: 220px;
+    height: 100%;
     object-fit: cover;
     display: block;
+}
+
+.cd-hh-photo-delete {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 24px;
+    height: 24px;
+    background: rgba(220, 38, 38, 0.85);
+    color: #fff;
+    border: none;
+    border-radius: 50%;
+    font-size: 1rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.cd-hh-photo-thumb:hover .cd-hh-photo-delete {
+    opacity: 1;
 }
 
 .cd-hh-photo-actions {
@@ -2023,12 +2055,146 @@
     gap: 8px;
 }
 
-.cd-hh-family-photo-img {
+/* ─── Household Family Photo Carousel (Profile View) ─── */
+.cd-hh-carousel {
+    margin-bottom: 12px;
+}
+
+.cd-hh-carousel-viewport {
+    border-radius: var(--cd-radius-lg);
+    overflow: hidden;
+    max-height: 300px;
+    background: #f0f0f0;
+}
+
+.cd-hh-carousel-img {
     width: 100%;
     max-height: 300px;
     object-fit: cover;
-    border-radius: var(--cd-radius-lg);
     display: block;
+}
+
+.cd-hh-carousel-controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    margin-top: 8px;
+}
+
+.cd-hh-carousel-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--cd-border);
+    background: var(--cd-bg-white);
+    color: var(--cd-text);
+    font-size: 1.4rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+.cd-hh-carousel-btn:hover {
+    background: var(--cd-primary-light);
+    border-color: var(--cd-primary);
+    color: var(--cd-primary);
+}
+
+.cd-hh-carousel-counter {
+    font-size: 0.85rem;
+    color: var(--cd-text-muted);
+    font-weight: 500;
+}
+
+/* ─── Directory: Household Grid ─── */
+.cd-household-results {
+    margin-bottom: 1.5rem;
+}
+
+.cd-household-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+}
+
+.cd-household-card {
+    background: var(--cd-bg-white);
+    border-radius: var(--cd-radius-lg);
+    box-shadow: var(--cd-shadow);
+    overflow: hidden;
+    transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.cd-household-card:hover {
+    box-shadow: var(--cd-shadow-lg);
+    transform: translateY(-2px);
+}
+
+.cd-household-card-photo {
+    height: 140px;
+    overflow: hidden;
+    background: #f0f0f0;
+}
+
+.cd-household-card-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.cd-household-card-body {
+    padding: 14px 16px;
+}
+
+.cd-household-card-name {
+    font-size: 1.05rem;
+    font-weight: 700;
+    margin: 0 0 4px;
+    color: var(--cd-text);
+}
+
+.cd-household-card-addr {
+    font-size: 0.85rem;
+    margin: 0 0 10px;
+}
+
+.cd-household-card-members {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.cd-household-card-member {
+    text-decoration: none;
+}
+
+.cd-avatar-xs-img {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+    border: 2px solid var(--cd-bg-white);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.cd-avatar-xs {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.65rem;
+    border: 2px solid var(--cd-bg-white);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
 /* ─── Readonly Input ─── */

@@ -472,23 +472,30 @@ get_header();
                                 <p class="cd-hh-address cd-text-muted" x-text="[household.address.line_1, household.address.line_2, [household.address.city, household.address.state, household.address.zip].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
                             </template>
 
-                            <!-- Family Photo (head/spouse can upload) -->
+                            <!-- Family Photos Gallery (head/spouse can manage, up to 10) -->
                             <div class="cd-hh-photo-section" style="margin: 12px 0;">
-                                <template x-if="household.photo_url">
-                                    <div class="cd-hh-photo-wrap">
-                                        <img :src="household.photo_url" alt="<?php esc_attr_e( 'Family Photo', 'community-directory' ); ?>" class="cd-hh-photo-img">
+                                <template x-if="household.photos && household.photos.length > 0">
+                                    <div class="cd-hh-photo-grid">
+                                        <template x-for="(photo, idx) in household.photos" :key="'hp-'+idx">
+                                            <div class="cd-hh-photo-thumb">
+                                                <img :src="photo" alt="<?php esc_attr_e( 'Family Photo', 'community-directory' ); ?>" class="cd-hh-photo-thumb-img">
+                                                <template x-if="household.can_manage">
+                                                    <button type="button" class="cd-hh-photo-delete" @click="deleteHouseholdPhoto(photo)" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">&times;</button>
+                                                </template>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
                                 <template x-if="household.can_manage">
                                     <div class="cd-hh-photo-actions" style="margin-top: 8px;">
-                                        <label class="cd-btn cd-btn-sm cd-btn-secondary">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-                                            <span x-text="household.photo_url ? '<?php echo esc_js( __( 'Change Family Photo', 'community-directory' ) ); ?>' : '<?php echo esc_js( __( 'Upload Family Photo', 'community-directory' ) ); ?>'"></span>
-                                            <input type="file" @change="uploadHouseholdPhoto" accept="image/*" style="display:none;">
-                                        </label>
-                                        <button type="button" class="cd-btn cd-btn-sm cd-btn-danger" x-show="household.photo_url" @click="deleteHouseholdPhoto" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">
-                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                                        </button>
+                                        <template x-if="!household.photos || household.photos.length < 10">
+                                            <label class="cd-btn cd-btn-sm cd-btn-secondary">
+                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                                <?php esc_html_e( 'Add Family Photo', 'community-directory' ); ?>
+                                                <input type="file" @change="uploadHouseholdPhoto" accept="image/*" style="display:none;">
+                                            </label>
+                                        </template>
+                                        <span class="cd-text-muted" style="font-size: 0.8em;" x-text="(household.photos ? household.photos.length : 0) + ' / 10'"></span>
                                         <span x-show="uploadingHouseholdPhoto" class="cd-spinner-sm"></span>
                                     </div>
                                 </template>

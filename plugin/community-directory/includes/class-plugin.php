@@ -191,7 +191,20 @@ class CD_Plugin {
             CD_Logger::info( 'DB heal: added column photo_url on ' . $hh_table );
         }
 
-        // ── 7) household_members.has_different_address column ──
+        // ── 7) households.photos column (JSON array of photo URLs) ──
+        $hh_photos_col = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'photos'",
+            $wpdb->dbname, $hh_table
+        ) );
+        if ( ! $hh_photos_col ) {
+            $wpdb->query( "ALTER TABLE {$hh_table} ADD COLUMN photos TEXT DEFAULT NULL" );
+            CD_Logger::info( 'DB heal: added column photos on ' . $hh_table );
+            // Migrate existing single photo_url into photos array
+            $wpdb->query( "UPDATE {$hh_table} SET photos = CONCAT('[\"', photo_url, '\"]') WHERE photo_url IS NOT NULL AND photo_url != '' AND (photos IS NULL OR photos = '')" );
+        }
+
+        // ── 8) household_members.has_different_address column ──
         $hm_table = CD_Database::table( 'household_members' );
         $hm_addr = $wpdb->get_var( $wpdb->prepare(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS

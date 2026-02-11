@@ -553,6 +553,7 @@ document.addEventListener('alpine:init', () => {
             return {
                 searchQuery: '',
                 members: [],
+                households: [],
                 loading: false,
                 page: 1,
                 perPage: 24,
@@ -597,6 +598,7 @@ document.addEventListener('alpine:init', () => {
 
                         const result = await cdApi.get(url);
                         this.members = result.data.members || [];
+                        this.households = result.data.households || [];
 
                         // Decode obfuscated emails
                         if (result.data.email_obfuscated) {
@@ -610,6 +612,7 @@ document.addEventListener('alpine:init', () => {
                     } catch (err) {
                         console.error('Directory load error:', err);
                         this.members = [];
+                        this.households = [];
                     } finally {
                         this.loading = false;
                     }
@@ -1217,10 +1220,16 @@ document.addEventListener('alpine:init', () => {
             this.ecResults = [];
         },
 
-        // Household photo upload
+        // Household photo upload (multi-photo: appends to photos array)
         uploadHouseholdPhoto(event) {
             const file = event.target.files[0];
             if (!file) return;
+
+            // Check limit client-side
+            if (this.household.photos && this.household.photos.length >= 10) {
+                this.householdError = 'Maximum 10 photos allowed. Delete one to add another.';
+                return;
+            }
 
             this.uploadingHouseholdPhoto = true;
             this.householdError = '';
@@ -1236,8 +1245,15 @@ document.addEventListener('alpine:init', () => {
             })
                 .then(r => r.json())
                 .then(data => {
-                    if (data.data && data.data.url) {
-                        this.household.photo_url = data.data.url;
+                    if (data.data && data.data.photos) {
+                        this.household.photos = data.data.photos;
+                        this.household.photo_url = data.data.photos[0] || '';
+                        this.householdMessage = data.data.message || 'Family photo uploaded.';
+                    } else if (data.data && data.data.url) {
+                        // Backwards compat: old API returned single url
+                        if (!this.household.photos) this.household.photos = [];
+                        this.household.photos.push(data.data.url);
+                        this.household.photo_url = this.household.photos[0] || '';
                         this.householdMessage = data.data.message || 'Family photo uploaded.';
                     } else {
                         throw new Error(data.message || 'Upload failed');
@@ -1248,16 +1264,25 @@ document.addEventListener('alpine:init', () => {
                 })
                 .finally(() => {
                     this.uploadingHouseholdPhoto = false;
+                    // Reset file input so the same file can be re-selected
+                    event.target.value = '';
                 });
         },
 
-        async deleteHouseholdPhoto() {
-            if (!confirm('Remove the family photo?')) return;
+        async deleteHouseholdPhoto(photoUrl) {
+            if (!confirm('Remove this family photo?')) return;
             this.uploadingHouseholdPhoto = true;
             this.householdError = '';
             try {
-                await cdApi.request('/members/me/household/photo', { method: 'DELETE' });
-                this.household.photo_url = '';
+                await cdApi.request('/members/me/household/photo', {
+                    method: 'DELETE',
+                    body: JSON.stringify({ photo_url: photoUrl }),
+                });
+                // Remove from local array
+                if (this.household.photos) {
+                    this.household.photos = this.household.photos.filter(p => p !== photoUrl);
+                    this.household.photo_url = this.household.photos[0] || '';
+                }
                 this.householdMessage = 'Family photo removed.';
             } catch (err) {
                 this.householdError = err.message;
@@ -1305,6 +1330,10 @@ document.addEventListener('alpine:init', () => {
                 this.household = result.data.household || null;
                 if (this.household) {
                     this.hasDifferentAddress = this.household.has_different_address || false;
+                    // Ensure photos is always an array
+                    if (!Array.isArray(this.household.photos)) {
+                        this.household.photos = this.household.photo_url ? [this.household.photo_url] : [];
+                    }
                 }
             } catch (err) {
                 // Not critical — just means no household
