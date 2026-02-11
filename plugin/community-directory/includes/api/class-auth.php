@@ -186,6 +186,8 @@ class CD_API_Auth extends CD_API_Base {
         $redirect_uri = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
         $nonce = wp_create_nonce( 'cd_google_login' );
 
+        error_log( 'CD_Auth: google_auth_url called. redirect_uri=' . $redirect_uri . ' nonce=' . substr( $nonce, 0, 8 ) . '...' );
+
         // Store the exact redirect_uri so token exchange uses the same value.
         // On some hosts (Bluehost reverse proxy), rest_url() can return different
         // schemes (http vs https) in different request contexts, causing invalid_grant.
@@ -223,22 +225,29 @@ class CD_API_Auth extends CD_API_Base {
         $base_slug = get_option( 'cd_base_slug', 'community' );
         $login_url = home_url( $base_slug . '/login/' );
 
+        error_log( 'CD_Auth: google_callback entered. Request method=' . $_SERVER['REQUEST_METHOD'] );
+
         $state = sanitize_text_field( $request->get_param( 'state' ) ?? '' );
         if ( ! wp_verify_nonce( $state, 'cd_google_login' ) ) {
+            error_log( 'CD_Auth: nonce verification FAILED. state=' . substr( $state, 0, 8 ) . '...' );
             wp_safe_redirect( $login_url . '?error=invalid_state' );
             exit;
         }
 
         if ( $request->get_param( 'error' ) ) {
+            error_log( 'CD_Auth: Google returned error param: ' . sanitize_text_field( $request->get_param( 'error' ) ) );
             wp_safe_redirect( $login_url . '?error=' . urlencode( sanitize_text_field( $request->get_param( 'error' ) ) ) );
             exit;
         }
 
         $code = sanitize_text_field( $request->get_param( 'code' ) ?? '' );
         if ( empty( $code ) ) {
+            error_log( 'CD_Auth: no code param in callback' );
             wp_safe_redirect( $login_url . '?error=no_code' );
             exit;
         }
+
+        error_log( 'CD_Auth: code received (first 10 chars): ' . substr( $code, 0, 10 ) . '... state=' . substr( $state, 0, 8 ) . '...' );
 
         // Exchange code for tokens
         $client_id     = get_option( 'cd_google_client_id', '' );
@@ -247,11 +256,11 @@ class CD_API_Auth extends CD_API_Base {
 
         // Use the exact redirect_uri stored during auth URL generation to avoid
         // mismatches caused by reverse proxies or scheme differences.
-        $redirect_uri = get_transient( 'cd_google_redirect_' . $state );
-        if ( empty( $redirect_uri ) ) {
-            $redirect_uri = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
-        }
+        $stored_redirect = get_transient( 'cd_google_redirect_' . $state );
+        $redirect_uri = ! empty( $stored_redirect ) ? $stored_redirect : rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
         delete_transient( 'cd_google_redirect_' . $state );
+
+        error_log( 'CD_Auth: token exchange. redirect_uri=' . $redirect_uri . ' (from_transient=' . ( ! empty( $stored_redirect ) ? 'yes' : 'no' ) . ') client_id_len=' . strlen( $client_id ) . ' secret_len=' . strlen( $client_secret ) );
 
         $token_response = wp_remote_post( 'https://oauth2.googleapis.com/token', array(
             'body' => array(
@@ -265,6 +274,7 @@ class CD_API_Auth extends CD_API_Base {
         ) );
 
         if ( is_wp_error( $token_response ) ) {
+            error_log( 'CD_Auth: wp_remote_post FAILED: ' . $token_response->get_error_message() );
             wp_safe_redirect( $login_url . '?error=token_exchange_failed' );
             exit;
         }
@@ -274,9 +284,12 @@ class CD_API_Auth extends CD_API_Base {
             $error_code = sanitize_text_field( $token_body['error'] );
             $error_desc = isset( $token_body['error_description'] ) ? sanitize_text_field( $token_body['error_description'] ) : '';
             $error_param = $error_code . ( $error_desc ? ': ' . $error_desc : '' );
+            error_log( 'CD_Auth: Google token exchange ERROR: ' . $error_param . ' | redirect_uri_used=' . $redirect_uri );
             wp_safe_redirect( $login_url . '?error=' . urlencode( $error_param ) );
             exit;
         }
+
+        error_log( 'CD_Auth: token exchange SUCCESS. Has id_token=' . ( ! empty( $token_body['id_token'] ) ? 'yes' : 'no' ) );
 
         // Decode ID token (JWT) to get user info
         $id_token = $token_body['id_token'] ?? '';
