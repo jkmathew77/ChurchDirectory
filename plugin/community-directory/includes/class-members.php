@@ -52,12 +52,12 @@ class CD_Members {
             return false;
         }
 
-        // Decode all JSON fields
-        $row->emails        = json_decode( $row->emails, true ) ?: array();
-        $row->phones        = json_decode( $row->phones, true ) ?: array();
-        $row->social_links  = json_decode( $row->social_links, true ) ?: array();
-        $row->ministry_tags = json_decode( $row->ministry_tags, true ) ?: array();
-        $row->privacy_settings = json_decode( $row->privacy_settings, true ) ?: array();
+        // Decode all JSON fields (null-coalesce to avoid PHP 8.1 deprecation)
+        $row->emails        = json_decode( $row->emails ?? '', true ) ?: array();
+        $row->phones        = json_decode( $row->phones ?? '', true ) ?: array();
+        $row->social_links  = json_decode( $row->social_links ?? '', true ) ?: array();
+        $row->ministry_tags = json_decode( $row->ministry_tags ?? '', true ) ?: array();
+        $row->privacy_settings = json_decode( $row->privacy_settings ?? '', true ) ?: array();
 
         return $row;
     }

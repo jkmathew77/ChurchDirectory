@@ -175,6 +175,9 @@ class CD_API_Auth extends CD_API_Base {
      * will handle invite acceptance instead of normal login.
      */
     public function google_auth_url( WP_REST_Request $request ) {
+        // Prevent caching plugins from caching this dynamic response
+        nocache_headers();
+
         $client_id = get_option( 'cd_google_client_id', '' );
         if ( empty( $client_id ) ) {
             return $this->error( 'not_configured', __( 'Google sign-in is not configured. Please use email and password.', 'community-directory' ) );
@@ -182,6 +185,11 @@ class CD_API_Auth extends CD_API_Base {
 
         $redirect_uri = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
         $nonce = wp_create_nonce( 'cd_google_login' );
+
+        // Store the exact redirect_uri so token exchange uses the same value.
+        // On some hosts (Bluehost reverse proxy), rest_url() can return different
+        // schemes (http vs https) in different request contexts, causing invalid_grant.
+        set_transient( 'cd_google_redirect_' . $nonce, $redirect_uri, 600 );
 
         // If invite params are passed, store them in a transient keyed by nonce
         $invite_token = sanitize_text_field( $request->get_param( 'invite_token' ) ?: '' );
@@ -236,7 +244,14 @@ class CD_API_Auth extends CD_API_Base {
         $client_id     = get_option( 'cd_google_client_id', '' );
         $encrypted_secret = get_option( 'cd_google_client_secret', '' );
         $client_secret = ! empty( $encrypted_secret ) ? CD_Encryption::decrypt( $encrypted_secret ) : '';
-        $redirect_uri  = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
+
+        // Use the exact redirect_uri stored during auth URL generation to avoid
+        // mismatches caused by reverse proxies or scheme differences.
+        $redirect_uri = get_transient( 'cd_google_redirect_' . $state );
+        if ( empty( $redirect_uri ) ) {
+            $redirect_uri = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
+        }
+        delete_transient( 'cd_google_redirect_' . $state );
 
         $token_response = wp_remote_post( 'https://oauth2.googleapis.com/token', array(
             'body' => array(
@@ -256,7 +271,10 @@ class CD_API_Auth extends CD_API_Base {
 
         $token_body = json_decode( wp_remote_retrieve_body( $token_response ), true );
         if ( ! empty( $token_body['error'] ) ) {
-            wp_safe_redirect( $login_url . '?error=' . urlencode( $token_body['error'] ) );
+            $error_code = sanitize_text_field( $token_body['error'] );
+            $error_desc = isset( $token_body['error_description'] ) ? sanitize_text_field( $token_body['error_description'] ) : '';
+            $error_param = $error_code . ( $error_desc ? ': ' . $error_desc : '' );
+            wp_safe_redirect( $login_url . '?error=' . urlencode( $error_param ) );
             exit;
         }
 

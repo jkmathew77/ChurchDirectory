@@ -215,8 +215,9 @@ const OFFLINE_URL = <?php echo wp_json_encode( '/' . $base_slug . '/offline/' );
 
 const PRECACHE_ASSETS = <?php echo wp_json_encode( $assets, JSON_UNESCAPED_SLASHES ); ?>;
 
-// Install: precache app shell
+// Install: precache app shell and immediately activate
 self.addEventListener('install', function(event) {
+    self.skipWaiting();
     event.waitUntil(
         caches.open(CACHE_NAME).then(function(cache) {
             return cache.addAll(PRECACHE_ASSETS);

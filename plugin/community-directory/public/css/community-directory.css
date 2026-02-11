@@ -29,19 +29,15 @@
     --cd-radius-lg: 12px;
     --cd-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
     --cd-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
-    --cd-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    --cd-font: inherit;
     --cd-container-width: 480px;
     --cd-container-wide: 960px;
 }
 
 /* ─── Wrapper for plugin content within theme ─── */
 .cd-wrap {
-    font-family: var(--cd-font);
-    font-size: 16px;
-    line-height: 1.6;
+    /* Inherit font from theme */
     color: var(--cd-text);
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
 }
 
 .cd-wrap *,
@@ -86,8 +82,6 @@
 }
 
 .cd-title {
-    font-size: 1.5rem;
-    font-weight: 700;
     margin: 0 0 4px;
     color: var(--cd-text);
 }
@@ -1056,6 +1050,10 @@
 
 /* ─── Directory: Member Grid ─── */
 .cd-member-grid {
+    /* Flexbox fallback for older browsers or if grid fails */
+    display: flex;
+    flex-wrap: wrap;
+
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
@@ -1262,7 +1260,7 @@
     padding: 8px 0;
 }
 
-.cd-contact-item + .cd-contact-item {
+.cd-contact-item+.cd-contact-item {
     border-top: 1px solid var(--cd-bg);
 }
 
@@ -1601,14 +1599,16 @@
     right: 0;
     z-index: 10000;
     background: #fff;
-    box-shadow: 0 -2px 16px rgba(0,0,0,0.15);
+    box-shadow: 0 -2px 16px rgba(0, 0, 0, 0.15);
     padding: 12px 16px;
     transform: translateY(100%);
     transition: transform 0.3s ease;
 }
+
 .cd-pwa-install-banner.cd-pwa-install-visible {
     transform: translateY(0);
 }
+
 .cd-pwa-install-content {
     display: flex;
     align-items: center;
@@ -1617,18 +1617,21 @@
     margin: 0 auto;
     gap: 12px;
 }
+
 .cd-pwa-install-text {
     font-size: 0.9375rem;
     font-weight: 500;
     color: #333;
     flex: 1;
 }
+
 .cd-pwa-install-actions {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
 }
+
 .cd-pwa-install-btn {
     padding: 8px 20px;
     background: var(--cd-primary, #8B0000);
@@ -1639,7 +1642,11 @@
     font-weight: 600;
     cursor: pointer;
 }
-.cd-pwa-install-btn:hover { opacity: 0.9; }
+
+.cd-pwa-install-btn:hover {
+    opacity: 0.9;
+}
+
 .cd-pwa-install-dismiss {
     background: none;
     border: none;
@@ -1649,14 +1656,17 @@
     line-height: 1;
     padding: 4px;
 }
-.cd-pwa-install-dismiss:hover { color: #666; }
+
+.cd-pwa-install-dismiss:hover {
+    color: #666;
+}
 
 /* ─── PWA iOS Install Overlay ─── */
 .cd-pwa-ios-overlay {
     position: fixed;
     inset: 0;
     z-index: 10001;
-    background: rgba(0,0,0,0.5);
+    background: rgba(0, 0, 0, 0.5);
     display: flex;
     align-items: flex-end;
     justify-content: center;
@@ -1664,9 +1674,11 @@
     opacity: 0;
     transition: opacity 0.3s ease;
 }
+
 .cd-pwa-ios-overlay.cd-pwa-ios-visible {
     opacity: 1;
 }
+
 .cd-pwa-ios-card {
     background: #fff;
     border-radius: 16px;
@@ -1677,6 +1689,7 @@
     position: relative;
     margin-bottom: env(safe-area-inset-bottom, 0);
 }
+
 .cd-pwa-ios-close {
     position: absolute;
     top: 12px;
@@ -1687,21 +1700,25 @@
     color: #999;
     cursor: pointer;
 }
+
 .cd-pwa-ios-icon {
     font-size: 2.5rem;
     margin-bottom: 12px;
 }
+
 .cd-pwa-ios-card h3 {
     font-size: 1.125rem;
     margin: 0 0 8px;
     color: #333;
 }
+
 .cd-pwa-ios-card p {
     font-size: 0.9375rem;
     color: #666;
     line-height: 1.5;
     margin: 0 0 16px;
 }
+
 .cd-pwa-ios-got-it {
     padding: 10px 24px;
     background: var(--cd-primary, #8B0000);
@@ -1712,7 +1729,10 @@
     font-weight: 600;
     cursor: pointer;
 }
-.cd-pwa-ios-got-it:hover { opacity: 0.9; }
+
+.cd-pwa-ios-got-it:hover {
+    opacity: 0.9;
+}
 
 /* ─── PWA Update Banner ─── */
 .cd-pwa-update-banner {
@@ -1727,9 +1747,11 @@
     transform: translateY(-100%);
     transition: transform 0.3s ease;
 }
+
 .cd-pwa-update-banner.cd-pwa-update-visible {
     transform: translateY(0);
 }
+
 .cd-pwa-update-content {
     display: flex;
     align-items: center;
@@ -1739,35 +1761,57 @@
     margin: 0 auto;
     font-size: 0.875rem;
 }
+
 .cd-pwa-update-btn {
     padding: 6px 16px;
-    background: rgba(255,255,255,0.2);
+    background: rgba(255, 255, 255, 0.2);
     color: #fff;
-    border: 1px solid rgba(255,255,255,0.4);
+    border: 1px solid rgba(255, 255, 255, 0.4);
     border-radius: 4px;
     font-size: 0.8125rem;
     font-weight: 600;
     cursor: pointer;
 }
-.cd-pwa-update-btn:hover { background: rgba(255,255,255,0.3); }
+
+.cd-pwa-update-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
 .cd-pwa-update-dismiss {
     background: none;
     border: none;
-    color: rgba(255,255,255,0.7);
+    color: rgba(255, 255, 255, 0.7);
     font-size: 1.25rem;
     cursor: pointer;
     line-height: 1;
     padding: 4px;
 }
-.cd-pwa-update-dismiss:hover { color: #fff; }
+
+.cd-pwa-update-dismiss:hover {
+    color: #fff;
+}
 
 /* ─── PWA Standalone Mode ─── */
 @media (display-mode: standalone) {
     html {
         margin-top: 0 !important;
     }
+
     .cd-wrap {
+        padding-top: env(safe-area-inset-top);
+        padding-bottom: env(safe-area-inset-bottom);
         min-height: 100vh;
+    }
+
+    /* Hide standard WordPress/Theme elements in PWA */
+    #wpadminbar,
+    .site-header,
+    .site-footer,
+    .footer,
+    header.site-header,
+    footer.site-footer,
+    .admin-bar {
+        display: none !important;
     }
 }
 
@@ -1785,7 +1829,12 @@
     cursor: pointer;
     transition: all 0.15s;
 }
-.cd-filter-toggle:hover { border-color: var(--cd-primary, #2563eb); color: var(--cd-primary, #2563eb); }
+
+.cd-filter-toggle:hover {
+    border-color: var(--cd-primary, #2563eb);
+    color: var(--cd-primary, #2563eb);
+}
+
 .cd-filter-toggle .cd-filter-count {
     display: inline-flex;
     align-items: center;
@@ -1798,6 +1847,7 @@
     font-size: 0.7rem;
     font-weight: 600;
 }
+
 .cd-filter-panel {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -1806,10 +1856,25 @@
     border-top: 1px solid #eee;
     margin-top: 12px;
 }
-.cd-filter-panel .cd-form-group { margin-bottom: 0; }
-.cd-filter-panel .cd-label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 4px; }
+
+.cd-filter-panel .cd-form-group {
+    margin-bottom: 0;
+}
+
+.cd-filter-panel .cd-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #888;
+    margin-bottom: 4px;
+}
+
 .cd-filter-panel .cd-input,
-.cd-filter-panel .cd-select { font-size: 0.8125rem; padding: 6px 10px; }
+.cd-filter-panel .cd-select {
+    font-size: 0.8125rem;
+    padding: 6px 10px;
+}
+
 .cd-filter-actions {
     display: flex;
     align-items: flex-end;
@@ -1817,7 +1882,10 @@
 }
 
 /* ─── WhatsApp Groups Section ─── */
-.cd-whatsapp-section { margin-top: 2rem; }
+.cd-whatsapp-section {
+    margin-top: 2rem;
+}
+
 .cd-whatsapp-section h2 {
     font-size: 1.125rem;
     font-weight: 600;
@@ -1826,11 +1894,13 @@
     align-items: center;
     gap: 8px;
 }
+
 .cd-whatsapp-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     gap: 12px;
 }
+
 .cd-whatsapp-card {
     display: flex;
     align-items: center;
@@ -1838,23 +1908,43 @@
     padding: 14px 16px;
     background: #fff;
     border-radius: var(--cd-radius, 8px);
-    box-shadow: var(--cd-shadow, 0 1px 3px rgba(0,0,0,0.1));
+    box-shadow: var(--cd-shadow, 0 1px 3px rgba(0, 0, 0, 0.1));
     transition: box-shadow 0.15s, transform 0.15s;
     text-decoration: none;
     color: inherit;
 }
+
 .cd-whatsapp-card:hover {
-    box-shadow: var(--cd-shadow-lg, 0 4px 12px rgba(0,0,0,0.15));
+    box-shadow: var(--cd-shadow-lg, 0 4px 12px rgba(0, 0, 0, 0.15));
     transform: translateY(-1px);
 }
+
 .cd-whatsapp-icon {
     font-size: 1.75rem;
     line-height: 1;
     flex-shrink: 0;
 }
-.cd-whatsapp-info { flex: 1; min-width: 0; }
-.cd-whatsapp-info h4 { margin: 0 0 2px; font-size: 0.9375rem; font-weight: 600; }
-.cd-whatsapp-info p { margin: 0; font-size: 0.8125rem; color: #666; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.cd-whatsapp-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.cd-whatsapp-info h4 {
+    margin: 0 0 2px;
+    font-size: 0.9375rem;
+    font-weight: 600;
+}
+
+.cd-whatsapp-info p {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: #666;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .cd-whatsapp-join {
     flex-shrink: 0;
     padding: 6px 14px;
@@ -1867,4 +1957,8 @@
     text-decoration: none;
     white-space: nowrap;
 }
-.cd-whatsapp-join:hover { background: #20bd5a; color: #fff; }
+
+.cd-whatsapp-join:hover {
+    background: #20bd5a;
+    color: #fff;
+}

@@ -465,12 +465,12 @@ class CD_API_Admin extends CD_API_Base {
 
         // Process rows for display
         foreach ( $rows as $row ) {
-            // Decode JSON fields
-            $row->emails = json_decode( $row->emails, true );
-            $row->phones = json_decode( $row->phones, true );
-            $row->social_links = json_decode( $row->social_links, true );
-            $row->ministry_tags = json_decode( $row->ministry_tags, true );
-            $row->privacy_settings = json_decode( $row->privacy_settings, true );
+            // Decode JSON fields (null-coalesce to avoid PHP 8.1 deprecation)
+            $row->emails = json_decode( $row->emails ?? '', true );
+            $row->phones = json_decode( $row->phones ?? '', true );
+            $row->social_links = json_decode( $row->social_links ?? '', true );
+            $row->ministry_tags = json_decode( $row->ministry_tags ?? '', true );
+            $row->privacy_settings = json_decode( $row->privacy_settings ?? '', true );
 
             // Decrypt sensitive PII fields
             $encrypted_fields = array( 'date_of_birth', 'address_home', 'address_mailing', 'emergency_contact_name', 'emergency_contact_phone' );
@@ -2176,7 +2176,7 @@ class CD_API_Admin extends CD_API_Base {
 
         // Add household info and email for each request
         foreach ( $rows as $row ) {
-            $emails = json_decode( $row->emails, true ) ?: array();
+            $emails = json_decode( $row->emails ?? '', true ) ?: array();
             $row->primary_email = ! empty( $emails[0]['value'] ) ? $emails[0]['value'] : '';
             unset( $row->emails );
 

@@ -143,10 +143,10 @@ class CD_API_Members extends CD_API_Base {
 
         $results = array();
         foreach ( $rows as $row ) {
-            $emails = json_decode( $row->emails, true );
-            $phones = json_decode( $row->phones, true );
-            $ministry_tags = json_decode( $row->ministry_tags, true );
-            $privacy = json_decode( $row->privacy_settings, true );
+            $emails = json_decode( $row->emails ?? '', true );
+            $phones = json_decode( $row->phones ?? '', true );
+            $ministry_tags = json_decode( $row->ministry_tags ?? '', true );
+            $privacy = json_decode( $row->privacy_settings ?? '', true );
             if ( ! is_array( $privacy ) ) {
                 $privacy = array();
             }
@@ -226,12 +226,12 @@ class CD_API_Members extends CD_API_Base {
             return $this->error( 'not_found', __( 'Member not found.', 'community-directory' ), 404 );
         }
 
-        // Decode all JSON fields
-        $row->emails           = json_decode( $row->emails, true ) ?: array();
-        $row->phones           = json_decode( $row->phones, true ) ?: array();
-        $row->social_links     = json_decode( $row->social_links, true ) ?: array();
-        $row->ministry_tags    = json_decode( $row->ministry_tags, true ) ?: array();
-        $row->privacy_settings = json_decode( $row->privacy_settings, true ) ?: array();
+        // Decode all JSON fields (null-coalesce to avoid PHP 8.1 deprecation)
+        $row->emails           = json_decode( $row->emails ?? '', true ) ?: array();
+        $row->phones           = json_decode( $row->phones ?? '', true ) ?: array();
+        $row->social_links     = json_decode( $row->social_links ?? '', true ) ?: array();
+        $row->ministry_tags    = json_decode( $row->ministry_tags ?? '', true ) ?: array();
+        $row->privacy_settings = json_decode( $row->privacy_settings ?? '', true ) ?: array();
 
         // Decrypt Encrypted Fields
         if ( ! empty( $row->address_home ) ) {

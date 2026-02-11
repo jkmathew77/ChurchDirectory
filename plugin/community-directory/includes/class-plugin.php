@@ -220,6 +220,11 @@ class CD_Plugin {
 
         // PWA routes — serve directly and exit (no theme template needed)
         $pwa_enabled = '1' === get_option( 'cd_pwa_enabled', '0' );
+        
+        // Hide Admin Bar on all community pages for a cleaner "app" feel
+        if ( ! current_user_can( 'administrator' ) && ! is_admin() ) {
+            show_admin_bar( false );
+        }
         if ( 'manifest' === $page && $pwa_enabled ) {
             CD_PWA::serve_manifest();
         }
@@ -332,20 +337,24 @@ class CD_Plugin {
      * Send HTTP security headers on community pages.
      */
     private function send_security_headers() {
-        if ( headers_sent() ) {
+        // DO NOT send strict headers on Admin pages to avoid locking out the site
+        if ( headers_sent() || is_admin() ) {
             return;
         }
 
-        // Content-Security-Policy (PRD Section 10.2.7)
+        // Content-Security-Policy (Relaxed for compatibility)
+        // Note: Alpine.js requires 'unsafe-eval' or a build step. We use 'unsafe-eval' for simplicity here.
+        // We also need to allow various Google domains for OAuth and Fonts.
+        // We permit 'unsafe-inline' for styles because many themes and plugins rely on it.
         $csp_directives = array(
-            "default-src 'self'",
-            "script-src 'self' 'unsafe-inline' https://apis.google.com https://www.gstatic.com",
-            "style-src 'self' 'unsafe-inline'",
-            "img-src 'self' data: https://*.googleusercontent.com",
-            "connect-src 'self' https://accounts.google.com",
-            "frame-src https://accounts.google.com",
-            "font-src 'self'",
-            "object-src 'none'",
+            "default-src 'self' data: https://*.google.com https://*.googleapis.com https://*.gstatic.com https://*.wp.com https://*.gravatar.com",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.google.com https://*.googleapis.com https://*.gstatic.com https://*.wp.com",
+            "style-src 'self' 'unsafe-inline' https://*.googleapis.com https://*.wp.com https://*.gstatic.com",
+            "img-src 'self' data: https://*.googleusercontent.com https://*.gravatar.com https://*.wp.com https://secure.gravatar.com",
+            "connect-src 'self' https://accounts.google.com https://*.googleapis.com",
+            "frame-src 'self' https://accounts.google.com https://*.google.com https://widgets.wp.com",
+            "font-src 'self' data: https://*.gstatic.com https://*.wp.com https://fonts.gstatic.com",
+            "worker-src 'self' blob:", // Needed for some WP workers
             "base-uri 'self'",
         );
         header( 'Content-Security-Policy: ' . implode( '; ', $csp_directives ) );
