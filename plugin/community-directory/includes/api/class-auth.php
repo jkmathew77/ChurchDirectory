@@ -240,6 +240,25 @@ class CD_API_Auth extends CD_API_Base {
             exit;
         }
 
+        // ── Idempotency guard: prevent duplicate callback processing ──
+        // Something on this server (likely miniorange-login-openid plugin) causes
+        // every request to be processed twice. The first exchange succeeds but the
+        // second fails with invalid_grant because the code was already consumed.
+        $lock_key = 'cd_oauth_lock_' . md5( $code );
+        $lock_result = get_transient( $lock_key );
+        if ( false !== $lock_result ) {
+            // This code was already processed — redirect to the stored result
+            error_log( 'CD_Auth: duplicate callback detected, using cached result' );
+            if ( 'success' === $lock_result['status'] ) {
+                wp_safe_redirect( $lock_result['redirect'] );
+            } else {
+                wp_safe_redirect( $login_url . '?error=' . urlencode( $lock_result['error'] ?? 'duplicate_request' ) );
+            }
+            exit;
+        }
+        // Set lock immediately (60 second TTL — just long enough to cover the duplicate)
+        set_transient( $lock_key, array( 'status' => 'processing' ), 60 );
+
         // Exchange code for tokens
         $client_id     = get_option( 'cd_google_client_id', '' );
         $encrypted_secret = get_option( 'cd_google_client_secret', '' );
@@ -303,6 +322,8 @@ class CD_API_Auth extends CD_API_Base {
         $invite_context = get_transient( 'cd_google_invite_' . $state );
         if ( $invite_context && ! empty( $invite_context['token'] ) && ! empty( $invite_context['email'] ) ) {
             delete_transient( 'cd_google_invite_' . $state );
+            // Store lock before invite processing (handle_google_invite_accept does its own redirect)
+            set_transient( $lock_key, array( 'status' => 'success', 'redirect' => home_url( $base_slug . '/directory/' ) ), 60 );
             $this->handle_google_invite_accept( $invite_context, $google_email, $google_id, $payload, $base_slug );
             exit;
         }
@@ -354,15 +375,19 @@ class CD_API_Auth extends CD_API_Base {
                 'first_name' => $payload['given_name'] ?? '',
                 'last_name'  => $payload['family_name'] ?? '',
                 'avatar_url' => $payload['picture'] ?? '',
-                'google_id'  => $google_id, // Pass invisible token to link later? (Optional security risk, skipping for now)
+                'google_id'  => $google_id,
             );
-            wp_safe_redirect( $apply_url . '?' . http_build_query( $apply_params ) );
+            $apply_redirect = $apply_url . '?' . http_build_query( $apply_params );
+            set_transient( $lock_key, array( 'status' => 'success', 'redirect' => $apply_redirect ), 60 );
+            wp_safe_redirect( $apply_redirect );
             exit;
         }
 
         $status_check = $this->check_member_status( $member->wp_user_id );
         if ( is_wp_error( $status_check ) ) {
-            wp_safe_redirect( $login_url . '?error=' . urlencode( $status_check->get_error_message() ) );
+            $err_msg = $status_check->get_error_message();
+            set_transient( $lock_key, array( 'status' => 'error', 'error' => $err_msg ), 60 );
+            wp_safe_redirect( $login_url . '?error=' . urlencode( $err_msg ) );
             exit;
         }
 
@@ -375,7 +400,10 @@ class CD_API_Auth extends CD_API_Base {
             'ip'     => $ip,
         ) );
 
-        wp_safe_redirect( home_url( $base_slug . '/directory/' ) );
+        $directory_url = home_url( $base_slug . '/directory/' );
+        // Store successful result so duplicate callback skips token exchange
+        set_transient( $lock_key, array( 'status' => 'success', 'redirect' => $directory_url ), 60 );
+        wp_safe_redirect( $directory_url );
         exit;
     }
 
