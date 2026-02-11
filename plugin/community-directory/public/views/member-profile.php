@@ -212,7 +212,7 @@ get_header();
                         <template x-for="(link, idx) in member.social_links" :key="'social-' + idx">
                             <a :href="link.url" target="_blank" rel="noopener noreferrer" class="cd-social-item">
                                 <span class="cd-social-platform" x-text="link.platform" style="text-transform: capitalize;"></span>
-                                <span class="cd-text-muted" style="font-size: 0.85rem;">&nearr;</span>
+                                <svg class="cd-text-muted" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;"><path d="M7 17 17 7"/><path d="M7 7h10v10"/></svg>
                             </a>
                         </template>
                     </div>
