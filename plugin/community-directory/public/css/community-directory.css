@@ -1761,30 +1761,13 @@
 }
 .cd-pwa-update-dismiss:hover { color: #fff; }
 
-/* ─── PWA Standalone Mode — hide nav & footer, keep header branding ─── */
+/* ─── PWA Standalone Mode ─── */
 @media (display-mode: standalone) {
-    /* Hide navigation menu, footer, and admin bar in PWA standalone.
-       Keep .site-header / .site-branding / #masthead visible for church branding. */
-    .main-navigation,
-    #site-navigation,
-    .header-navigation-area,
-    .site-footer,
-    #colophon,
-    .wp-site-blocks > footer,
-    footer.wp-block-template-part,
-    #wpadminbar {
-        display: none !important;
-    }
     html {
-        margin-top: 0 !important;
-    }
-    body.cd-page {
-        padding-top: env(safe-area-inset-top) !important;
         margin-top: 0 !important;
     }
     .cd-wrap {
         min-height: 100vh;
-        padding-top: env(safe-area-inset-top);
     }
 }
 

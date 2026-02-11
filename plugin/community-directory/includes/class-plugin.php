@@ -380,8 +380,7 @@ class CD_Plugin {
 
     /**
      * Inject critical inline CSS into <head> before any external stylesheets.
-     * Prevents FOUC for Alpine.js x-cloak elements and hides theme chrome
-     * in PWA standalone mode before the external CSS file loads.
+     * Prevents FOUC for Alpine.js x-cloak elements.
      */
     public function inject_critical_css() {
         if ( empty( get_query_var( 'cd_page' ) ) ) {
@@ -390,29 +389,6 @@ class CD_Plugin {
         ?>
         <style id="cd-critical-css">
             [x-cloak] { display: none !important; }
-            /* Hide WP admin bar on all community pages — prevents unstyled
-               admin bar rendering when caching plugins strip admin-bar CSS */
-            body.cd-page #wpadminbar,
-            body.cd-page .screen-reader-shortcut { display: none !important; }
-            html.wp-toolbar { margin-top: 0 !important; padding-top: 0 !important; }
-            @media (display-mode: standalone) {
-                /* Hide navigation menu and footer in PWA standalone —
-                   keep .site-header / .site-branding / #masthead visible for church branding */
-                .main-navigation,
-                #site-navigation,
-                .header-navigation-area,
-                .site-footer,
-                #colophon,
-                .wp-site-blocks > footer,
-                footer.wp-block-template-part {
-                    display: none !important;
-                }
-                html { margin-top: 0 !important; }
-                body.cd-page {
-                    padding-top: env(safe-area-inset-top) !important;
-                    margin-top: 0 !important;
-                }
-            }
         </style>
         <?php
     }
