@@ -175,17 +175,23 @@ class CD_API_Auth extends CD_API_Base {
      * will handle invite acceptance instead of normal login.
      */
     public function google_auth_url( WP_REST_Request $request ) {
-        error_log( 'CD_Auth: google_auth_url called' );
+        // Prevent caching plugins from caching this dynamic response
+        nocache_headers();
 
         $client_id = get_option( 'cd_google_client_id', '' );
         if ( empty( $client_id ) ) {
-            error_log( 'CD_Auth: Google client_id is empty — not configured' );
             return $this->error( 'not_configured', __( 'Google sign-in is not configured. Please use email and password.', 'community-directory' ) );
         }
 
         $redirect_uri = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
-        error_log( 'CD_Auth: redirect_uri=' . $redirect_uri );
         $nonce = wp_create_nonce( 'cd_google_login' );
+
+        CD_Logger::info( 'google_auth_url called. redirect_uri=' . $redirect_uri . ' nonce=' . substr( $nonce, 0, 8 ) . '...' );
+
+        // Store the exact redirect_uri so token exchange uses the same value.
+        // On some hosts (Bluehost reverse proxy), rest_url() can return different
+        // schemes (http vs https) in different request contexts, causing invalid_grant.
+        set_transient( 'cd_google_redirect_' . $nonce, $redirect_uri, 600 );
 
         // If invite params are passed, store them in a transient keyed by nonce
         $invite_token = sanitize_text_field( $request->get_param( 'invite_token' ) ?: '' );
@@ -203,6 +209,7 @@ class CD_API_Auth extends CD_API_Base {
             'response_type' => 'code',
             'scope'         => 'openid email profile',
             'access_type'   => 'online',
+            'prompt'        => 'select_account',
             'state'         => $nonce,
         );
 
@@ -215,30 +222,32 @@ class CD_API_Auth extends CD_API_Base {
      * Handle Google OAuth callback — exchange code, find/link member, log in.
      */
     public function google_callback( WP_REST_Request $request ) {
-        error_log( 'CD_Auth: google_callback entered' );
-
         $base_slug = get_option( 'cd_base_slug', 'community' );
         $login_url = home_url( $base_slug . '/login/' );
 
+        CD_Logger::info( 'google_callback entered. Request method=' . $_SERVER['REQUEST_METHOD'] );
+
         $state = sanitize_text_field( $request->get_param( 'state' ) ?? '' );
         if ( ! wp_verify_nonce( $state, 'cd_google_login' ) ) {
-            error_log( 'CD_Auth: nonce verification FAILED' );
+            CD_Logger::error( 'nonce verification FAILED. state=' . substr( $state, 0, 8 ) . '...' );
             wp_safe_redirect( $login_url . '?error=invalid_state' );
             exit;
         }
 
         if ( $request->get_param( 'error' ) ) {
-            error_log( 'CD_Auth: Google returned error: ' . sanitize_text_field( $request->get_param( 'error' ) ) );
+            CD_Logger::error( 'Google returned error param: ' . sanitize_text_field( $request->get_param( 'error' ) ) );
             wp_safe_redirect( $login_url . '?error=' . urlencode( sanitize_text_field( $request->get_param( 'error' ) ) ) );
             exit;
         }
 
         $code = sanitize_text_field( $request->get_param( 'code' ) ?? '' );
         if ( empty( $code ) ) {
-            error_log( 'CD_Auth: no code param in callback' );
+            CD_Logger::error( 'no code param in callback' );
             wp_safe_redirect( $login_url . '?error=no_code' );
             exit;
         }
+
+        CD_Logger::info( 'code received (first 10 chars): ' . substr( $code, 0, 10 ) . '... state=' . substr( $state, 0, 8 ) . '...' );
 
         // ── Idempotency guard: prevent duplicate callback processing ──
         // Something on this server (likely miniorange-login-openid plugin) causes
@@ -247,12 +256,15 @@ class CD_API_Auth extends CD_API_Base {
         $lock_key = 'cd_oauth_lock_' . md5( $code );
         $lock_result = get_transient( $lock_key );
         if ( false !== $lock_result ) {
-            // This code was already processed — redirect to the stored result
-            error_log( 'CD_Auth: duplicate callback detected, using cached result' );
-            if ( 'success' === $lock_result['status'] ) {
+            CD_Logger::info( 'duplicate callback detected, lock status=' . ( $lock_result['status'] ?? 'unknown' ) );
+            if ( ! empty( $lock_result['redirect'] ) ) {
+                // First request finished — use its stored redirect destination
                 wp_safe_redirect( $lock_result['redirect'] );
             } else {
-                wp_safe_redirect( $login_url . '?error=' . urlencode( $lock_result['error'] ?? 'duplicate_request' ) );
+                // First request still processing — redirect to directory;
+                // the auth cookie should already be set by the first request.
+                $directory_url = home_url( $base_slug . '/directory/' );
+                wp_safe_redirect( $directory_url );
             }
             exit;
         }
@@ -263,9 +275,14 @@ class CD_API_Auth extends CD_API_Base {
         $client_id     = get_option( 'cd_google_client_id', '' );
         $encrypted_secret = get_option( 'cd_google_client_secret', '' );
         $client_secret = ! empty( $encrypted_secret ) ? CD_Encryption::decrypt( $encrypted_secret ) : '';
-        $redirect_uri  = rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
 
-        error_log( 'CD_Auth: token exchange with redirect_uri=' . $redirect_uri );
+        // Use the exact redirect_uri stored during auth URL generation to avoid
+        // mismatches caused by reverse proxies or scheme differences.
+        $stored_redirect = get_transient( 'cd_google_redirect_' . $state );
+        $redirect_uri = ! empty( $stored_redirect ) ? $stored_redirect : rest_url( CD_API_NAMESPACE . '/auth/google/callback' );
+        delete_transient( 'cd_google_redirect_' . $state );
+
+        CD_Logger::info( 'token exchange. redirect_uri=' . $redirect_uri . ' (from_transient=' . ( ! empty( $stored_redirect ) ? 'yes' : 'no' ) . ') client_id_len=' . strlen( $client_id ) . ' secret_len=' . strlen( $client_secret ) );
 
         $token_response = wp_remote_post( 'https://oauth2.googleapis.com/token', array(
             'body' => array(
@@ -279,19 +296,24 @@ class CD_API_Auth extends CD_API_Base {
         ) );
 
         if ( is_wp_error( $token_response ) ) {
-            error_log( 'CD_Auth: wp_remote_post FAILED: ' . $token_response->get_error_message() );
+            CD_Logger::error( 'wp_remote_post FAILED: ' . $token_response->get_error_message() );
             wp_safe_redirect( $login_url . '?error=token_exchange_failed' );
             exit;
         }
 
         $token_body = json_decode( wp_remote_retrieve_body( $token_response ), true );
         if ( ! empty( $token_body['error'] ) ) {
-            error_log( 'CD_Auth: token exchange error: ' . $token_body['error'] . ' - ' . ( $token_body['error_description'] ?? '' ) );
-            wp_safe_redirect( $login_url . '?error=' . urlencode( $token_body['error'] ) );
+            $error_code = sanitize_text_field( $token_body['error'] );
+            $error_desc = isset( $token_body['error_description'] ) ? sanitize_text_field( $token_body['error_description'] ) : '';
+            $error_param = $error_code . ( $error_desc ? ': ' . $error_desc : '' );
+            CD_Logger::error( 'Google token exchange ERROR: ' . $error_param . ' | redirect_uri_used=' . $redirect_uri );
+            // Update lock with error result for duplicate detection
+            set_transient( $lock_key, array( 'status' => 'error', 'error' => $error_param ), 60 );
+            wp_safe_redirect( $login_url . '?error=' . urlencode( $error_param ) );
             exit;
         }
 
-        error_log( 'CD_Auth: token exchange SUCCESS' );
+        CD_Logger::info( 'token exchange SUCCESS. Has id_token=' . ( ! empty( $token_body['id_token'] ) ? 'yes' : 'no' ) );
 
         // Decode ID token (JWT) to get user info
         $id_token = $token_body['id_token'] ?? '';
@@ -315,14 +337,16 @@ class CD_API_Auth extends CD_API_Base {
         $google_email = sanitize_email( $payload['email'] );
         $google_id    = sanitize_text_field( $payload['sub'] );
 
+        CD_Logger::info( 'JWT decoded. google_email=' . $google_email . ' google_id=' . substr( $google_id, 0, 10 ) . '...' );
+
         global $wpdb;
         $members_table = CD_Database::table( 'members' );
 
         // ── Invite flow: check if this Google login was initiated from the invite page ──
         $invite_context = get_transient( 'cd_google_invite_' . $state );
         if ( $invite_context && ! empty( $invite_context['token'] ) && ! empty( $invite_context['email'] ) ) {
+            CD_Logger::info( 'invite flow detected, handing off to invite handler' );
             delete_transient( 'cd_google_invite_' . $state );
-            // Store lock before invite processing (handle_google_invite_accept does its own redirect)
             set_transient( $lock_key, array( 'status' => 'success', 'redirect' => home_url( $base_slug . '/directory/' ) ), 60 );
             $this->handle_google_invite_accept( $invite_context, $google_email, $google_id, $payload, $base_slug );
             exit;
@@ -333,18 +357,79 @@ class CD_API_Auth extends CD_API_Base {
             "SELECT * FROM {$members_table} WHERE google_id = %s AND status IN ('active', 'self_deactivated')",
             $google_id
         ) );
+        CD_Logger::info( 'lookup by google_id → ' . ( $member ? 'FOUND member id=' . $member->id : 'not found' ) );
 
         // If not found, try by email via WP user
         if ( ! $member ) {
             $user = get_user_by( 'email', $google_email );
+            CD_Logger::info( 'lookup WP user by email ' . $google_email . ' → ' . ( $user ? 'FOUND user id=' . $user->ID : 'not found' ) );
             if ( $user ) {
                 $member = $wpdb->get_row( $wpdb->prepare(
                     "SELECT * FROM {$members_table} WHERE wp_user_id = %d",
                     $user->ID
                 ) );
+                CD_Logger::info( 'lookup member by wp_user_id=' . $user->ID . ' → ' . ( $member ? 'FOUND member id=' . $member->id . ' status=' . $member->status : 'not found' ) );
                 // Link google_id for future logins
                 if ( $member ) {
                     $wpdb->update( $members_table, array( 'google_id' => $google_id ), array( 'id' => $member->id ), array( '%s' ), array( '%d' ) );
+                }
+            }
+        }
+
+        // If still not found, try by profile secondary emails (PRD 5.2)
+        if ( ! $member ) {
+            $profiles_table = CD_Database::table( 'directory_profiles' );
+            $email_lower    = strtolower( $google_email );
+
+            if ( CD_Database::supports_json() ) {
+                // JSON-aware search
+                $member = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT m.* FROM {$members_table} m
+                     JOIN {$profiles_table} p ON m.id = p.member_id
+                     WHERE m.status IN ('active','self_deactivated')
+                     AND (
+                        JSON_SEARCH(p.emails, 'one', %s) IS NOT NULL
+                     )
+                     LIMIT 1",
+                    $google_email
+                ) );
+            } else {
+                // Fallback: LIKE search on stored JSON string
+                $like = '%' . $wpdb->esc_like( '"' . $email_lower . '"' ) . '%';
+                $member = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT m.* FROM {$members_table} m
+                     JOIN {$profiles_table} p ON m.id = p.member_id
+                     WHERE m.status IN ('active','self_deactivated')
+                     AND LOWER(p.emails) LIKE LOWER(%s)
+                     LIMIT 1",
+                    $like
+                ) );
+            }
+
+            if ( $member ) {
+                // Ensure wp_user exists and is linked
+                $user = get_user_by( 'email', $google_email );
+                $wp_user_id = 0;
+                if ( $user ) {
+                    $wp_user_id = $user->ID;
+                } else {
+                    $wp_user_id = wp_create_user( $google_email, wp_generate_password( 24, true, true ), $google_email );
+                }
+                if ( ! is_wp_error( $wp_user_id ) ) {
+                    CD_Capabilities::grant_cap( $wp_user_id, 'cd_member' );
+                    $wpdb->update(
+                        $members_table,
+                        array(
+                            'wp_user_id' => $wp_user_id,
+                            'google_id'  => $google_id,
+                        ),
+                        array( 'id' => $member->id ),
+                        array( '%d', '%s' ),
+                        array( '%d' )
+                    );
+                    $member->wp_user_id = $wp_user_id;
+                } else {
+                    CD_Logger::error( 'failed to auto-create user for secondary email match: ' . $wp_user_id->get_error_message() );
                 }
             }
         }
@@ -367,6 +452,8 @@ class CD_API_Auth extends CD_API_Base {
             }
         }
 
+        CD_Logger::info( 'final member state → ' . ( $member ? 'member_id=' . $member->id . ' wp_user_id=' . ( $member->wp_user_id ?? 'NULL' ) . ' status=' . $member->status : 'NO MEMBER FOUND' ) );
+
         if ( ! $member || ! $member->wp_user_id ) {
             // No member record found → redirect to application form
             $apply_url = home_url( $base_slug . '/apply/' );
@@ -378,6 +465,7 @@ class CD_API_Auth extends CD_API_Base {
                 'google_id'  => $google_id,
             );
             $apply_redirect = $apply_url . '?' . http_build_query( $apply_params );
+            CD_Logger::info( 'no member → redirecting to apply: ' . $apply_redirect );
             set_transient( $lock_key, array( 'status' => 'success', 'redirect' => $apply_redirect ), 60 );
             wp_safe_redirect( $apply_redirect );
             exit;
@@ -386,11 +474,13 @@ class CD_API_Auth extends CD_API_Base {
         $status_check = $this->check_member_status( $member->wp_user_id );
         if ( is_wp_error( $status_check ) ) {
             $err_msg = $status_check->get_error_message();
+            CD_Logger::error( 'member status check FAILED: ' . $err_msg );
             set_transient( $lock_key, array( 'status' => 'error', 'error' => $err_msg ), 60 );
             wp_safe_redirect( $login_url . '?error=' . urlencode( $err_msg ) );
             exit;
         }
 
+        CD_Logger::info( 'setting auth cookie for wp_user_id=' . $member->wp_user_id );
         wp_set_current_user( $member->wp_user_id );
         wp_set_auth_cookie( $member->wp_user_id, true );
 
@@ -401,6 +491,7 @@ class CD_API_Auth extends CD_API_Base {
         ) );
 
         $directory_url = home_url( $base_slug . '/directory/' );
+        CD_Logger::info( 'LOGIN SUCCESS — redirecting to ' . $directory_url . ' (headers_sent=' . ( headers_sent() ? 'YES!' : 'no' ) . ')' );
         // Store successful result so duplicate callback skips token exchange
         set_transient( $lock_key, array( 'status' => 'success', 'redirect' => $directory_url ), 60 );
         wp_safe_redirect( $directory_url );
@@ -579,15 +670,20 @@ class CD_API_Auth extends CD_API_Base {
         }
 
         // Atomically mark invite as used
+        // Note: Don't reference 'status' column — it may not exist if migration 007
+        // was blocked by earlier migration failures.  We update used_at only;
+        // a separate column-healing routine adds the status column at runtime.
         $marked = $wpdb->query( $wpdb->prepare(
             "UPDATE {$invites_table} SET used_at = %s WHERE id = %d AND used_at IS NULL",
             current_time( 'mysql' ),
             $invite->id
         ) );
-        if ( 0 === $marked ) {
+        if ( 0 === (int) $marked ) {
+            CD_Logger::error( 'invite already used (used_at already set) for invite id=' . $invite->id );
             wp_safe_redirect( $login_url . '?error=' . urlencode( 'This invitation has already been used.' ) );
             return;
         }
+        CD_Logger::info( 'invite id=' . $invite->id . ' marked as used' );
 
         $members_table  = CD_Database::table( 'members' );
         $profiles_table = CD_Database::table( 'directory_profiles' );
@@ -605,6 +701,7 @@ class CD_API_Auth extends CD_API_Base {
                 $member_id_to_link = (int) $app_member->id;
             }
         }
+        CD_Logger::info( 'invite handler — member_id_to_link=' . ( $member_id_to_link ?: 'NULL' ) );
 
         // Create or find WP user by Google email
         $existing_user = get_user_by( 'email', $google_email );
@@ -634,7 +731,7 @@ class CD_API_Auth extends CD_API_Base {
             $wp_user_id = wp_create_user( $google_email, $random_password, $google_email );
             if ( is_wp_error( $wp_user_id ) ) {
                 // Undo the used_at mark
-                $wpdb->update( $invites_table, array( 'used_at' => null ), array( 'id' => $invite->id ) );
+                $wpdb->update( $invites_table, array( 'used_at' => null, 'status' => 'pending' ), array( 'id' => $invite->id ) );
                 wp_safe_redirect( $login_url . '?error=' . urlencode( 'Account creation failed: ' . $wp_user_id->get_error_message() ) );
                 return;
             }
@@ -650,30 +747,52 @@ class CD_API_Auth extends CD_API_Base {
         // Grant cd_member capability
         CD_Capabilities::grant_cap( $wp_user_id, 'cd_member' );
 
-        // Link member record to WP user and Google ID
+        // Link member record to WP user and Google ID, and ensure status is 'active'
         if ( $member_id_to_link ) {
             $wpdb->update( $members_table, array(
                 'wp_user_id'   => $wp_user_id,
                 'google_id'    => $google_id,
+                'status'       => 'active',
                 'activated_at' => current_time( 'mysql' ),
-            ), array( 'id' => $member_id_to_link ), array( '%d', '%s', '%s' ), array( '%d' ) );
+            ), array( 'id' => $member_id_to_link ), array( '%d', '%s', '%s', '%s' ), array( '%d' ) );
+            CD_Logger::info( 'linked member id=' . $member_id_to_link . ' to wp_user_id=' . $wp_user_id . ' google_id=' . substr( $google_id, 0, 10 ) . '... status=active' );
 
-            // Set avatar from Google if profile has no avatar
-            if ( ! empty( $payload['picture'] ) ) {
-                $has_avatar = $wpdb->get_var( $wpdb->prepare(
-                    "SELECT avatar_url FROM {$profiles_table} WHERE member_id = %d",
-                    $member_id_to_link
+            // Ensure a directory_profiles row exists for this member.
+            // The row should have been created when the member was added to a household,
+            // but verify it exists and create a minimal one if not.
+            $profile_exists = $wpdb->get_var( $wpdb->prepare(
+                "SELECT id FROM {$profiles_table} WHERE member_id = %d",
+                $member_id_to_link
+            ) );
+            if ( ! $profile_exists ) {
+                CD_Logger::info( 'no profile row found for member id=' . $member_id_to_link . ' — creating one' );
+                $wpdb->insert( $profiles_table, array(
+                    'member_id'  => $member_id_to_link,
+                    'first_name' => $first_name,
+                    'last_name'  => $last_name,
+                    'avatar_url' => ! empty( $payload['picture'] ) ? esc_url_raw( $payload['picture'] ) : '',
+                    'emails'     => wp_json_encode( array( array( 'type' => 'primary', 'value' => $google_email ) ) ),
+                    'created_at' => current_time( 'mysql' ),
                 ) );
-                if ( empty( $has_avatar ) ) {
-                    $wpdb->update(
-                        $profiles_table,
-                        array( 'avatar_url' => esc_url_raw( $payload['picture'] ), 'avatar_source' => 'google' ),
-                        array( 'member_id' => $member_id_to_link ),
-                        array( '%s', '%s' ),
-                        array( '%d' )
-                    );
+            } else {
+                // Set avatar from Google if profile has no avatar
+                if ( ! empty( $payload['picture'] ) ) {
+                    $has_avatar = $wpdb->get_var( $wpdb->prepare(
+                        "SELECT avatar_url FROM {$profiles_table} WHERE member_id = %d",
+                        $member_id_to_link
+                    ) );
+                    if ( empty( $has_avatar ) ) {
+                        $wpdb->update(
+                            $profiles_table,
+                            array( 'avatar_url' => esc_url_raw( $payload['picture'] ) ),
+                            array( 'member_id' => $member_id_to_link ),
+                            array( '%s' ),
+                            array( '%d' )
+                        );
+                    }
                 }
             }
+            CD_Logger::info( 'profile row ensured for member id=' . $member_id_to_link );
         }
 
         // Auto-login
@@ -686,7 +805,9 @@ class CD_API_Auth extends CD_API_Base {
         ) );
 
         // Redirect to profile edit
-        wp_safe_redirect( home_url( $base_slug . '/profile/edit/' ) );
+        $redirect_url = home_url( $base_slug . '/profile/edit/' );
+        CD_Logger::info( 'invite LOGIN SUCCESS — wp_user_id=' . $wp_user_id . ' member_id=' . ( $member_id_to_link ?: 'NULL' ) . ' redirecting to ' . $redirect_url . ' (headers_sent=' . ( headers_sent() ? 'YES!' : 'no' ) . ')' );
+        wp_safe_redirect( $redirect_url );
     }
 
     /**

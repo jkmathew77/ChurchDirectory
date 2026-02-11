@@ -572,7 +572,7 @@ class CD_API_Members extends CD_API_Base {
         );
 
         if ( $updated === false ) {
-            error_log( 'CD Update Profile Error: ' . $wpdb->last_error );
+            CD_Logger::error( 'Update Profile: ' . $wpdb->last_error );
             return $this->error( 'db_error', __( 'Could not save profile.', 'community-directory' ), 500 );
         }
 
@@ -616,7 +616,7 @@ class CD_API_Members extends CD_API_Base {
         $attachment_id = media_handle_sideload( $file, 0 );
 
         if ( is_wp_error( $attachment_id ) ) {
-            error_log( 'CD Upload Error: ' . $attachment_id->get_error_message() );
+            CD_Logger::error( 'Avatar Upload: ' . $attachment_id->get_error_message() );
             return $this->error( 'upload_failed', $attachment_id->get_error_message(), 500 );
         }
 
@@ -632,7 +632,7 @@ class CD_API_Members extends CD_API_Base {
                 if ( function_exists( 'exif_read_data' ) && in_array( $file['type'], array( 'image/jpeg', 'image/tiff' ), true ) ) {
                     $exif = @exif_read_data( $att_file_path );
                     if ( $exif && ! empty( $exif['GPSLatitude'] ) ) {
-                        error_log( 'CD Security Warning: EXIF GPS data persisted after re-save for attachment ' . $attachment_id );
+                        CD_Logger::warn( 'EXIF GPS data persisted after re-save for attachment ' . $attachment_id );
                     }
                 }
             }

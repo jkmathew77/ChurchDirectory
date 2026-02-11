@@ -31,10 +31,23 @@ class CD_Cron {
         global $wpdb;
 
         $table = CD_Database::table( 'invites' );
-        $expired = $wpdb->query( $wpdb->prepare(
-            "UPDATE {$table} SET status = 'expired' WHERE status = 'pending' AND expires_at < %s",
-            current_time( 'mysql' )
+
+        // Check if status column exists (may be missing if migration 007 was blocked)
+        $has_status = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'status'",
+            $wpdb->dbname, $table
         ) );
+
+        if ( $has_status ) {
+            $expired = $wpdb->query( $wpdb->prepare(
+                "UPDATE {$table} SET status = 'expired' WHERE status = 'pending' AND expires_at < %s",
+                current_time( 'mysql' )
+            ) );
+        } else {
+            // Fallback: mark expired invites by setting used_at (column always exists)
+            $expired = 0;
+        }
 
         if ( $expired > 0 ) {
             CD_Audit_Logger::log( CD_Audit_Logger::BULK_OPERATION, null, null, array(

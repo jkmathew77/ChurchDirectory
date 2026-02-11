@@ -92,6 +92,12 @@ function cd_migration_001() {
         phones {$json_type} DEFAULT NULL,
         address_home TEXT DEFAULT NULL,
         address_mailing TEXT DEFAULT NULL,
+        address_line_1 VARCHAR(255) DEFAULT NULL,
+        address_line_2 VARCHAR(255) DEFAULT NULL,
+        city VARCHAR(100) DEFAULT NULL,
+        state VARCHAR(100) DEFAULT NULL,
+        zip_code VARCHAR(20) DEFAULT NULL,
+        country VARCHAR(100) DEFAULT 'USA',
         bio VARCHAR(500) DEFAULT NULL,
         avatar_url VARCHAR(500) DEFAULT NULL,
         avatar_source VARCHAR(20) DEFAULT 'initials',
@@ -153,11 +159,13 @@ function cd_migration_001() {
         token_hash VARCHAR(64) NOT NULL,
         expires_at DATETIME NOT NULL,
         used_at DATETIME DEFAULT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY  (id),
         KEY idx_token_hash (token_hash),
         KEY idx_email (email),
-        KEY idx_expires_at (expires_at)
+        KEY idx_expires_at (expires_at),
+        KEY idx_status (status)
     ) {$charset_collate};";
 
     // 7. Audit Log

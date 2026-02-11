@@ -27,6 +27,9 @@ class CD_Plugin {
         // Check and run database migrations if needed
         $this->check_db_version();
 
+        // Self-heal missing DB columns that blocked migrations may have skipped
+        $this->heal_database_columns();
+
         // Load dependencies
         require_once CD_PLUGIN_DIR . 'includes/class-email-templates.php';
         require_once CD_PLUGIN_DIR . 'includes/class-encryption.php';
@@ -63,12 +66,112 @@ class CD_Plugin {
     }
 
     /**
+     * Self-heal missing DB columns that were skipped when the migration chain broke.
+     * Migration 003 fails on some hosts (dbDelta generating empty column names),
+     * which halts the runner and prevents migrations 004–007 from executing.
+     * This method adds critical missing columns directly via ALTER TABLE.
+     * It uses a transient to avoid running the checks on every single page load.
+     */
+    private function heal_database_columns() {
+        // Only run once per hour (or on version change)
+        $heal_key = 'cd_db_healed_' . CD_VERSION;
+        if ( get_transient( $heal_key ) ) {
+            return;
+        }
+
+        global $wpdb;
+
+        // ── 1) invites.status column (from migration 007) ──
+        $invites_table = CD_Database::table( 'invites' );
+        $col = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'status'",
+            $wpdb->dbname, $invites_table
+        ) );
+        if ( ! $col ) {
+            $wpdb->query( "ALTER TABLE {$invites_table} ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER used_at" );
+            $wpdb->query( "ALTER TABLE {$invites_table} ADD INDEX idx_status (status)" );
+            // Backfill statuses
+            $wpdb->query( "UPDATE {$invites_table} SET status = 'used' WHERE used_at IS NOT NULL" );
+            $wpdb->query( $wpdb->prepare(
+                "UPDATE {$invites_table} SET status = 'expired' WHERE used_at IS NULL AND expires_at < %s",
+                current_time( 'mysql' )
+            ) );
+            CD_Logger::info( 'DB heal: added invites.status column' );
+        }
+
+        // ── 2) directory_profiles address/detail columns (from migration 003/007) ──
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $profile_columns = array(
+            'address_line_1' => "VARCHAR(255) DEFAULT NULL",
+            'address_line_2' => "VARCHAR(255) DEFAULT NULL",
+            'city'           => "VARCHAR(100) DEFAULT NULL",
+            'state'          => "VARCHAR(100) DEFAULT NULL",
+            'zip_code'       => "VARCHAR(20) DEFAULT NULL",
+            'country'        => "VARCHAR(100) DEFAULT 'USA'",
+            'occupation'     => "VARCHAR(200) DEFAULT NULL",
+            'employer'       => "VARCHAR(200) DEFAULT NULL",
+            'preferred_contact_method' => "VARCHAR(20) DEFAULT 'email'",
+        );
+        foreach ( $profile_columns as $name => $definition ) {
+            $exists = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s",
+                $wpdb->dbname, $profiles_table, $name
+            ) );
+            if ( ! $exists ) {
+                $wpdb->query( "ALTER TABLE {$profiles_table} ADD COLUMN {$name} {$definition}" );
+                CD_Logger::info( 'DB heal: added column ' . $name . ' on ' . $profiles_table );
+            }
+        }
+
+        // ── 3) members lifecycle columns (from migration 005) ──
+        $members_table = CD_Database::table( 'members' );
+        $lifecycle_columns = array(
+            'deactivated_at'      => "DATETIME DEFAULT NULL",
+            'deactivation_reason' => "TEXT DEFAULT NULL",
+        );
+        foreach ( $lifecycle_columns as $name => $definition ) {
+            $exists = $wpdb->get_var( $wpdb->prepare(
+                "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+                 WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = %s",
+                $wpdb->dbname, $members_table, $name
+            ) );
+            if ( ! $exists ) {
+                $wpdb->query( "ALTER TABLE {$members_table} ADD COLUMN {$name} {$definition}" );
+                CD_Logger::info( 'DB heal: added column ' . $name . ' on ' . $members_table );
+            }
+        }
+
+        // ── 4) directory_profiles.salutation (from migration 006) ──
+        $sal_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'salutation'",
+            $wpdb->dbname, $profiles_table
+        ) );
+        if ( ! $sal_exists ) {
+            $wpdb->query( "ALTER TABLE {$profiles_table} ADD COLUMN salutation VARCHAR(20) DEFAULT NULL AFTER member_id" );
+            CD_Logger::info( 'DB heal: added column salutation on ' . $profiles_table );
+        }
+
+        // Force DB version to current so migration runner doesn't re-run broken migrations
+        update_option( 'cd_db_version', CD_DB_VERSION );
+
+        // Cache for 1 hour
+        set_transient( $heal_key, '1', HOUR_IN_SECONDS );
+    }
+
+    /**
      * Register custom capabilities.
      */
     private function load_capabilities() {
         // Capabilities are added on activation, but we verify on init
         CD_Capabilities::init();
+        // Run database self-healing on admin init (to fix broken migrations)
+
     }
+
+
 
     /**
      * Load admin-facing functionality.
@@ -116,6 +219,9 @@ class CD_Plugin {
     private function load_public() {
         add_action( 'init', array( $this, 'register_rewrite_rules' ) );
         add_filter( 'query_vars', array( $this, 'register_query_vars' ) );
+        // Intercept SW/manifest early (before canonical redirect) so they work
+        // even when rewrite rules haven't been flushed yet.
+        add_action( 'parse_request', array( $this, 'intercept_pwa_requests' ), 1 );
         add_action( 'template_redirect', array( $this, 'handle_community_redirects' ) );
         add_filter( 'template_include', array( $this, 'load_community_template' ) );
         add_action( 'wp_enqueue_scripts', array( $this, 'enqueue_public_assets' ) );
@@ -196,6 +302,31 @@ class CD_Plugin {
             'index.php?cd_page=offline',
             'top'
         );
+    }
+
+    /**
+     * Intercept PWA asset requests (SW, manifest) early in the request lifecycle.
+     * This fires before WordPress's canonical redirect, so even if rewrite rules
+     * haven't been flushed yet, the service worker and manifest are served correctly.
+     * Browsers reject service workers that are behind a redirect.
+     */
+    public function intercept_pwa_requests( $wp ) {
+        if ( '1' !== get_option( 'cd_pwa_enabled', '0' ) ) {
+            return;
+        }
+
+        $base_slug = get_option( 'cd_base_slug', 'community' );
+        $path      = trim( parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ), '/' );
+
+        if ( $path === $base_slug . '/cd-sw.js' ) {
+            CD_PWA::serve_service_worker();
+            // serve_service_worker calls exit
+        }
+
+        if ( $path === $base_slug . '/manifest.json' ) {
+            CD_PWA::serve_manifest();
+            // serve_manifest calls exit
+        }
     }
 
     /**
@@ -532,7 +663,7 @@ class CD_Plugin {
      * Checks a stored version and flushes if it's behind.
      */
     private function maybe_flush_rewrites() {
-        $current_rewrite_version = 4; // Bump this when adding new rewrite rules
+        $current_rewrite_version = 5; // Bump this when adding new rewrite rules
         $stored = (int) get_option( 'cd_rewrite_version', 1 );
 
         if ( $stored < $current_rewrite_version ) {

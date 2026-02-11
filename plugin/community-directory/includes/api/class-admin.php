@@ -206,6 +206,13 @@ class CD_API_Admin extends CD_API_Base {
             'callback'            => array( $this, 'delete_whatsapp_group' ),
             'permission_callback' => array( $this, 'permission_admin' ),
         ) );
+
+        // POST /admin/database/reset — NUCLEAR OPTION (Clean Start)
+        register_rest_route( CD_API_NAMESPACE, '/admin/database/reset', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'reset_database' ),
+            'permission_callback' => array( $this, 'permission_admin' ),
+        ) );
     }
 
     /* ──────────────────────────────────────
@@ -375,9 +382,12 @@ class CD_API_Admin extends CD_API_Base {
         global $wpdb;
 
         $id = (int) $request->get_param( 'id' );
-        $members_table  = CD_Database::table( 'members' );
-        $profiles_table = CD_Database::table( 'directory_profiles' );
-        $users_table    = CD_Database::table( 'users' ); // Not using this yet, but for future
+        $members_table    = CD_Database::table( 'members' );
+        $profiles_table   = CD_Database::table( 'directory_profiles' );
+        $hm_table         = CD_Database::table( 'household_members' );
+        $invites_table    = CD_Database::table( 'invites' );
+        $resets_table     = CD_Database::table( 'password_resets' );
+        $dr_table         = CD_Database::table( 'deletion_requests' );
 
         // Check exists
         $member = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$members_table} WHERE id = %d", $id ) );
@@ -385,21 +395,50 @@ class CD_API_Admin extends CD_API_Base {
             return $this->error( 'not_found', __( 'Member not found.', 'community-directory' ), 404 );
         }
 
+        // Handle household impact (auto-promote spouse if head is being removed)
+        $this->handle_member_household_removal( $id );
+
         $wpdb->query( 'START TRANSACTION' );
 
         try {
-            // Delete profile
+            // Delete directory profile
             $wpdb->delete( $profiles_table, array( 'member_id' => $id ), array( '%d' ) );
-            
-            // Delete member
+
+            // Delete household membership records
+            $wpdb->delete( $hm_table, array( 'member_id' => $id ), array( '%d' ) );
+
+            // Delete invites for this member
+            $wpdb->delete( $invites_table, array( 'member_id' => $id ), array( '%d' ) );
+
+            // Delete deletion requests for this member
+            $wpdb->delete( $dr_table, array( 'member_id' => $id ), array( '%d' ) );
+
+            // Revoke cd_member capability and clean up WP user sessions
+            if ( ! empty( $member->wp_user_id ) ) {
+                $wp_user_id = (int) $member->wp_user_id;
+
+                // Delete password reset tokens
+                $wpdb->delete( $resets_table, array( 'user_id' => $wp_user_id ), array( '%d' ) );
+
+                // Revoke cd_member capability
+                CD_Capabilities::revoke_cap( $wp_user_id, 'cd_member' );
+
+                // Destroy all sessions (force logout)
+                $sessions = WP_Session_Tokens::get_instance( $wp_user_id );
+                $sessions->destroy_all();
+            }
+
+            // Delete member record last
             $wpdb->delete( $members_table, array( 'id' => $id ), array( '%d' ) );
-            
-            // Note: We might want to keep the application record or unlink it?
-            // For now, this is a hard delete of the member record.
-            
+
             $wpdb->query( 'COMMIT' );
-            
-            return $this->success( array( 'message' => __( 'Member deleted.', 'community-directory' ) ) );
+
+            CD_Audit_Logger::log( CD_Audit_Logger::DELETION_PROCESSED, get_current_user_id(), $id, array(
+                'action'     => 'hard_delete',
+                'wp_user_id' => $member->wp_user_id ?? null,
+            ) );
+
+            return $this->success( array( 'message' => __( 'Member and all associated records have been permanently deleted.', 'community-directory' ) ) );
 
         } catch ( Exception $e ) {
             $wpdb->query( 'ROLLBACK' );
@@ -1570,9 +1609,9 @@ class CD_API_Admin extends CD_API_Base {
                     }
                 }
             } catch ( Exception $e ) {
-                 error_log( 'CD_Admin: Exception during Google sync: ' . $e->getMessage() );
+                 CD_Logger::error( 'Admin: Exception during Google sync: ' . $e->getMessage() );
             } catch ( Error $e ) {
-                 error_log( 'CD_Admin: Fatal Error during Google sync: ' . $e->getMessage() );
+                 CD_Logger::error( 'Admin: Fatal Error during Google sync: ' . $e->getMessage() );
             }
         }
 
@@ -1590,7 +1629,7 @@ class CD_API_Admin extends CD_API_Base {
      * Handle Google OAuth callback for admin sync.
      */
     public function google_auth_callback( WP_REST_Request $request ) {
-        error_log( 'CD_Google_Contacts Debug: Callback API hit.' );
+        CD_Logger::info( 'Google Contacts: Callback API hit.' );
 
         // REST API doesn't authenticate via cookies without X-WP-Nonce header.
         // Since this is a browser redirect from Google, manually authenticate
@@ -1609,26 +1648,26 @@ class CD_API_Admin extends CD_API_Base {
 
         // redirect back to settings page with error if state is invalid
         if ( ! wp_verify_nonce( $state, 'cd_google_oauth' ) ) {
-            error_log( 'CD_Google_Contacts Debug: Invalid nonce/state: ' . $state . ' for user ' . get_current_user_id() );
+            CD_Logger::warn( 'Google Contacts: Invalid nonce/state: ' . $state . ' for user ' . get_current_user_id() );
             wp_redirect( admin_url( 'admin.php?page=cd-settings&google_error=' . urlencode( 'Invalid state parameter' ) ) );
             exit;
         }
 
         if ( $request->get_param( 'error' ) ) {
             $error_msg = sanitize_text_field( $request->get_param( 'error' ) );
-            error_log( 'CD_Google_Contacts Debug: Google returned error: ' . $error_msg );
+            CD_Logger::error( 'Google Contacts: Google returned error: ' . $error_msg );
             wp_redirect( admin_url( 'admin.php?page=cd-settings&google_error=' . urlencode( $error_msg ) ) );
             exit;
         }
 
         $code = sanitize_text_field( $request->get_param( 'code' ) ?? '' );
         if ( empty( $code ) ) {
-            error_log( 'CD_Google_Contacts Debug: No code received.' );
+            CD_Logger::warn( 'Google Contacts: No code received.' );
             wp_redirect( admin_url( 'admin.php?page=cd-settings&google_error=' . urlencode( 'No code received' ) ) );
             exit;
         }
 
-        error_log( 'CD_Google_Contacts Debug: Code received. Attempting exchange.' );
+        CD_Logger::info( 'Google Contacts: Code received. Attempting exchange.' );
 
         // We need to defer to the Google Contacts class to handle the exchange
         // since it manages the options and encryption.
@@ -1652,17 +1691,17 @@ class CD_API_Admin extends CD_API_Base {
     public function csv_import_preview( WP_REST_Request $request ) {
         global $wpdb;
 
-        error_log( 'CD_Admin: csv_import_preview called.' );
+        CD_Logger::info( 'Admin: csv_import_preview called.' );
 
         try {
             $files = $request->get_file_params();
             if ( empty( $files['file'] ) ) {
-                error_log( 'CD_Admin: No file in request.' );
+                CD_Logger::warn( 'Admin: No file in request.' );
                 return $this->error( 'no_file', __( 'No file uploaded.', 'community-directory' ) );
             }
 
             $file = $files['file'];
-            error_log( 'CD_Admin: File uploaded: ' . print_r( $file, true ) );
+            CD_Logger::debug( 'Admin: File uploaded: ' . print_r( $file, true ) );
 
             // Basic MIME check (not foolproof, but helpful)
             $allowed_mimes = array( 'text/csv', 'application/vnd.ms-excel', 'text/plain', 'application/csv' );
@@ -1679,31 +1718,31 @@ class CD_API_Admin extends CD_API_Base {
             }
 
             if ( ! $is_csv ) {
-                 error_log( 'CD_Admin: Invalid CSV MIME/Extended check failed.' );
+                 CD_Logger::warn( 'Admin: Invalid CSV MIME/Extended check failed.' );
                  return $this->error( 'invalid_file', __( 'Please upload a valid CSV file.', 'community-directory' ) );
             }
 
             // Parse CSV
             if ( empty( $file['tmp_name'] ) || ! is_readable( $file['tmp_name'] ) ) {
-                 error_log( 'CD_Admin: CSV file not readable or tmp_name empty: ' . ($file['tmp_name'] ?? 'NULL') );
+                 CD_Logger::warn( 'Admin: CSV file not readable or tmp_name empty: ' . ($file['tmp_name'] ?? 'NULL') );
                  return $this->error( 'file_error', __( 'Cannot read uploaded file.', 'community-directory' ) );
             }
 
             $lines = file( $file['tmp_name'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES );
             if ( false === $lines ) {
-                 error_log( 'CD_Admin: Failed to read CSV lines.' );
+                 CD_Logger::warn( 'Admin: Failed to read CSV lines.' );
                  return $this->error( 'file_error', __( 'Failed to read file contents.', 'community-directory' ) );
             }
 
             $rows = array_map( 'str_getcsv', $lines );
             if ( empty( $rows ) ) {
-                error_log( 'CD_Admin: CSV parsed but empty rows.' );
+                CD_Logger::warn( 'Admin: CSV parsed but empty rows.' );
                 return $this->error( 'empty_file', __( 'The file appears to be empty.', 'community-directory' ) );
             }
             
             // Check if first row is valid
             if ( empty( $rows[0] ) ) {
-                 error_log( 'CD_Admin: First row is empty/invalid.' );
+                 CD_Logger::debug( 'Admin: First row is empty/invalid.' );
                  return $this->error( 'empty_file', __( 'Invalid CSV format.', 'community-directory' ) );
             }
 
@@ -1723,10 +1762,10 @@ class CD_API_Admin extends CD_API_Base {
                 }
             }
         } catch ( Exception $e ) {
-            error_log( 'CD_Admin: Exception in csv_import_preview: ' . $e->getMessage() );
+            CD_Logger::error( 'Admin: Exception in csv_import_preview: ' . $e->getMessage() );
              return $this->error( 'server_error', __( 'An internal error occurred during import.', 'community-directory' ) );
         } catch ( Error $e ) {
-             error_log( 'CD_Admin: Fatal Error in csv_import_preview: ' . $e->getMessage() );
+             CD_Logger::error( 'Admin: Fatal Error in csv_import_preview: ' . $e->getMessage() );
              return $this->error( 'server_error', __( 'A fatal error occurred during import.', 'community-directory' ) );
         }
 
@@ -1855,7 +1894,7 @@ class CD_API_Admin extends CD_API_Base {
                 $member_id = $wpdb->insert_id;
 
                 if ( ! $member_id ) {
-                    error_log( 'CD_Admin: Failed to insert member.' );
+                    CD_Logger::error( 'Admin: Failed to insert member.' );
                     continue;
                 }
 
@@ -1913,13 +1952,13 @@ class CD_API_Admin extends CD_API_Base {
                     if ( class_exists( 'CD_Email_Templates' ) ) {
                         CD_Email_Templates::send_invite( $email, $first_name, $token );
                     } else {
-                        error_log( 'CD_Admin: CD_Email_Templates class not found during import.' );
+                        CD_Logger::warn( 'Admin: CD_Email_Templates class not found during import.' );
                     }
                 }
             } catch ( Exception $e ) {
-                error_log( 'CD_Admin: Exception during import row: ' . $e->getMessage() );
+                CD_Logger::error( 'Admin: Exception during import row: ' . $e->getMessage() );
             } catch ( Error $e ) {
-                error_log( 'CD_Admin: Fatal Error during import row: ' . $e->getMessage() );
+                CD_Logger::error( 'Admin: Fatal Error during import row: ' . $e->getMessage() );
             }
         }
 
@@ -2508,5 +2547,40 @@ class CD_API_Admin extends CD_API_Base {
         }
 
         return $this->success( array( 'message' => __( 'WhatsApp group deleted.', 'community-directory' ) ) );
+    }
+
+
+    /**
+     * NUCLEAR OPTION: Wipe functionality and re-initialize.
+     */
+    public function reset_database( WP_REST_Request $request ) {
+        // Double check permission
+        if ( ! current_user_can( 'manage_options' ) ) {
+            return $this->error( 'forbidden', 'You are not authorized to perform this action.', 403 );
+        }
+
+        // Decode JSON body to check for confirmation
+        $params = $request->get_json_params();
+        if ( empty( $params['confirm'] ) || 'I UNDERSTAND' !== $params['confirm'] ) {
+             return $this->error( 'confirmation_required', 'You must provide { "confirm": "I UNDERSTAND" } to execute this destructive action.', 400 );
+        }
+
+        try {
+            // 1. Nuke everything
+            CD_Database::nuke_everything();
+
+            // 2. Re-activate (re-create tables)
+            require_once CD_PLUGIN_DIR . 'includes/class-activator.php';
+            CD_Activator::activate();
+
+            CD_Audit_Logger::log( CD_Audit_Logger::SETTINGS_UPDATED, get_current_user_id(), null, array( 'action' => 'database_reset' ) );
+
+            return $this->success( array(
+                'message' => __( 'Database successfully reset. All tables dropped and re-created.', 'community-directory' )
+            ) );
+
+        } catch ( Exception $e ) {
+            return $this->error( 'reset_failed', $e->getMessage(), 500 );
+        }
     }
 }

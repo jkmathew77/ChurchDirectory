@@ -97,7 +97,7 @@ class CD_API_Invites extends CD_API_Base {
         // Race condition guard: atomically mark invite as used
         $invites_table = CD_Database::table( 'invites' );
         $marked = $wpdb->query( $wpdb->prepare(
-            "UPDATE {$invites_table} SET used_at = %s WHERE id = %d AND used_at IS NULL",
+            "UPDATE {$invites_table} SET used_at = %s, status = 'used' WHERE id = %d AND used_at IS NULL",
             current_time( 'mysql' ),
             $invite->id
         ) );

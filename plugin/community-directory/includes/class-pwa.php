@@ -80,7 +80,8 @@ class CD_PWA {
             }
         }
 
-        // iOS PWA meta tags
+        // PWA meta tags
+        echo '<meta name="mobile-web-app-capable" content="yes">' . "\n";
         echo '<meta name="apple-mobile-web-app-capable" content="yes">' . "\n";
         echo '<meta name="apple-mobile-web-app-status-bar-style" content="default">' . "\n";
         echo '<meta name="apple-mobile-web-app-title" content="' . esc_attr( $app_title ) . '">' . "\n";
@@ -95,7 +96,7 @@ class CD_PWA {
         }
 
         $base_slug = get_option( 'cd_base_slug', 'community' );
-        $sw_url    = home_url( $base_slug . '/cd-sw.js?v=' . CD_VERSION );
+        $sw_url    = home_url( $base_slug . '/cd-sw.js' );
         $scope     = home_url( $base_slug . '/' );
         ?>
         <script>
