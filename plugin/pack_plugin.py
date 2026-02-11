@@ -14,7 +14,7 @@ def zip_directory(folder_path, zip_path):
 if __name__ == "__main__":
     plugin_dir = os.path.dirname(os.path.abspath(__file__))
     source_dir = os.path.join(plugin_dir, "community-directory")
-    output_zip = os.path.join(plugin_dir, "community-directory-0.3.81.zip")
+    output_zip = os.path.join(plugin_dir, "community-directory-0.3.82.zip")
     
     if os.path.exists(output_zip):
         os.remove(output_zip)

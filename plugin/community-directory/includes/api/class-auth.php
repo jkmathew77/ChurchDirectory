@@ -256,16 +256,16 @@ class CD_API_Auth extends CD_API_Base {
         $lock_key = 'cd_oauth_lock_' . md5( $code );
         $lock_result = get_transient( $lock_key );
         if ( false !== $lock_result ) {
-            CD_Logger::info( 'duplicate callback detected, lock status=' . ( $lock_result['status'] ?? 'unknown' ) );
-            if ( ! empty( $lock_result['redirect'] ) ) {
-                // First request finished — use its stored redirect destination
-                wp_safe_redirect( $lock_result['redirect'] );
-            } else {
-                // First request still processing — redirect to directory;
-                // the auth cookie should already be set by the first request.
-                $directory_url = home_url( $base_slug . '/directory/' );
-                wp_safe_redirect( $directory_url );
-            }
+            CD_Logger::info( 'duplicate callback detected, lock status=' . ( $lock_result['status'] ?? 'unknown' ) . ' — suppressing redirect' );
+            // Do NOT redirect — the first request already set the auth cookie
+            // and redirected the browser to the directory. A second redirect
+            // races with the first and arrives before the cookie is committed,
+            // which causes the directory to see logged_in=no and bounce to login.
+            status_header( 200 );
+            header( 'Content-Type: text/html; charset=utf-8' );
+            echo '<!DOCTYPE html><html><head><title>Redirecting</title></head><body>';
+            echo '<p>Login successful. If you are not redirected, <a href="' . esc_url( home_url( $base_slug . '/directory/' ) ) . '">click here</a>.</p>';
+            echo '</body></html>';
             exit;
         }
         // Set lock immediately (60 second TTL — just long enough to cover the duplicate)
