@@ -567,11 +567,11 @@ class CD_Plugin {
             "default-src 'self' data: https://*.google.com https://*.googleapis.com https://*.gstatic.com https://*.wp.com https://*.gravatar.com",
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.google.com https://*.googleapis.com https://*.gstatic.com https://*.wp.com",
             "style-src 'self' 'unsafe-inline' https://*.googleapis.com https://*.wp.com https://*.gstatic.com",
-            "img-src 'self' data: https://*.googleusercontent.com https://*.gravatar.com https://*.wp.com https://secure.gravatar.com",
+            "img-src 'self' data: blob: https://*.googleusercontent.com https://*.gravatar.com https://*.wp.com https://secure.gravatar.com",
             "connect-src 'self' https://accounts.google.com https://*.googleapis.com",
-            "frame-src 'self' https://accounts.google.com https://*.google.com https://widgets.wp.com",
+            "frame-src 'self' https://accounts.google.com https://*.google.com https://widgets.wp.com https://wordpress.com https://*.wordpress.com",
             "font-src 'self' data: https://*.gstatic.com https://*.wp.com https://fonts.gstatic.com",
-            "worker-src 'self' blob:", // Needed for some WP workers
+            "worker-src 'self' blob:",
             "base-uri 'self'",
         );
         header( 'Content-Security-Policy: ' . implode( '; ', $csp_directives ) );

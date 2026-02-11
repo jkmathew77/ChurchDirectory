@@ -3007,75 +3007,75 @@ class CD_API_Admin extends CD_API_Base {
         $audit_table    = CD_Database::table( 'audit_log' );
         $del_table      = CD_Database::table( 'deletion_requests' );
 
-        // Status counts
-        $status_rows = $wpdb->get_results(
-            "SELECT status, COUNT(*) as cnt FROM {$members_table} GROUP BY status"
-        );
+        // Each query wrapped with null-safe defaults
         $status_counts = array();
-        foreach ( $status_rows as $sr ) {
-            $status_counts[ $sr->status ] = (int) $sr->cnt;
+        $status_rows = $wpdb->get_results( "SELECT status, COUNT(*) as cnt FROM {$members_table} GROUP BY status" );
+        if ( is_array( $status_rows ) ) {
+            foreach ( $status_rows as $sr ) {
+                $status_counts[ $sr->status ] = (int) $sr->cnt;
+            }
         }
 
-        // Pending applications (status = 'new')
-        $pending_applications = (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$apps_table} WHERE status = 'new'"
-        );
+        $pending_applications  = (int) ( $wpdb->get_var( "SELECT COUNT(*) FROM {$apps_table} WHERE status = 'new'" ) ?? 0 );
+        $awaiting_verification = (int) ( $wpdb->get_var( "SELECT COUNT(*) FROM {$apps_table} WHERE status = 'pending_verification'" ) ?? 0 );
 
-        // Awaiting verification (status = 'pending_verification')
-        $awaiting_verification = (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$apps_table} WHERE status = 'pending_verification'"
-        );
+        $pending_deletions = 0;
+        $del_result = $wpdb->get_var( "SELECT COUNT(*) FROM {$del_table} WHERE status = 'pending'" );
+        if ( null !== $del_result && false !== $del_result ) {
+            $pending_deletions = (int) $del_result;
+        }
 
-        // Pending deletion requests
-        $pending_deletions = (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$del_table} WHERE status = 'pending'"
-        );
+        $incomplete_profiles = (int) ( $wpdb->get_var( "SELECT COUNT(*) FROM {$profiles_table} WHERE profile_completion < 80" ) ?? 0 );
 
-        // Incomplete profiles (profile_completion < 80)
-        $incomplete_profiles = (int) $wpdb->get_var(
-            "SELECT COUNT(*) FROM {$profiles_table} WHERE profile_completion < 80"
-        );
-
-        // Members by month (last 12 months)
         $members_by_month = $wpdb->get_results(
             "SELECT DATE_FORMAT(created_at, '%Y-%m') AS month, COUNT(*) AS count
              FROM {$members_table}
              WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
              GROUP BY month ORDER BY month"
         );
+        if ( ! is_array( $members_by_month ) ) {
+            $members_by_month = array();
+        }
 
-        // Household stats
-        $hh_total   = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$hh_table} WHERE status = 'active'" );
-        $hh_avg     = (float) $wpdb->get_var(
+        $hh_total = (int) ( $wpdb->get_var( "SELECT COUNT(*) FROM {$hh_table} WHERE status = 'active'" ) ?? 0 );
+        $hh_avg   = 0;
+        $avg_result = $wpdb->get_var(
             "SELECT AVG(cnt) FROM (
                 SELECT COUNT(*) AS cnt FROM {$hm_table}
                 WHERE left_at IS NULL GROUP BY household_id
             ) sub"
         );
+        if ( null !== $avg_result ) {
+            $hh_avg = (float) $avg_result;
+        }
 
-        // Google sync stats
-        $synced = (int) $wpdb->get_var(
+        $synced = 0;
+        $synced_result = $wpdb->get_var(
             "SELECT COUNT(*) FROM {$members_table} WHERE google_contact_id IS NOT NULL AND google_contact_id != ''"
         );
+        if ( null !== $synced_result && false !== $synced_result ) {
+            $synced = (int) $synced_result;
+        }
         $retry_queue = get_option( 'cd_google_retry_queue', array() );
 
-        // Recent activity (last 20 audit log entries)
-        $recent = $wpdb->get_results(
+        $recent = array();
+        $recent_rows = $wpdb->get_results(
             "SELECT event_type AS action, actor_user_id, target_id, details, created_at
              FROM {$audit_table} ORDER BY created_at DESC LIMIT 20"
         );
-        foreach ( $recent as &$r ) {
-            $decoded = json_decode( $r->details ?? '', true );
-            $r->details = is_array( $decoded ) ? ( $decoded['summary'] ?? $decoded['note'] ?? '' ) : '';
+        if ( is_array( $recent_rows ) ) {
+            foreach ( $recent_rows as &$r ) {
+                $decoded = json_decode( $r->details ?? '', true );
+                $r->details = is_array( $decoded ) ? ( $decoded['summary'] ?? $decoded['note'] ?? '' ) : '';
+            }
+            unset( $r );
+            $recent = $recent_rows;
         }
-        unset( $r );
 
-        // Applications this month
-        $apps_month = (int) $wpdb->get_var( $wpdb->prepare(
-            "SELECT COUNT(*) FROM {$apps_table}
-             WHERE submitted_at >= %s",
+        $apps_month = (int) ( $wpdb->get_var( $wpdb->prepare(
+            "SELECT COUNT(*) FROM {$apps_table} WHERE submitted_at >= %s",
             gmdate( 'Y-m-01 00:00:00' )
-        ) );
+        ) ) ?? 0 );
 
         return $this->success( array(
             'status_counts'    => array_merge( $status_counts, array(
@@ -3091,7 +3091,7 @@ class CD_API_Admin extends CD_API_Base {
             ),
             'google_sync' => array(
                 'synced'         => $synced,
-                'pending_retries' => count( $retry_queue ),
+                'pending_retries' => is_array( $retry_queue ) ? count( $retry_queue ) : 0,
             ),
             'recent_activity'    => $recent,
             'applications_month' => $apps_month,

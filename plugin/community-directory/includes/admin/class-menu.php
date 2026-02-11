@@ -148,6 +148,16 @@ class CD_Admin_Menu {
             array( $this, 'render_reports_page' )
         );
 
+        // Email Templates
+        add_submenu_page(
+            'community-directory',
+            __( 'Email Templates', 'community-directory' ),
+            __( 'Email Templates', 'community-directory' ),
+            'manage_options',
+            'cd-email-templates',
+            array( $this, 'render_email_templates_page' )
+        );
+
         // Settings
         add_submenu_page(
             'community-directory',
@@ -330,6 +340,10 @@ class CD_Admin_Menu {
 
     public function render_merge_page() {
         include CD_PLUGIN_DIR . 'includes/admin/views/merge.php';
+    }
+
+    public function render_email_templates_page() {
+        include CD_PLUGIN_DIR . 'includes/admin/views/email-templates.php';
     }
 
     public function render_settings_page() {

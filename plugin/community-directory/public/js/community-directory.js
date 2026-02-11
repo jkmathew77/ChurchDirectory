@@ -580,6 +580,7 @@ document.addEventListener('alpine:init', () => {
                 // Dashboard stats
                 dashStats: null,
                 dashLoading: false,
+                dashError: '',
 
                 // Applications state
                 applications: [],
@@ -632,6 +633,18 @@ document.addEventListener('alpine:init', () => {
                         }
                     }, 5000);
 
+                    // Restore tab/section from URL hash (e.g. #admin/registrations)
+                    const hash = window.location.hash.replace('#', '');
+                    if (hash) {
+                        const parts = hash.split('/');
+                        if (parts[0] && ['directory', 'profile', 'admin'].indexOf(parts[0]) !== -1) {
+                            this.activeTab = parts[0];
+                        }
+                        if (parts[1] && ['dashboard', 'applications', 'registrations', 'requests', 'whatsapp'].indexOf(parts[1]) !== -1) {
+                            this.adminSection = parts[1];
+                        }
+                    }
+
                     this.loadMembers();
                     this.loadWhatsAppGroups();
 
@@ -639,6 +652,10 @@ document.addEventListener('alpine:init', () => {
                     if (this.isOfficer) {
                         this.loadPendingAppCount();
                         this.loadDashboardStats();
+                        // If restored to a specific admin section, load its data
+                        if (this.activeTab === 'admin' && this.adminSection !== 'dashboard') {
+                            this.switchAdminSection(this.adminSection);
+                        }
                     }
                 },
 
@@ -757,11 +774,15 @@ document.addEventListener('alpine:init', () => {
                     this.activeTab = tab;
                     if (tab === 'admin') {
                         if (!this.dashStats) this.loadDashboardStats();
+                        window.location.hash = tab + '/' + this.adminSection;
+                    } else {
+                        window.location.hash = tab;
                     }
                 },
 
                 switchAdminSection(section) {
                     this.adminSection = section;
+                    window.location.hash = 'admin/' + section;
                     if (section === 'applications' && this.applications.length === 0) this.loadApplications();
                     if (section === 'registrations' && this.registrations.length === 0) this.loadRegistrations();
                     if (section === 'requests' && this.deletionRequests.length === 0) { this.loadDeletionRequests(); this.loadHouseholdRequests(); }
@@ -770,11 +791,17 @@ document.addEventListener('alpine:init', () => {
 
                 async loadDashboardStats() {
                     this.dashLoading = true;
+                    this.dashError = '';
                     try {
                         const result = await cdApi.get('/admin/stats');
                         this.dashStats = result.data || null;
+                        if (!this.dashStats) {
+                            this.dashError = 'No stats data returned.';
+                        }
                     } catch (err) {
                         this.dashStats = null;
+                        this.dashError = err.message || 'Failed to load dashboard stats.';
+                        console.error('CD Dashboard stats error:', err);
                     } finally {
                         this.dashLoading = false;
                     }
@@ -1267,6 +1294,10 @@ document.addEventListener('alpine:init', () => {
         editHouseholdName: '',
         editHouseholdAddr: { line_1: '', line_2: '', city: '', state: '', zip: '' },
         addMemberForm: { first_name: '', last_name: '', email: '', role: 'child' },
+        showEditMember: false,
+        editMemberLoading: false,
+        editMemberSaving: false,
+        editMemberForm: { member_id: null, first_name: '', last_name: '', salutation: '', email: '', phone: '', date_of_birth: '', occupation: '', employer: '' },
 
         // Lifecycle state
         showLeaveConfirm: false,
@@ -1660,8 +1691,22 @@ document.addEventListener('alpine:init', () => {
                 credentials: 'same-origin',
                 body: formData,
             })
-                .then(r => r.json())
+                .then(r => {
+                    if (!r.ok) {
+                        return r.text().then(text => {
+                            try {
+                                const json = JSON.parse(text);
+                                throw new Error(json.error?.message || json.message || 'Upload failed (HTTP ' + r.status + ')');
+                            } catch (e) {
+                                if (e.message && !e.message.startsWith('Unexpected')) throw e;
+                                throw new Error('Upload failed — server returned HTTP ' + r.status);
+                            }
+                        });
+                    }
+                    return r.json();
+                })
                 .then(data => {
+                    if (!data) return; // error path already threw
                     if (data.data && data.data.photos) {
                         this.household.photos = data.data.photos;
                         this.household.photo_url = data.data.photos[0] || '';
@@ -1673,16 +1718,16 @@ document.addEventListener('alpine:init', () => {
                         this.household.photo_url = this.household.photos[0] || '';
                         this.householdMessage = data.data.message || 'Family photo uploaded.';
                     } else {
-                        throw new Error(data.message || 'Upload failed');
+                        throw new Error((data.error && data.error.message) || data.message || 'Upload failed');
                     }
                 })
                 .catch(err => {
-                    this.householdError = err.message;
+                    this.householdError = err.message || 'Upload failed. Please try again.';
                 })
                 .finally(() => {
                     this.uploadingHouseholdPhoto = false;
                     // Reset file input so the same file can be re-selected
-                    event.target.value = '';
+                    if (event.target) event.target.value = '';
                 });
         },
 
@@ -1849,6 +1894,64 @@ document.addEventListener('alpine:init', () => {
                 await this.loadHousehold();
             } catch (err) {
                 this.householdError = err.message;
+            }
+        },
+
+        async openEditMember(memberId) {
+            this.editMemberLoading = true;
+            this.showEditMember = true;
+            this.householdError = '';
+            try {
+                const result = await cdApi.get('/members/me/household/members/' + memberId);
+                const m = result.data.member;
+                this.editMemberForm = {
+                    member_id: m.member_id,
+                    first_name: m.first_name || '',
+                    last_name: m.last_name || '',
+                    salutation: m.salutation || '',
+                    email: m.primary_email || '',
+                    phone: m.phone || '',
+                    date_of_birth: m.date_of_birth || '',
+                    occupation: m.occupation || '',
+                    employer: m.employer || '',
+                };
+            } catch (err) {
+                this.householdError = err.message;
+                this.showEditMember = false;
+            } finally {
+                this.editMemberLoading = false;
+            }
+        },
+
+        async saveEditMember() {
+            const f = this.editMemberForm;
+            if (!f.first_name.trim() || !f.last_name.trim()) {
+                this.householdError = 'First name and last name are required.';
+                return;
+            }
+            this.editMemberSaving = true;
+            this.householdError = '';
+            try {
+                const result = await cdApi.request('/members/me/household/members/' + f.member_id, {
+                    method: 'PUT',
+                    body: JSON.stringify({
+                        first_name: f.first_name.trim(),
+                        last_name: f.last_name.trim(),
+                        salutation: f.salutation.trim(),
+                        email: f.email.trim(),
+                        phone: f.phone.trim(),
+                        date_of_birth: f.date_of_birth,
+                        occupation: f.occupation.trim(),
+                        employer: f.employer.trim(),
+                    }),
+                });
+                this.householdMessage = result.data.message || 'Member details updated.';
+                this.showEditMember = false;
+                await this.loadHousehold();
+            } catch (err) {
+                this.householdError = err.message;
+            } finally {
+                this.editMemberSaving = false;
             }
         },
 

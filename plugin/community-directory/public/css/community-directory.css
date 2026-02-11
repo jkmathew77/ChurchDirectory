@@ -1512,6 +1512,27 @@
     background: var(--cd-danger-light);
 }
 
+/* Secondary icon button (edit member pencil) */
+.cd-btn-secondary-icon {
+    background: transparent;
+    color: var(--cd-text-light);
+    border: 1px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+}
+
+.cd-btn-secondary-icon:hover:not(:disabled) {
+    color: var(--cd-primary);
+    border-color: var(--cd-primary-light);
+    background: var(--cd-primary-light);
+}
+
+/* Household member card actions row */
+.cd-hh-member-actions {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
 /* Household section on member profile view */
 .cd-hh-profile-header {
     margin-bottom: 12px;

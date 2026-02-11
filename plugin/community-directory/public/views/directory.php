@@ -253,6 +253,10 @@ get_header();
                     <div class="cd-spinner"></div>
                     <span><?php esc_html_e( 'Loading stats...', 'community-directory' ); ?></span>
                 </div>
+                <template x-if="dashError && !dashLoading"><div class="cd-alert cd-alert-danger" style="margin: 1rem 0;">
+                    <strong><?php esc_html_e( 'Error loading dashboard:', 'community-directory' ); ?></strong> <span x-text="dashError"></span>
+                    <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="loadDashboardStats()" style="margin-left: 12px;"><?php esc_html_e( 'Retry', 'community-directory' ); ?></button>
+                </div></template>
                 <template x-if="dashStats && !dashLoading"><div>
                     <div class="cd-dash-grid">
                         <div class="cd-dash-card cd-dash-card-primary">
@@ -494,7 +498,7 @@ get_header();
                                             <?php esc_html_e( 'Resend Verification', 'community-directory' ); ?>
                                         </button>
                                     </template>
-                                    <template x-if="reg.type === 'member_invite' && (reg.status === 'active' || reg.status === 'invited')">
+                                    <template x-if="reg.type === 'member_invite' || reg.status === 'approved' || reg.status === 'invited'">
                                         <button type="button" class="cd-btn cd-btn-xs cd-btn-secondary" :disabled="regActioning === reg.id" @click="regResendInvite(reg.id)">
                                             <?php esc_html_e( 'Resend Invite', 'community-directory' ); ?>
                                         </button>

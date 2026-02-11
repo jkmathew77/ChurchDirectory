@@ -102,6 +102,20 @@ class CD_API_Households extends CD_API_Base {
             'permission_callback' => array( $this, 'permission_member' ),
         ) );
 
+        // PUT /members/me/household/members/{member_id} — edit managed member (head/spouse only)
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/members/(?P<member_id>\d+)', array(
+            'methods'             => 'PUT',
+            'callback'            => array( $this, 'update_household_member' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
+        // GET /members/me/household/members/{member_id} — get managed member details (head/spouse only)
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/members/(?P<member_id>\d+)', array(
+            'methods'             => 'GET',
+            'callback'            => array( $this, 'get_household_member' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
         // ── Lifecycle endpoints ──
 
         // POST /members/me/household/leave — leave household
@@ -1156,6 +1170,201 @@ class CD_API_Households extends CD_API_Base {
         return $this->success( array( 'message' => __( 'Member removed from household.', 'community-directory' ) ) );
     }
 
+    /**
+     * Get a managed household member's full profile (for editing).
+     * Only head/spouse can view members who don't have their own login.
+     */
+    public function get_household_member( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table      = CD_Database::table( 'household_members' );
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $members_table  = CD_Database::table( 'members' );
+
+        // Verify caller is head/spouse in a household
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm || ! in_array( $hm->role, array( 'head', 'spouse' ), true ) ) {
+            return $this->error( 'not_authorized', __( 'Only the primary membership holder or spouse can edit members.', 'community-directory' ), 403 );
+        }
+
+        $target_member_id = (int) $request->get_param( 'member_id' );
+
+        // Verify target is in the same household
+        $target_hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE household_id = %d AND member_id = %d AND left_at IS NULL",
+            $hm->household_id, $target_member_id
+        ) );
+        if ( ! $target_hm ) {
+            return $this->error( 'not_found', __( 'This person is not in your household.', 'community-directory' ), 404 );
+        }
+
+        // Only allow editing managed members (no WP user = no login)
+        $target_member = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$members_table} WHERE id = %d",
+            $target_member_id
+        ) );
+        if ( ! empty( $target_member->wp_user_id ) ) {
+            return $this->error( 'has_login', __( 'This member has their own login and manages their own profile.', 'community-directory' ), 403 );
+        }
+
+        // Get profile data
+        $profile = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$profiles_table} WHERE member_id = %d",
+            $target_member_id
+        ) );
+        if ( ! $profile ) {
+            return $this->error( 'no_profile', __( 'Profile not found.', 'community-directory' ), 404 );
+        }
+
+        $emails = json_decode( $profile->emails ?? '', true ) ?: array();
+        $phones = json_decode( $profile->phones ?? '', true ) ?: array();
+
+        return $this->success( array(
+            'member' => array(
+                'member_id'    => $target_member_id,
+                'first_name'   => $profile->first_name ?? '',
+                'last_name'    => $profile->last_name ?? '',
+                'salutation'   => $profile->salutation ?? '',
+                'primary_email' => ! empty( $emails[0]['value'] ) ? $emails[0]['value'] : '',
+                'phone'        => ! empty( $phones[0]['value'] ) ? $phones[0]['value'] : '',
+                'date_of_birth' => $profile->date_of_birth ?? '',
+                'occupation'   => $profile->occupation ?? '',
+                'employer'     => $profile->employer ?? '',
+                'role'         => $target_hm->role,
+            ),
+        ) );
+    }
+
+    /**
+     * Update a managed household member's profile.
+     * Only head/spouse can edit members who don't have their own login.
+     */
+    public function update_household_member( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table      = CD_Database::table( 'household_members' );
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $members_table  = CD_Database::table( 'members' );
+
+        // Verify caller is head/spouse
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm || ! in_array( $hm->role, array( 'head', 'spouse' ), true ) ) {
+            return $this->error( 'not_authorized', __( 'Only the primary membership holder or spouse can edit members.', 'community-directory' ), 403 );
+        }
+
+        $target_member_id = (int) $request->get_param( 'member_id' );
+
+        // Verify target is in the same household
+        $target_hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE household_id = %d AND member_id = %d AND left_at IS NULL",
+            $hm->household_id, $target_member_id
+        ) );
+        if ( ! $target_hm ) {
+            return $this->error( 'not_found', __( 'This person is not in your household.', 'community-directory' ), 404 );
+        }
+
+        // Only allow editing managed members (no WP user = no login)
+        $target_member = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$members_table} WHERE id = %d",
+            $target_member_id
+        ) );
+        if ( ! empty( $target_member->wp_user_id ) ) {
+            return $this->error( 'has_login', __( 'This member has their own login and manages their own profile.', 'community-directory' ), 403 );
+        }
+
+        // Sanitize inputs
+        $first_name = sanitize_text_field( $request->get_param( 'first_name' ) ?? '' );
+        $last_name  = sanitize_text_field( $request->get_param( 'last_name' ) ?? '' );
+
+        if ( empty( $first_name ) || empty( $last_name ) ) {
+            return $this->error( 'missing_name', __( 'First and last name are required.', 'community-directory' ), 400 );
+        }
+
+        $update_data = array(
+            'first_name' => $first_name,
+            'last_name'  => $last_name,
+            'updated_at' => current_time( 'mysql' ),
+        );
+        $update_format = array( '%s', '%s', '%s' );
+
+        // Optional fields
+        $salutation = $request->get_param( 'salutation' );
+        if ( null !== $salutation ) {
+            $update_data['salutation'] = sanitize_text_field( $salutation );
+            $update_format[] = '%s';
+        }
+
+        $email = sanitize_email( $request->get_param( 'email' ) ?? '' );
+        if ( ! empty( $email ) ) {
+            $update_data['emails'] = wp_json_encode( array( array( 'type' => 'primary', 'value' => $email ) ) );
+            $update_format[] = '%s';
+        } elseif ( '' === $request->get_param( 'email' ) ) {
+            $update_data['emails'] = wp_json_encode( array() );
+            $update_format[] = '%s';
+        }
+
+        $phone = sanitize_text_field( $request->get_param( 'phone' ) ?? '' );
+        if ( ! empty( $phone ) ) {
+            $update_data['phones'] = wp_json_encode( array( array( 'type' => 'mobile', 'value' => $phone ) ) );
+            $update_format[] = '%s';
+        } elseif ( '' === $request->get_param( 'phone' ) ) {
+            $update_data['phones'] = wp_json_encode( array() );
+            $update_format[] = '%s';
+        }
+
+        $dob = sanitize_text_field( $request->get_param( 'date_of_birth' ) ?? '' );
+        if ( ! empty( $dob ) ) {
+            $update_data['date_of_birth'] = $dob;
+            $update_format[] = '%s';
+        } elseif ( '' === $request->get_param( 'date_of_birth' ) ) {
+            $update_data['date_of_birth'] = null;
+            $update_format[] = '%s';
+        }
+
+        $occupation = $request->get_param( 'occupation' );
+        if ( null !== $occupation ) {
+            $update_data['occupation'] = sanitize_text_field( $occupation );
+            $update_format[] = '%s';
+        }
+
+        $employer = $request->get_param( 'employer' );
+        if ( null !== $employer ) {
+            $update_data['employer'] = sanitize_text_field( $employer );
+            $update_format[] = '%s';
+        }
+
+        $wpdb->update(
+            $profiles_table,
+            $update_data,
+            array( 'member_id' => $target_member_id ),
+            $update_format,
+            array( '%d' )
+        );
+
+        CD_Audit_Logger::log( CD_Audit_Logger::PROFILE_UPDATED, get_current_user_id(), $target_member_id, array(
+            'updated_by' => $member->id,
+            'managed_member' => true,
+        ) );
+
+        return $this->success( array( 'message' => __( 'Member details updated.', 'community-directory' ) ) );
+    }
+
     /* ──────────────────────────────────────
      * LIFECYCLE WORKFLOWS
      * ──────────────────────────────────── */
@@ -1605,23 +1814,33 @@ class CD_API_Households extends CD_API_Base {
             return $this->error( 'limit_reached', __( 'Maximum 10 photos allowed. Please delete one before uploading a new one.', 'community-directory' ), 400 );
         }
 
+        CD_Logger::info( 'Household photo upload: starting for household ' . $hm->household_id . ', file: ' . $file['name'] . ', size: ' . $file['size'] );
+
         $upload = wp_handle_upload( $file, array( 'test_form' => false ) );
         if ( isset( $upload['error'] ) ) {
+            CD_Logger::error( 'Household photo upload: wp_handle_upload failed — ' . $upload['error'] );
             return $this->error( 'upload_failed', $upload['error'], 500 );
         }
 
+        CD_Logger::info( 'Household photo upload: file uploaded to ' . $upload['url'] );
+
         $photos[] = $upload['url'];
 
-        $wpdb->update(
+        $result = $wpdb->update(
             $households_table,
             array(
                 'photos'    => wp_json_encode( $photos ),
-                'photo_url' => $photos[0], // Keep first photo as legacy thumbnail
+                'photo_url' => $photos[0],
             ),
             array( 'id' => $hm->household_id ),
             array( '%s', '%s' ),
             array( '%d' )
         );
+
+        if ( false === $result ) {
+            CD_Logger::error( 'Household photo upload: DB update failed — ' . $wpdb->last_error );
+            return $this->error( 'db_error', __( 'Failed to save photo to database.', 'community-directory' ), 500 );
+        }
 
         CD_Audit_Logger::log( CD_Audit_Logger::HOUSEHOLD_CREATED, get_current_user_id(), $hm->household_id, array(
             'action' => 'photo_uploaded',

@@ -520,9 +520,16 @@ get_header();
                                                 </template>
                                             </div>
                                         </div>
-                                        <template x-if="household.can_manage && m.role !== 'head'">
-                                            <button type="button" class="cd-btn cd-btn-icon cd-btn-danger-icon" @click="removeHouseholdMember(m.member_id, m.first_name)" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">&times;</button>
-                                        </template>
+                                        <div class="cd-hh-member-actions">
+                                            <template x-if="household.can_manage && !m.has_login && m.role !== 'head'">
+                                                <button type="button" class="cd-btn cd-btn-icon cd-btn-secondary-icon" @click="openEditMember(m.member_id)" title="<?php esc_attr_e( 'Edit Details', 'community-directory' ); ?>">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                                </button>
+                                            </template>
+                                            <template x-if="household.can_manage && m.role !== 'head'">
+                                                <button type="button" class="cd-btn cd-btn-icon cd-btn-danger-icon" @click="removeHouseholdMember(m.member_id, m.first_name)" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">&times;</button>
+                                            </template>
+                                        </div>
                                     </div>
                                 </template>
                             </div>
@@ -719,6 +726,81 @@ get_header();
                 <button type="button" class="cd-btn cd-btn-primary" @click="addHouseholdMember" :disabled="householdSaving">
                     <span x-show="!householdSaving"><?php esc_html_e( 'Add Member', 'community-directory' ); ?></span>
                     <span x-show="householdSaving"><?php esc_html_e( 'Adding...', 'community-directory' ); ?></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ──── Edit Managed Member Modal ──── -->
+    <div x-show="showEditMember" class="cd-modal-overlay" x-cloak x-transition>
+        <div class="cd-modal">
+            <div class="cd-modal-header">
+                <h3><?php esc_html_e( 'Edit Member Details', 'community-directory' ); ?></h3>
+                <button type="button" class="cd-btn-icon" @click="showEditMember = false">&times;</button>
+            </div>
+            <div class="cd-modal-body">
+                <template x-if="editMemberLoading">
+                    <div style="text-align: center; padding: 20px;"><span class="cd-spinner-sm"></span> <?php esc_html_e( 'Loading...', 'community-directory' ); ?></div>
+                </template>
+                <template x-if="!editMemberLoading">
+                    <div>
+                        <div class="cd-form-group">
+                            <label class="cd-label"><?php esc_html_e( 'Salutation', 'community-directory' ); ?></label>
+                            <select class="cd-select" x-model="editMemberForm.salutation">
+                                <option value=""><?php esc_html_e( 'None', 'community-directory' ); ?></option>
+                                <option value="Mr."><?php esc_html_e( 'Mr.', 'community-directory' ); ?></option>
+                                <option value="Mrs."><?php esc_html_e( 'Mrs.', 'community-directory' ); ?></option>
+                                <option value="Ms."><?php esc_html_e( 'Ms.', 'community-directory' ); ?></option>
+                                <option value="Dr."><?php esc_html_e( 'Dr.', 'community-directory' ); ?></option>
+                                <option value="Rev."><?php esc_html_e( 'Rev.', 'community-directory' ); ?></option>
+                                <option value="Fr."><?php esc_html_e( 'Fr.', 'community-directory' ); ?></option>
+                            </select>
+                        </div>
+                        <div class="cd-grid-2">
+                            <div class="cd-form-group">
+                                <label class="cd-label"><?php esc_html_e( 'First Name', 'community-directory' ); ?> *</label>
+                                <input type="text" class="cd-input" x-model="editMemberForm.first_name" required>
+                            </div>
+                            <div class="cd-form-group">
+                                <label class="cd-label"><?php esc_html_e( 'Last Name', 'community-directory' ); ?> *</label>
+                                <input type="text" class="cd-input" x-model="editMemberForm.last_name" required>
+                            </div>
+                        </div>
+                        <div class="cd-form-group">
+                            <label class="cd-label"><?php esc_html_e( 'Email Address', 'community-directory' ); ?></label>
+                            <input type="email" class="cd-input" x-model="editMemberForm.email" placeholder="<?php esc_attr_e( 'Optional — adds to their directory listing', 'community-directory' ); ?>">
+                        </div>
+                        <div class="cd-grid-2">
+                            <div class="cd-form-group">
+                                <label class="cd-label"><?php esc_html_e( 'Phone Number', 'community-directory' ); ?></label>
+                                <input type="tel" class="cd-input" x-model="editMemberForm.phone" placeholder="<?php esc_attr_e( '555-123-4567', 'community-directory' ); ?>">
+                            </div>
+                            <div class="cd-form-group">
+                                <label class="cd-label"><?php esc_html_e( 'Date of Birth', 'community-directory' ); ?></label>
+                                <input type="date" class="cd-input" x-model="editMemberForm.date_of_birth">
+                            </div>
+                        </div>
+                        <div class="cd-grid-2">
+                            <div class="cd-form-group">
+                                <label class="cd-label"><?php esc_html_e( 'Occupation', 'community-directory' ); ?></label>
+                                <input type="text" class="cd-input" x-model="editMemberForm.occupation">
+                            </div>
+                            <div class="cd-form-group">
+                                <label class="cd-label"><?php esc_html_e( 'Employer', 'community-directory' ); ?></label>
+                                <input type="text" class="cd-input" x-model="editMemberForm.employer">
+                            </div>
+                        </div>
+                        <p class="cd-text-muted" style="font-size: 0.85em; margin-top: 8px;">
+                            <?php esc_html_e( 'You are managing this member\'s details because they do not have their own login.', 'community-directory' ); ?>
+                        </p>
+                    </div>
+                </template>
+            </div>
+            <div class="cd-modal-footer">
+                <button type="button" class="cd-btn cd-btn-secondary" @click="showEditMember = false"><?php esc_html_e( 'Cancel', 'community-directory' ); ?></button>
+                <button type="button" class="cd-btn cd-btn-primary" @click="saveEditMember" :disabled="editMemberSaving || editMemberLoading">
+                    <span x-show="!editMemberSaving"><?php esc_html_e( 'Save Changes', 'community-directory' ); ?></span>
+                    <span x-show="editMemberSaving"><?php esc_html_e( 'Saving...', 'community-directory' ); ?></span>
                 </button>
             </div>
         </div>
