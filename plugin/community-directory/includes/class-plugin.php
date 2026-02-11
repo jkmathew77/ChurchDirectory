@@ -345,6 +345,14 @@ class CD_Plugin {
 
     /**
      * Handle auth redirects only — template loading is done via template_include.
+     *
+     * Auth gating: directory/member/profile pages require both is_user_logged_in()
+     * AND current_user_can('cd_member'). If either is false, redirect to login.
+     *
+     * After Google OAuth login, verify that:
+     * - logged_in=yes in the debug log Route line for the directory page
+     * - If logged_in=no appears 1-2 sec after a successful login, the auth cookie
+     *   was not persisted — see the duplicate callback docs in class-auth.php
      */
     public function handle_community_redirects() {
         $page = get_query_var( 'cd_page' );

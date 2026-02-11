@@ -15,6 +15,11 @@ class CD_Admin_Menu {
         add_action( 'admin_notices', array( $this, 'show_admin_notices' ) );
         add_action( 'admin_post_cd_download_csv_template', array( $this, 'download_csv_template' ) );
         add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_assets' ) );
+
+        // Debug log AJAX handlers
+        add_action( 'wp_ajax_cd_toggle_debug_logging', array( $this, 'ajax_toggle_debug_logging' ) );
+        add_action( 'wp_ajax_cd_clear_debug_log', array( $this, 'ajax_clear_debug_log' ) );
+        add_action( 'wp_ajax_cd_refresh_debug_log', array( $this, 'ajax_refresh_debug_log' ) );
     }
 
     /**
@@ -151,6 +156,16 @@ class CD_Admin_Menu {
             'manage_options',
             'cd-settings',
             array( $this, 'render_settings_page' )
+        );
+
+        // Debug Log
+        add_submenu_page(
+            'community-directory',
+            __( 'Debug Log', 'community-directory' ),
+            __( 'Debug Log', 'community-directory' ),
+            'manage_options',
+            'cd-debug-log',
+            array( $this, 'render_debug_log_page' )
         );
     }
 
@@ -305,6 +320,64 @@ class CD_Admin_Menu {
 
     public function render_settings_page() {
         include CD_PLUGIN_DIR . 'includes/admin/views/settings.php';
+    }
+
+    public function render_debug_log_page() {
+        include CD_PLUGIN_DIR . 'includes/admin/views/debug-log.php';
+    }
+
+    /**
+     * AJAX: Toggle debug logging on/off.
+     */
+    public function ajax_toggle_debug_logging() {
+        check_ajax_referer( 'cd_debug_log_actions', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Unauthorized' ) );
+        }
+
+        $current = get_option( 'cd_debug_logging', '1' );
+        $new     = ( '1' === $current ) ? '0' : '1';
+        update_option( 'cd_debug_logging', $new );
+        CD_Logger::reset_cache();
+
+        wp_send_json_success( array(
+            'enabled' => ( '1' === $new ),
+            'message' => ( '1' === $new )
+                ? __( 'Debug logging enabled.', 'community-directory' )
+                : __( 'Debug logging disabled.', 'community-directory' ),
+        ) );
+    }
+
+    /**
+     * AJAX: Clear the debug log file.
+     */
+    public function ajax_clear_debug_log() {
+        check_ajax_referer( 'cd_debug_log_actions', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Unauthorized' ) );
+        }
+
+        CD_Logger::clear();
+        wp_send_json_success( array( 'message' => __( 'Log cleared.', 'community-directory' ) ) );
+    }
+
+    /**
+     * AJAX: Refresh log content.
+     */
+    public function ajax_refresh_debug_log() {
+        check_ajax_referer( 'cd_debug_log_actions', 'nonce' );
+        if ( ! current_user_can( 'manage_options' ) ) {
+            wp_send_json_error( array( 'message' => 'Unauthorized' ) );
+        }
+
+        $lines = isset( $_POST['lines'] ) ? absint( $_POST['lines'] ) : 200;
+        $lines = min( $lines, 1000 );
+
+        wp_send_json_success( array(
+            'content'  => CD_Logger::tail( $lines ),
+            'size'     => CD_Logger::get_file_size(),
+            'enabled'  => ( '1' === get_option( 'cd_debug_logging', '1' ) ),
+        ) );
     }
 
     /**

@@ -220,6 +220,41 @@ class CD_API_Auth extends CD_API_Base {
 
     /**
      * Handle Google OAuth callback — exchange code, find/link member, log in.
+     *
+     * ┌─────────────────────────────────────────────────────────────────────┐
+     * │ IMPORTANT: DUPLICATE CALLBACK HANDLING                             │
+     * │                                                                    │
+     * │ On this server (Bluehost + miniorange-login-openid), every         │
+     * │ request to the OAuth callback URL is processed TWICE by PHP.       │
+     * │ The first request succeeds; the second hits the same endpoint      │
+     * │ with the same ?code= and ?state= params ~1 second later.          │
+     * │                                                                    │
+     * │ Why this matters for login cookies:                                │
+     * │ - wp_set_auth_cookie() adds Set-Cookie headers to the response    │
+     * │ - If the browser receives TWO responses (the original 302/200     │
+     * │   and the duplicate), only the LAST response's Set-Cookie is      │
+     * │   committed by the browser                                        │
+     * │ - The duplicate's token exchange fails (code already consumed),   │
+     * │   so it redirects to login with an error, WIPING the cookie       │
+     * │                                                                    │
+     * │ Solution (v0.3.84):                                               │
+     * │ 1. Use a transient lock keyed by md5(code) to detect duplicates  │
+     * │ 2. First request: processes normally, stores wp_user_id in lock  │
+     * │ 3. Duplicate: reads wp_user_id from lock, ALSO sets auth cookie, │
+     * │    then outputs an HTML+JS redirect (not 302)                     │
+     * │ 4. Both responses use 200 HTML pages (not 302 redirects) so the  │
+     * │    Set-Cookie header is fully committed before navigation         │
+     * │                                                                    │
+     * │ If this issue recurs, check:                                      │
+     * │ - Is the lock transient being set before the duplicate arrives?   │
+     * │ - Is the duplicate handler reading wp_user_id from the lock?      │
+     * │ - Are both responses returning 200 (not 302)?                     │
+     * │ - Compare against the invite flow (handle_google_invite_accept)   │
+     * │   which works because it sets cookies via REST API fetch(), not   │
+     * │   browser navigation                                              │
+     * │ - Check cd-debug.log: "duplicate callback detected" + subsequent  │
+     * │   "Route: cd_page=directory | logged_in=" lines                   │
+     * └─────────────────────────────────────────────────────────────────────┘
      */
     public function google_callback( WP_REST_Request $request ) {
         $base_slug = get_option( 'cd_base_slug', 'community' );
