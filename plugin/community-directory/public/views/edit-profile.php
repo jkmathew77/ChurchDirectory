@@ -494,10 +494,8 @@ get_header();
                                                      :style="'object-position: ' + (photo.fx ?? 50) + '% ' + (photo.fy ?? 50) + '%; transform: scale(' + (photo.zoom ?? 1) + '); transform-origin: ' + (photo.fx ?? 50) + '% ' + (photo.fy ?? 50) + '%'">
                                                 <template x-if="household.can_manage">
                                                     <div class="cd-hh-photo-thumb-actions">
-                                                        <button type="button" class="cd-hh-photo-adjust" @click.prevent="openPhotoEditor(photo)" title="<?php esc_attr_e( 'Adjust Position', 'community-directory' ); ?>">
-                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
-                                                        </button>
-                                                        <button type="button" class="cd-hh-photo-delete" @click.prevent="deleteHouseholdPhoto(photo.url)" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">&times;</button>
+                                                        <button type="button" class="cd-hh-photo-adjust" @click.prevent="openPhotoEditor(photo)" title="<?php esc_attr_e( 'Adjust Position', 'community-directory' ); ?>">&#9998;</button>
+                                                        <button type="button" class="cd-hh-photo-delete" @click.prevent="deleteHouseholdPhoto(photo.url)" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">&#10005;</button>
                                                     </div>
                                                 </template>
                                             </div>

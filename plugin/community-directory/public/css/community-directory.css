@@ -2162,29 +2162,7 @@
     display: block;
 }
 
-.cd-hh-photo-delete {
-    position: absolute;
-    top: 4px;
-    right: 4px;
-    width: 24px;
-    height: 24px;
-    background: rgba(220, 38, 38, 0.85);
-    color: #fff;
-    border: none;
-    border-radius: 50%;
-    font-size: 1rem;
-    line-height: 1;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    opacity: 0;
-    transition: opacity 0.15s;
-}
-
-.cd-hh-photo-thumb:hover .cd-hh-photo-delete {
-    opacity: 1;
-}
+/* Photo overlay buttons handled by .cd-hh-photo-thumb-actions below */
 
 .cd-hh-photo-actions {
     display: flex;
@@ -2213,11 +2191,11 @@
 
 .cd-hh-photo-adjust,
 .cd-hh-photo-delete {
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
     border: none;
     border-radius: 50%;
-    font-size: 0.85rem;
+    font-size: 0.9rem;
     line-height: 1;
     cursor: pointer;
     display: flex;
@@ -2225,6 +2203,7 @@
     justify-content: center;
     color: #fff;
     flex-shrink: 0;
+    padding: 0;
 }
 
 .cd-hh-photo-adjust {
