@@ -178,6 +178,34 @@ class CD_API_Invites extends CD_API_Base {
                 'wp_user_id'   => $wp_user_id,
                 'activated_at' => current_time( 'mysql' ),
             ), array( 'id' => $member_id_to_link ), array( '%d', '%s' ), array( '%d' ) );
+
+            // Set default directory preferences based on household role
+            $hm_table       = CD_Database::table( 'household_members' );
+            $profiles_table = CD_Database::table( 'directory_profiles' );
+            $hh_role = $wpdb->get_var( $wpdb->prepare(
+                "SELECT role FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL LIMIT 1",
+                $member_id_to_link
+            ) );
+            $default_view = 'adults_only';
+            if ( 'child' === $hh_role || 'other' === $hh_role ) {
+                $default_view = 'children_only';
+            }
+            $default_prefs = wp_json_encode( array(
+                'default_view'    => $default_view,
+                'search_sections' => array( 'all', 'households' ),
+            ) );
+            // Only set if not already set
+            $existing = $wpdb->get_var( $wpdb->prepare(
+                "SELECT directory_preferences FROM {$profiles_table} WHERE member_id = %d",
+                $member_id_to_link
+            ) );
+            if ( empty( $existing ) ) {
+                $wpdb->update( $profiles_table,
+                    array( 'directory_preferences' => $default_prefs ),
+                    array( 'member_id' => $member_id_to_link ),
+                    array( '%s' ), array( '%d' )
+                );
+            }
         }
 
         // Auto-login

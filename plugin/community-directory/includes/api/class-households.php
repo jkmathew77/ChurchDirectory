@@ -116,6 +116,13 @@ class CD_API_Households extends CD_API_Base {
             'permission_callback' => array( $this, 'permission_member' ),
         ) );
 
+        // POST /members/me/household/members/{member_id}/avatar — upload avatar for managed member
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/members/(?P<member_id>\d+)/avatar', array(
+            'methods'             => 'POST',
+            'callback'            => array( $this, 'upload_managed_member_avatar' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
         // ── Lifecycle endpoints ──
 
         // POST /members/me/household/leave — leave household
@@ -150,6 +157,13 @@ class CD_API_Households extends CD_API_Base {
         register_rest_route( CD_API_NAMESPACE, '/members/me/household/photo', array(
             'methods'             => 'DELETE',
             'callback'            => array( $this, 'delete_household_photo' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
+        // PATCH /members/me/household/photo-position — update focal point + zoom for a photo
+        register_rest_route( CD_API_NAMESPACE, '/members/me/household/photo-position', array(
+            'methods'             => 'PATCH',
+            'callback'            => array( $this, 'update_photo_position' ),
             'permission_callback' => array( $this, 'permission_member' ),
         ) );
 
@@ -705,15 +719,16 @@ class CD_API_Households extends CD_API_Base {
             unset( $m->wp_user_id );
         }
 
-        // Parse photos JSON array
-        $photos = json_decode( $hm->household_photos ?? '', true );
-        if ( ! is_array( $photos ) ) {
-            $photos = array();
+        // Parse photos JSON array with backward compat (old format: array of URL strings)
+        $photos_raw = json_decode( $hm->household_photos ?? '', true );
+        if ( ! is_array( $photos_raw ) ) {
+            $photos_raw = array();
             // Backwards compat: use single photo_url if photos array empty
             if ( ! empty( $hm->household_photo_url ) ) {
-                $photos = array( $hm->household_photo_url );
+                $photos_raw = array( $hm->household_photo_url );
             }
         }
+        $photos = array_map( array( $this, 'parse_photo_item' ), $photos_raw );
 
         return $this->success( array(
             'household' => array(
@@ -1010,13 +1025,24 @@ class CD_API_Households extends CD_API_Base {
             ), array( '%s', '%s', '%s', '%s' ) );
             $new_member_id = $wpdb->insert_id;
 
+            // Set default directory preferences based on role
+            $default_view = 'adults_only';
+            if ( 'child' === $role || 'other' === $role ) {
+                $default_view = 'children_only';
+            }
+            $default_prefs = wp_json_encode( array(
+                'default_view'    => $default_view,
+                'search_sections' => array( 'all', 'households' ),
+            ) );
+
             // Create profile
             $wpdb->insert( $profiles_table, array(
-                'member_id'  => $new_member_id,
-                'first_name' => $first_name,
-                'last_name'  => $last_name,
-                'emails'     => wp_json_encode( array( array( 'type' => 'primary', 'value' => $email ) ) ),
-                'created_at' => current_time( 'mysql' ),
+                'member_id'             => $new_member_id,
+                'first_name'            => $first_name,
+                'last_name'             => $last_name,
+                'emails'                => wp_json_encode( array( array( 'type' => 'primary', 'value' => $email ) ) ),
+                'directory_preferences' => $default_prefs,
+                'created_at'            => current_time( 'mysql' ),
             ) );
 
             // Add to household
@@ -1072,13 +1098,24 @@ class CD_API_Households extends CD_API_Base {
         ), array( '%s', '%s', '%s', '%s' ) );
         $new_member_id = $wpdb->insert_id;
 
+        // Set default directory preferences based on role
+        $managed_default_view = 'adults_only';
+        if ( 'child' === $role || 'other' === $role ) {
+            $managed_default_view = 'children_only';
+        }
+        $managed_prefs = wp_json_encode( array(
+            'default_view'    => $managed_default_view,
+            'search_sections' => array( 'all', 'households' ),
+        ) );
+
         // Create profile with basic info
         $wpdb->insert( $profiles_table, array(
-            'member_id'  => $new_member_id,
-            'first_name' => $first_name,
-            'last_name'  => $last_name,
-            'emails'     => wp_json_encode( array() ),
-            'created_at' => current_time( 'mysql' ),
+            'member_id'             => $new_member_id,
+            'first_name'            => $first_name,
+            'last_name'             => $last_name,
+            'emails'                => wp_json_encode( array() ),
+            'directory_preferences' => $managed_prefs,
+            'created_at'            => current_time( 'mysql' ),
         ) );
 
         // Google Contacts sync — create new managed household member
@@ -1238,8 +1275,103 @@ class CD_API_Households extends CD_API_Base {
                 'date_of_birth' => $profile->date_of_birth ?? '',
                 'occupation'   => $profile->occupation ?? '',
                 'employer'     => $profile->employer ?? '',
+                'avatar_url'   => $profile->avatar_url ?? '',
                 'role'         => $target_hm->role,
             ),
+        ) );
+    }
+
+    /**
+     * Upload avatar for a managed household member.
+     * Only head/spouse can upload for members without their own login.
+     * POST /members/me/household/members/{member_id}/avatar
+     */
+    public function upload_managed_member_avatar( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table       = CD_Database::table( 'household_members' );
+        $profiles_table  = CD_Database::table( 'directory_profiles' );
+        $members_table   = CD_Database::table( 'members' );
+
+        // Verify caller is head/spouse
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm || ! in_array( $hm->role, array( 'head', 'spouse' ), true ) ) {
+            return $this->error( 'not_authorized', __( 'Only the primary membership holder or spouse can upload photos.', 'community-directory' ), 403 );
+        }
+
+        $target_member_id = (int) $request->get_param( 'member_id' );
+
+        // Verify target is in same household
+        $target_hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE household_id = %d AND member_id = %d AND left_at IS NULL",
+            $hm->household_id, $target_member_id
+        ) );
+        if ( ! $target_hm ) {
+            return $this->error( 'not_found', __( 'This person is not in your household.', 'community-directory' ), 404 );
+        }
+
+        // Only managed members (no WP user)
+        $target_member = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$members_table} WHERE id = %d",
+            $target_member_id
+        ) );
+        if ( ! empty( $target_member->wp_user_id ) ) {
+            return $this->error( 'has_login', __( 'This member manages their own profile.', 'community-directory' ), 403 );
+        }
+
+        $files = $request->get_file_params();
+        if ( empty( $files['file'] ) ) {
+            return $this->error( 'no_file', __( 'No file uploaded.', 'community-directory' ), 400 );
+        }
+
+        $file = $files['file'];
+        $allowed_types = array( 'image/jpeg', 'image/png', 'image/gif', 'image/webp' );
+        if ( ! in_array( $file['type'], $allowed_types, true ) ) {
+            return $this->error( 'invalid_type', __( 'Invalid file type. Allowed: JPG, PNG, GIF, WEBP.', 'community-directory' ), 400 );
+        }
+        if ( $file['size'] > 5 * 1024 * 1024 ) {
+            return $this->error( 'file_too_large', __( 'File too large (Max 5MB).', 'community-directory' ), 400 );
+        }
+
+        require_once ABSPATH . 'wp-admin/includes/image.php';
+        require_once ABSPATH . 'wp-admin/includes/file.php';
+        require_once ABSPATH . 'wp-admin/includes/media.php';
+
+        $attachment_id = media_handle_sideload( $file, 0 );
+        if ( is_wp_error( $attachment_id ) ) {
+            return $this->error( 'upload_failed', $attachment_id->get_error_message(), 500 );
+        }
+
+        // Strip EXIF metadata (PRD Section 10.2.9)
+        $att_file_path = get_attached_file( $attachment_id );
+        if ( $att_file_path && file_exists( $att_file_path ) ) {
+            $editor = wp_get_image_editor( $att_file_path );
+            if ( ! is_wp_error( $editor ) ) {
+                $editor->save( $att_file_path );
+            }
+        }
+
+        $url = wp_get_attachment_url( $attachment_id );
+
+        $wpdb->update(
+            $profiles_table,
+            array( 'avatar_url' => $url, 'avatar_source' => 'upload' ),
+            array( 'member_id' => $target_member_id ),
+            array( '%s', '%s' ),
+            array( '%d' )
+        );
+
+        return $this->success( array(
+            'url'     => $url,
+            'message' => __( 'Photo updated.', 'community-directory' ),
         ) );
     }
 
@@ -1797,18 +1929,19 @@ class CD_API_Households extends CD_API_Base {
             "SELECT photos FROM {$households_table} WHERE id = %d",
             $hm->household_id
         ) );
-        $photos = json_decode( $current_photos_json ?? '', true );
-        if ( ! is_array( $photos ) ) {
-            $photos = array();
+        $photos_raw = json_decode( $current_photos_json ?? '', true );
+        if ( ! is_array( $photos_raw ) ) {
+            $photos_raw = array();
             // Migrate legacy single photo_url
             $legacy_url = $wpdb->get_var( $wpdb->prepare(
                 "SELECT photo_url FROM {$households_table} WHERE id = %d",
                 $hm->household_id
             ) );
             if ( ! empty( $legacy_url ) ) {
-                $photos[] = $legacy_url;
+                $photos_raw[] = $legacy_url;
             }
         }
+        $photos = array_map( array( $this, 'parse_photo_item' ), $photos_raw );
 
         if ( count( $photos ) >= 10 ) {
             return $this->error( 'limit_reached', __( 'Maximum 10 photos allowed. Please delete one before uploading a new one.', 'community-directory' ), 400 );
@@ -1824,13 +1957,14 @@ class CD_API_Households extends CD_API_Base {
 
         CD_Logger::info( 'Household photo upload: file uploaded to ' . $upload['url'] );
 
-        $photos[] = $upload['url'];
+        $photos[] = array( 'url' => $upload['url'], 'fx' => 50, 'fy' => 50, 'zoom' => 1.0 );
 
+        $primary_url = is_array( $photos[0] ) ? $photos[0]['url'] : $photos[0];
         $result = $wpdb->update(
             $households_table,
             array(
                 'photos'    => wp_json_encode( $photos ),
-                'photo_url' => $photos[0],
+                'photo_url' => $primary_url,
             ),
             array( 'id' => $hm->household_id ),
             array( '%s', '%s' ),
@@ -1850,7 +1984,7 @@ class CD_API_Households extends CD_API_Base {
         return $this->success( array(
             'message' => sprintf( __( 'Family photo uploaded (%d of 10).', 'community-directory' ), count( $photos ) ),
             'url'     => $upload['url'],
-            'photos'  => $photos,
+            'photos'  => $photos, // full objects with fx/fy/zoom
         ) );
     }
 
@@ -1886,15 +2020,16 @@ class CD_API_Households extends CD_API_Base {
             "SELECT photos FROM {$households_table} WHERE id = %d",
             $hm->household_id
         ) );
-        $photos = json_decode( $photos_json ?? '', true );
-        if ( ! is_array( $photos ) ) {
-            $photos = array();
+        $photos_raw = json_decode( $photos_json ?? '', true );
+        if ( ! is_array( $photos_raw ) ) {
+            $photos_raw = array();
         }
+        $photos = array_map( array( $this, 'parse_photo_item' ), $photos_raw );
 
         if ( ! empty( $photo_url ) ) {
-            // Delete specific photo
-            $photos = array_values( array_filter( $photos, function( $url ) use ( $photo_url ) {
-                return $url !== $photo_url;
+            // Delete specific photo (works for both legacy string and new object format)
+            $photos = array_values( array_filter( $photos, function( $item ) use ( $photo_url ) {
+                return $item['url'] !== $photo_url;
             } ) );
             $del_id = attachment_url_to_postid( $photo_url );
             if ( $del_id ) {
@@ -1902,8 +2037,8 @@ class CD_API_Households extends CD_API_Base {
             }
         } else {
             // No URL specified — delete all photos
-            foreach ( $photos as $url ) {
-                $del_id = attachment_url_to_postid( $url );
+            foreach ( $photos as $item ) {
+                $del_id = attachment_url_to_postid( $item['url'] );
                 if ( $del_id ) {
                     wp_delete_attachment( $del_id, true );
                 }
@@ -1911,11 +2046,12 @@ class CD_API_Households extends CD_API_Base {
             $photos = array();
         }
 
+        $primary_url = ! empty( $photos ) ? ( is_array( $photos[0] ) ? $photos[0]['url'] : $photos[0] ) : null;
         $wpdb->update(
             $households_table,
             array(
                 'photos'    => ! empty( $photos ) ? wp_json_encode( $photos ) : null,
-                'photo_url' => ! empty( $photos ) ? $photos[0] : null,
+                'photo_url' => $primary_url,
             ),
             array( 'id' => $hm->household_id ),
             array( '%s', '%s' ),
@@ -1926,6 +2062,108 @@ class CD_API_Households extends CD_API_Base {
             'message' => __( 'Photo removed.', 'community-directory' ),
             'photos'  => $photos,
         ) );
+    }
+
+    /**
+     * Update focal point and zoom for a household photo. Head/spouse only.
+     * PATCH /members/me/household/photo-position
+     * Body: { url: string, fx: number, fy: number, zoom: number }
+     */
+    public function update_photo_position( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $member = $this->get_current_member();
+        if ( ! $member ) {
+            return $this->error( 'no_member', __( 'No member record found.', 'community-directory' ), 404 );
+        }
+
+        $hm_table         = CD_Database::table( 'household_members' );
+        $households_table  = CD_Database::table( 'households' );
+
+        $hm = $wpdb->get_row( $wpdb->prepare(
+            "SELECT * FROM {$hm_table} WHERE member_id = %d AND left_at IS NULL",
+            $member->id
+        ) );
+        if ( ! $hm ) {
+            return $this->error( 'not_in_household', __( 'You are not part of a household.', 'community-directory' ) );
+        }
+        if ( ! in_array( $hm->role, array( 'head', 'spouse' ), true ) ) {
+            return $this->error( 'not_authorized', __( 'Only the primary membership holder or spouse can update photo position.', 'community-directory' ), 403 );
+        }
+
+        $params   = $request->get_json_params();
+        $photo_url = sanitize_url( $params['url'] ?? '' );
+        $fx        = max( 0, min( 100, (float) ( $params['fx'] ?? 50 ) ) );
+        $fy        = max( 0, min( 100, (float) ( $params['fy'] ?? 50 ) ) );
+        $zoom      = max( 1.0, min( 3.0, (float) ( $params['zoom'] ?? 1.0 ) ) );
+
+        if ( empty( $photo_url ) ) {
+            return $this->error( 'missing_url', __( 'Photo URL is required.', 'community-directory' ) );
+        }
+
+        // Load current photos
+        $photos_json = $wpdb->get_var( $wpdb->prepare(
+            "SELECT photos FROM {$households_table} WHERE id = %d",
+            $hm->household_id
+        ) );
+        $photos_raw = json_decode( $photos_json ?? '', true );
+        if ( ! is_array( $photos_raw ) ) {
+            $photos_raw = array();
+        }
+        $photos = array_map( array( $this, 'parse_photo_item' ), $photos_raw );
+
+        // Find and update matching photo
+        $found = false;
+        foreach ( $photos as &$item ) {
+            if ( $item['url'] === $photo_url ) {
+                $item['fx']   = $fx;
+                $item['fy']   = $fy;
+                $item['zoom'] = $zoom;
+                $found = true;
+                break;
+            }
+        }
+        unset( $item );
+
+        if ( ! $found ) {
+            return $this->error( 'not_found', __( 'Photo not found in this household.', 'community-directory' ), 404 );
+        }
+
+        $primary_url = is_array( $photos[0] ) ? $photos[0]['url'] : $photos[0];
+        $wpdb->update(
+            $households_table,
+            array(
+                'photos'    => wp_json_encode( $photos ),
+                'photo_url' => $primary_url,
+            ),
+            array( 'id' => $hm->household_id ),
+            array( '%s', '%s' ),
+            array( '%d' )
+        );
+
+        return $this->success( array(
+            'message' => __( 'Photo position saved.', 'community-directory' ),
+            'photos'  => $photos,
+        ) );
+    }
+
+    /**
+     * Normalize a photo list item into a consistent object with url/fx/fy/zoom.
+     * Handles both legacy string format and new object format.
+     *
+     * @param string|array $item  A photo entry from the stored JSON array.
+     * @return array              Normalized { url, fx, fy, zoom }.
+     */
+    private function parse_photo_item( $item ) {
+        if ( is_string( $item ) ) {
+            return array( 'url' => $item, 'fx' => 50, 'fy' => 50, 'zoom' => 1.0 );
+        }
+        return array(
+            'url'  => sanitize_url( $item['url'] ?? '' ),
+            'fx'   => max( 0, min( 100, (float) ( $item['fx'] ?? 50 ) ) ),
+            'fy'   => max( 0, min( 100, (float) ( $item['fy'] ?? 50 ) ) ),
+            'zoom' => max( 1.0, min( 3.0, (float) ( $item['zoom'] ?? 1.0 ) ) ),
+        );
     }
 
     /**

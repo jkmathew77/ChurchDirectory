@@ -25,6 +25,13 @@ class CD_API_Members extends CD_API_Base {
             'permission_callback' => array( $this, 'permission_member' ),
         ) );
 
+        // GET /members/me — get own profile
+        register_rest_route( CD_API_NAMESPACE, '/members/me', array(
+            'methods'             => WP_REST_Server::READABLE,
+            'callback'            => array( $this, 'get_own_profile' ),
+            'permission_callback' => array( $this, 'permission_member' ),
+        ) );
+
         // PUT /members/me — update OWN profile
         register_rest_route( CD_API_NAMESPACE, '/members/me', array(
             'methods'             => 'PUT',
@@ -81,12 +88,22 @@ class CD_API_Members extends CD_API_Base {
 
         $members_table  = CD_Database::table( 'members' );
         $profiles_table = CD_Database::table( 'directory_profiles' );
+        $hm_table       = CD_Database::table( 'household_members' );
 
-        $search = sanitize_text_field( $request->get_param( 'search' ) ?: '' );
-        $page   = max( 1, (int) $request->get_param( 'page' ) ?: 1 );
-        $per    = min( 50, max( 1, (int) $request->get_param( 'per_page' ) ?: 24 ) );
-        $offset = ( $page - 1 ) * $per;
+        $search        = sanitize_text_field( $request->get_param( 'search' ) ?: '' );
+        $page          = max( 1, (int) $request->get_param( 'page' ) ?: 1 );
+        $per           = min( 50, max( 1, (int) $request->get_param( 'per_page' ) ?: 24 ) );
+        $offset        = ( $page - 1 ) * $per;
+        $sort_by       = sanitize_text_field( $request->get_param( 'sort_by' ) ?: 'last_name' );
+        $member_filter = sanitize_text_field( $request->get_param( 'member_filter' ) ?: 'all' );
+        $view_mode     = sanitize_text_field( $request->get_param( 'view_mode' ) ?: 'members' );
 
+        // ── Household card view mode ──
+        if ( 'households' === $view_mode ) {
+            return $this->get_household_directory( $request, $search, $page, $per );
+        }
+
+        // ── Member listing ──
         $where = "m.status = 'active'";
         $args  = array();
 
@@ -97,6 +114,19 @@ class CD_API_Members extends CD_API_Base {
             $args[] = $search_like;
             $args[] = $search_like;
             $args[] = $search_like;
+        }
+
+        // Member type filter (uses household_members.role)
+        $allowed_filters = array( 'all', 'adults', 'children', 'primary' );
+        if ( ! in_array( $member_filter, $allowed_filters, true ) ) {
+            $member_filter = 'all';
+        }
+        if ( 'adults' === $member_filter ) {
+            $where .= " AND (hm.role IS NULL OR hm.role IN ('head', 'spouse'))";
+        } elseif ( 'children' === $member_filter ) {
+            $where .= " AND hm.role IN ('child', 'other')";
+        } elseif ( 'primary' === $member_filter ) {
+            $where .= " AND hm.role = 'head'";
         }
 
         // Advanced filters
@@ -121,7 +151,13 @@ class CD_API_Members extends CD_API_Base {
             $args[] = '%' . $wpdb->esc_like( $filter_employer ) . '%';
         }
 
-        $total_query = "SELECT COUNT(*) FROM {$members_table} m LEFT JOIN {$profiles_table} p ON m.id = p.member_id WHERE {$where}";
+        // Sort order
+        $order_clause = 'p.last_name ASC, p.first_name ASC';
+        if ( 'first_name' === $sort_by ) {
+            $order_clause = 'p.first_name ASC, p.last_name ASC';
+        }
+
+        $total_query = "SELECT COUNT(*) FROM {$members_table} m LEFT JOIN {$profiles_table} p ON m.id = p.member_id LEFT JOIN {$hm_table} hm ON m.id = hm.member_id AND hm.left_at IS NULL WHERE {$where}";
         if ( ! empty( $args ) ) {
             $total = (int) $wpdb->get_var( $wpdb->prepare( $total_query, $args ) );
         } else {
@@ -129,11 +165,13 @@ class CD_API_Members extends CD_API_Base {
         }
 
         $query = "SELECT m.id AS member_id, m.uuid, p.salutation, p.first_name, p.last_name, p.avatar_url,
-                         p.emails, p.phones, p.city, p.state, p.occupation, p.employer, p.ministry_tags, p.privacy_settings
+                         p.emails, p.phones, p.city, p.state, p.occupation, p.employer, p.ministry_tags, p.privacy_settings,
+                         hm.role AS household_role
                   FROM {$members_table} m
                   LEFT JOIN {$profiles_table} p ON m.id = p.member_id
+                  LEFT JOIN {$hm_table} hm ON m.id = hm.member_id AND hm.left_at IS NULL
                   WHERE {$where}
-                  ORDER BY p.last_name ASC, p.first_name ASC
+                  ORDER BY {$order_clause}
                   LIMIT %d OFFSET %d";
 
         $args[] = $per;
@@ -154,7 +192,6 @@ class CD_API_Members extends CD_API_Base {
             // Apply privacy: default to visible if not set
             $primary_email = '';
             if ( ( $privacy['email'] ?? 'visible' ) === 'visible' && ! empty( $emails ) && is_array( $emails ) ) {
-                // Base64-encode for anti-scraping (PRD Section 10.2.4)
                 $raw_email = $emails[0]['value'] ?? '';
                 $primary_email = $raw_email ? base64_encode( $raw_email ) : '';
             }
@@ -167,77 +204,27 @@ class CD_API_Members extends CD_API_Base {
             $show_address = ( $privacy['address'] ?? 'visible' ) === 'visible';
 
             $results[] = array(
-                'member_id'     => (int) $row->member_id,
-                'uuid'          => $row->uuid,
-                'salutation'    => $row->salutation ?: '',
-                'first_name'    => $row->first_name,
-                'last_name'     => $row->last_name,
-                'avatar_url'    => $row->avatar_url,
-                'email'         => $primary_email,
-                'phone'         => $primary_phone,
-                'city'          => $show_address ? $row->city : '',
-                'state'         => $show_address ? $row->state : '',
-                'occupation'    => $row->occupation ?: '',
-                'employer'      => $row->employer ?: '',
-                'ministry_tags' => $ministry_tags ?: array(),
+                'member_id'      => (int) $row->member_id,
+                'uuid'           => $row->uuid,
+                'salutation'     => $row->salutation ?: '',
+                'first_name'     => $row->first_name,
+                'last_name'      => $row->last_name,
+                'avatar_url'     => $row->avatar_url,
+                'email'          => $primary_email,
+                'phone'          => $primary_phone,
+                'city'           => $show_address ? $row->city : '',
+                'state'          => $show_address ? $row->state : '',
+                'occupation'     => $row->occupation ?: '',
+                'employer'       => $row->employer ?: '',
+                'ministry_tags'  => $ministry_tags ?: array(),
+                'household_role' => $row->household_role ?: '',
             );
         }
 
         // Search households by name (only when a search query is present)
         $households_results = array();
         if ( $search ) {
-            $households_table  = CD_Database::table( 'households' );
-            $hm_table          = CD_Database::table( 'household_members' );
-            $hm_profiles_table = CD_Database::table( 'directory_profiles' );
-            $hm_members_table  = CD_Database::table( 'members' );
-
-            $hh_search_like = '%' . $wpdb->esc_like( $search ) . '%';
-            $hh_rows = $wpdb->get_results( $wpdb->prepare(
-                "SELECT h.id, h.name, h.primary_address, h.photo_url, h.photos
-                 FROM {$households_table} h
-                 WHERE h.status = 'active' AND h.name LIKE %s
-                 ORDER BY h.name ASC
-                 LIMIT 10",
-                $hh_search_like
-            ) );
-
-            foreach ( $hh_rows as $hh ) {
-                // Get household members
-                $hh_members = $wpdb->get_results( $wpdb->prepare(
-                    "SELECT hm2.role, p.first_name, p.last_name, p.avatar_url, m2.uuid
-                     FROM {$hm_table} hm2
-                     JOIN {$hm_members_table} m2 ON hm2.member_id = m2.id
-                     LEFT JOIN {$hm_profiles_table} p ON hm2.member_id = p.member_id
-                     WHERE hm2.household_id = %d AND hm2.left_at IS NULL
-                     ORDER BY FIELD(hm2.role, 'head', 'spouse', 'child', 'other'), p.first_name ASC",
-                    $hh->id
-                ) );
-
-                $hh_member_list = array();
-                foreach ( $hh_members as $hh_m ) {
-                    $hh_member_list[] = array(
-                        'uuid'       => $hh_m->uuid,
-                        'first_name' => $hh_m->first_name,
-                        'last_name'  => $hh_m->last_name,
-                        'avatar_url' => $hh_m->avatar_url,
-                        'role'       => $hh_m->role,
-                        'role_label' => CD_API_Households::role_label( $hh_m->role ),
-                    );
-                }
-
-                $hh_photos = json_decode( $hh->photos ?? '', true );
-                if ( ! is_array( $hh_photos ) ) {
-                    $hh_photos = $hh->photo_url ? array( $hh->photo_url ) : array();
-                }
-
-                $households_results[] = array(
-                    'id'       => (int) $hh->id,
-                    'name'     => $hh->name,
-                    'address'  => CD_API_Households::decrypt_address( $hh->primary_address ),
-                    'photo_url'=> $hh_photos[0] ?? '',
-                    'members'  => $hh_member_list,
-                );
-            }
+            $households_results = $this->search_households( $search );
         }
 
         return $this->success( array(
@@ -249,6 +236,234 @@ class CD_API_Members extends CD_API_Base {
             'per_page' => $per,
             'total'    => $total,
             'pages'    => ceil( $total / $per ),
+        ) );
+    }
+
+    /**
+     * Household directory view — all households paginated, sorted by owner last name.
+     */
+    private function get_household_directory( WP_REST_Request $request, $search, $page, $per ) {
+        global $wpdb;
+
+        $households_table = CD_Database::table( 'households' );
+        $hm_table         = CD_Database::table( 'household_members' );
+        $profiles_table   = CD_Database::table( 'directory_profiles' );
+        $members_table    = CD_Database::table( 'members' );
+
+        $offset = ( $page - 1 ) * $per;
+
+        $where = "h.status = 'active'";
+        $args  = array();
+
+        if ( $search ) {
+            $search_like = '%' . $wpdb->esc_like( $search ) . '%';
+            $where .= ' AND (h.name LIKE %s OR p_head.first_name LIKE %s OR p_head.last_name LIKE %s)';
+            $args[] = $search_like;
+            $args[] = $search_like;
+            $args[] = $search_like;
+        }
+
+        $count_args = $args;
+        $total_query = "SELECT COUNT(*)
+                        FROM {$households_table} h
+                        LEFT JOIN {$hm_table} hm_head ON h.id = hm_head.household_id AND hm_head.role = 'head' AND hm_head.left_at IS NULL
+                        LEFT JOIN {$profiles_table} p_head ON hm_head.member_id = p_head.member_id
+                        WHERE {$where}";
+        if ( ! empty( $count_args ) ) {
+            $total = (int) $wpdb->get_var( $wpdb->prepare( $total_query, $count_args ) );
+        } else {
+            $total = (int) $wpdb->get_var( $total_query );
+        }
+
+        $query = "SELECT h.id, h.name, h.primary_address, h.photo_url, h.photos,
+                         p_head.first_name AS owner_first_name, p_head.last_name AS owner_last_name,
+                         m_head.uuid AS owner_uuid
+                  FROM {$households_table} h
+                  LEFT JOIN {$hm_table} hm_head ON h.id = hm_head.household_id AND hm_head.role = 'head' AND hm_head.left_at IS NULL
+                  LEFT JOIN {$members_table} m_head ON hm_head.member_id = m_head.id
+                  LEFT JOIN {$profiles_table} p_head ON hm_head.member_id = p_head.member_id
+                  WHERE {$where}
+                  ORDER BY p_head.last_name ASC, p_head.first_name ASC, h.name ASC
+                  LIMIT %d OFFSET %d";
+
+        $args[] = $per;
+        $args[] = $offset;
+
+        $hh_rows = $wpdb->get_results( $wpdb->prepare( $query, $args ) );
+
+        $results = array();
+        foreach ( $hh_rows as $hh ) {
+            // Get household members
+            $hh_members = $wpdb->get_results( $wpdb->prepare(
+                "SELECT hm2.role, p.first_name, p.last_name, p.avatar_url, m2.uuid
+                 FROM {$hm_table} hm2
+                 JOIN {$members_table} m2 ON hm2.member_id = m2.id
+                 LEFT JOIN {$profiles_table} p ON hm2.member_id = p.member_id
+                 WHERE hm2.household_id = %d AND hm2.left_at IS NULL
+                 ORDER BY FIELD(hm2.role, 'head', 'spouse', 'child', 'other'), p.first_name ASC",
+                $hh->id
+            ) );
+
+            $hh_member_list = array();
+            foreach ( $hh_members as $hh_m ) {
+                $hh_member_list[] = array(
+                    'uuid'       => $hh_m->uuid,
+                    'first_name' => $hh_m->first_name,
+                    'last_name'  => $hh_m->last_name,
+                    'avatar_url' => $hh_m->avatar_url,
+                    'role'       => $hh_m->role,
+                    'role_label' => CD_API_Households::role_label( $hh_m->role ),
+                );
+            }
+
+            $hh_photos_raw = json_decode( $hh->photos ?? '', true );
+            if ( ! is_array( $hh_photos_raw ) ) {
+                $hh_photos_raw = $hh->photo_url ? array( $hh->photo_url ) : array();
+            }
+            // Normalize to objects (backward compat for legacy string arrays)
+            $hh_photos = array();
+            foreach ( $hh_photos_raw as $p ) {
+                $hh_photos[] = is_string( $p )
+                    ? array( 'url' => $p, 'fx' => 50, 'fy' => 50, 'zoom' => 1.0 )
+                    : array(
+                        'url'  => $p['url'] ?? '',
+                        'fx'   => (float) ( $p['fx'] ?? 50 ),
+                        'fy'   => (float) ( $p['fy'] ?? 50 ),
+                        'zoom' => (float) ( $p['zoom'] ?? 1.0 ),
+                    );
+            }
+            $primary_photo = ! empty( $hh_photos ) ? $hh_photos[0] : null;
+
+            $results[] = array(
+                'id'               => (int) $hh->id,
+                'name'             => $hh->name,
+                'address'          => CD_API_Households::decrypt_address( $hh->primary_address ),
+                'photo_url'        => $primary_photo ? $primary_photo['url'] : '',
+                'photo_fx'         => $primary_photo ? $primary_photo['fx'] : 50,
+                'photo_fy'         => $primary_photo ? $primary_photo['fy'] : 50,
+                'photo_zoom'       => $primary_photo ? $primary_photo['zoom'] : 1.0,
+                'owner_first_name' => $hh->owner_first_name ?: '',
+                'owner_last_name'  => $hh->owner_last_name ?: '',
+                'owner_uuid'       => $hh->owner_uuid ?: '',
+                'members'          => $hh_member_list,
+            );
+        }
+
+        return $this->success( array(
+            'households' => $results,
+            'members'    => array(),
+            'email_obfuscated' => true,
+        ), array(
+            'page'     => $page,
+            'per_page' => $per,
+            'total'    => $total,
+            'pages'    => ceil( $total / $per ),
+        ) );
+    }
+
+    /**
+     * Search households by name — shared by search_directory and household view.
+     */
+    private function search_households( $search ) {
+        global $wpdb;
+
+        $households_table = CD_Database::table( 'households' );
+        $hm_table         = CD_Database::table( 'household_members' );
+        $profiles_table   = CD_Database::table( 'directory_profiles' );
+        $members_table    = CD_Database::table( 'members' );
+
+        $hh_search_like = '%' . $wpdb->esc_like( $search ) . '%';
+        $hh_rows = $wpdb->get_results( $wpdb->prepare(
+            "SELECT h.id, h.name, h.primary_address, h.photo_url, h.photos,
+                    p_head.first_name AS owner_first_name, p_head.last_name AS owner_last_name,
+                    m_head.uuid AS owner_uuid
+             FROM {$households_table} h
+             LEFT JOIN {$hm_table} hm_head ON h.id = hm_head.household_id AND hm_head.role = 'head' AND hm_head.left_at IS NULL
+             LEFT JOIN {$members_table} m_head ON hm_head.member_id = m_head.id
+             LEFT JOIN {$profiles_table} p_head ON hm_head.member_id = p_head.member_id
+             WHERE h.status = 'active' AND h.name LIKE %s
+             ORDER BY h.name ASC
+             LIMIT 10",
+            $hh_search_like
+        ) );
+
+        $results = array();
+        foreach ( $hh_rows as $hh ) {
+            $hh_members = $wpdb->get_results( $wpdb->prepare(
+                "SELECT hm2.role, p.first_name, p.last_name, p.avatar_url, m2.uuid
+                 FROM {$hm_table} hm2
+                 JOIN {$members_table} m2 ON hm2.member_id = m2.id
+                 LEFT JOIN {$profiles_table} p ON hm2.member_id = p.member_id
+                 WHERE hm2.household_id = %d AND hm2.left_at IS NULL
+                 ORDER BY FIELD(hm2.role, 'head', 'spouse', 'child', 'other'), p.first_name ASC",
+                $hh->id
+            ) );
+
+            $hh_member_list = array();
+            foreach ( $hh_members as $hh_m ) {
+                $hh_member_list[] = array(
+                    'uuid'       => $hh_m->uuid,
+                    'first_name' => $hh_m->first_name,
+                    'last_name'  => $hh_m->last_name,
+                    'avatar_url' => $hh_m->avatar_url,
+                    'role'       => $hh_m->role,
+                    'role_label' => CD_API_Households::role_label( $hh_m->role ),
+                );
+            }
+
+            $hh_photos = json_decode( $hh->photos ?? '', true );
+            if ( ! is_array( $hh_photos ) ) {
+                $hh_photos = $hh->photo_url ? array( $hh->photo_url ) : array();
+            }
+
+            $results[] = array(
+                'id'               => (int) $hh->id,
+                'name'             => $hh->name,
+                'address'          => CD_API_Households::decrypt_address( $hh->primary_address ),
+                'photo_url'        => $hh_photos[0] ?? '',
+                'owner_first_name' => $hh->owner_first_name ?: '',
+                'owner_last_name'  => $hh->owner_last_name ?: '',
+                'owner_uuid'       => $hh->owner_uuid ?: '',
+                'members'          => $hh_member_list,
+            );
+        }
+
+        return $results;
+    }
+
+    /**
+     * Get own profile (lightweight — returns preferences and basic info).
+     */
+    public function get_own_profile( WP_REST_Request $request ) {
+        global $wpdb;
+
+        $user_id   = get_current_user_id();
+        $member_id = CD_Members::get_member_id_by_user_id( $user_id );
+
+        if ( ! $member_id ) {
+            return $this->error( 'not_found', __( 'Member record not found.', 'community-directory' ), 404 );
+        }
+
+        $profiles_table = CD_Database::table( 'directory_profiles' );
+        $members_table  = CD_Database::table( 'members' );
+
+        $row = $wpdb->get_row( $wpdb->prepare(
+            "SELECT m.uuid, p.first_name, p.last_name, p.directory_preferences
+             FROM {$members_table} m
+             LEFT JOIN {$profiles_table} p ON m.id = p.member_id
+             WHERE m.id = %d",
+            $member_id
+        ) );
+
+        if ( ! $row ) {
+            return $this->error( 'not_found', __( 'Profile not found.', 'community-directory' ), 404 );
+        }
+
+        return $this->success( array(
+            'uuid'                 => $row->uuid,
+            'first_name'           => $row->first_name,
+            'last_name'            => $row->last_name,
+            'directory_preferences' => json_decode( $row->directory_preferences ?? '', true ) ?: array(),
         ) );
     }
 
@@ -291,6 +506,7 @@ class CD_API_Members extends CD_API_Base {
         $row->social_links     = json_decode( $row->social_links ?? '', true ) ?: array();
         $row->ministry_tags    = json_decode( $row->ministry_tags ?? '', true ) ?: array();
         $row->privacy_settings = json_decode( $row->privacy_settings ?? '', true ) ?: array();
+        $row->directory_preferences = json_decode( $row->directory_preferences ?? '', true ) ?: array();
 
         // Decrypt Encrypted Fields
         if ( ! empty( $row->address_home ) ) {
@@ -341,18 +557,37 @@ class CD_API_Members extends CD_API_Base {
                 $row->state = '';
                 $row->zip = '';
             }
-            if ( ( $privacy['social'] ?? 'hidden' ) === 'hidden' ) {
+            if ( ( $privacy['social'] ?? 'visible' ) === 'hidden' ) {
                 $row->social_links = array();
             }
-            if ( ( $privacy['date_of_birth'] ?? 'hidden' ) === 'hidden' ) {
+            if ( ( $privacy['date_of_birth'] ?? 'visible' ) === 'hidden' ) {
                 $row->date_of_birth = '';
             }
-            if ( ( $privacy['wedding_anniversary'] ?? 'hidden' ) === 'hidden' ) {
+            if ( ( $privacy['wedding_anniversary'] ?? 'visible' ) === 'hidden' ) {
                 $row->wedding_anniversary = '';
+            }
+            if ( ( $privacy['baptism_date'] ?? 'visible' ) === 'hidden' ) {
+                $row->baptism_date = '';
+            }
+            if ( ( $privacy['name_day'] ?? 'visible' ) === 'hidden' ) {
+                $row->name_day = '';
+            }
+            if ( ( $privacy['occupation'] ?? 'visible' ) === 'hidden' ) {
+                $row->occupation = '';
+                $row->employer = '';
+            }
+            if ( ( $privacy['education'] ?? 'visible' ) === 'hidden' ) {
+                $row->school_type = '';
+                $row->school_name = '';
+                $row->major_studies = '';
+                $row->minor_studies = '';
+                $row->graduation_date = '';
             }
             // Emergency contact is always admin-only
             $row->emergency_contact_name = '';
             $row->emergency_contact_phone = '';
+            // Directory preferences are private
+            $row->directory_preferences = array();
         }
 
         // Base64-encode email values for anti-scraping (PRD Section 10.2.4)
@@ -692,7 +927,7 @@ class CD_API_Members extends CD_API_Base {
 
         // Privacy settings
         if ( isset( $params['privacy_settings'] ) && is_array( $params['privacy_settings'] ) ) {
-            $allowed_keys = array( 'email', 'phone', 'address', 'social', 'date_of_birth', 'wedding_anniversary', 'occupation' );
+            $allowed_keys = array( 'email', 'phone', 'address', 'social', 'date_of_birth', 'wedding_anniversary', 'occupation', 'baptism_date', 'name_day', 'education' );
             $clean_privacy = array();
             foreach ( $params['privacy_settings'] as $key => $value ) {
                 if ( in_array( $key, $allowed_keys, true ) ) {
@@ -700,6 +935,30 @@ class CD_API_Members extends CD_API_Base {
                 }
             }
             $data['privacy_settings'] = wp_json_encode( $clean_privacy );
+            $format[] = '%s';
+        }
+
+        // Directory preferences
+        if ( isset( $params['directory_preferences'] ) && is_array( $params['directory_preferences'] ) ) {
+            $allowed_views = array( 'all', 'adults_only', 'children_only', 'primary_only', 'household_view' );
+            $allowed_sorts = array( 'first_name', 'last_name' );
+            $allowed_sections = array( 'all', 'adults', 'children', 'households' );
+            $prefs = array();
+            if ( isset( $params['directory_preferences']['default_view'] ) ) {
+                $view = sanitize_text_field( $params['directory_preferences']['default_view'] );
+                $prefs['default_view'] = in_array( $view, $allowed_views, true ) ? $view : 'adults_only';
+            }
+            if ( isset( $params['directory_preferences']['sort_order'] ) ) {
+                $sort = sanitize_text_field( $params['directory_preferences']['sort_order'] );
+                $prefs['sort_order'] = in_array( $sort, $allowed_sorts, true ) ? $sort : 'last_name';
+            }
+            if ( isset( $params['directory_preferences']['search_sections'] ) && is_array( $params['directory_preferences']['search_sections'] ) ) {
+                $prefs['search_sections'] = array_values( array_filter(
+                    array_map( 'sanitize_text_field', $params['directory_preferences']['search_sections'] ),
+                    function( $s ) use ( $allowed_sections ) { return in_array( $s, $allowed_sections, true ); }
+                ) );
+            }
+            $data['directory_preferences'] = wp_json_encode( $prefs );
             $format[] = '%s';
         }
 

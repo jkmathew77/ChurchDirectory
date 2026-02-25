@@ -204,7 +204,18 @@ class CD_Plugin {
             $wpdb->query( "UPDATE {$hh_table} SET photos = CONCAT('[\"', photo_url, '\"]') WHERE photo_url IS NOT NULL AND photo_url != '' AND (photos IS NULL OR photos = '')" );
         }
 
-        // ── 8) household_members.has_different_address column ──
+        // ── 8) directory_profiles.directory_preferences (JSON) ──
+        $dp_exists = $wpdb->get_var( $wpdb->prepare(
+            "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s AND COLUMN_NAME = 'directory_preferences'",
+            $wpdb->dbname, $profiles_table
+        ) );
+        if ( ! $dp_exists ) {
+            $wpdb->query( "ALTER TABLE {$profiles_table} ADD COLUMN directory_preferences TEXT DEFAULT NULL" );
+            CD_Logger::info( 'DB heal: added column directory_preferences on ' . $profiles_table );
+        }
+
+        // ── 9) household_members.has_different_address column ──
         $hm_table = CD_Database::table( 'household_members' );
         $hm_addr = $wpdb->get_var( $wpdb->prepare(
             "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -292,8 +303,31 @@ class CD_Plugin {
         add_filter( 'body_class', array( $this, 'add_body_classes' ) );
         add_filter( 'document_title_parts', array( $this, 'filter_page_title' ) );
 
+        // Disable WordPress emoji polyfill on community pages.
+        // WP's emoji script replaces Unicode emoji characters (e.g. ⚙ gear, family emoji)
+        // with <img> tags pointing to https://s.w.org — which violates our CSP img-src
+        // directive and breaks icons rendered as Unicode characters in the UI.
+        add_action( 'wp_enqueue_scripts', array( $this, 'disable_wp_emoji_on_community_pages' ) );
+
         // Inject Community link into site navigation
         add_filter( 'wp_nav_menu_items', array( $this, 'inject_community_menu_item' ), 10, 2 );
+    }
+
+    /**
+     * Disable WordPress emoji script on community pages.
+     * Prevents WP from replacing Unicode characters with remote <img> tags from s.w.org.
+     */
+    public function disable_wp_emoji_on_community_pages() {
+        if ( empty( get_query_var( 'cd_page' ) ) ) {
+            return;
+        }
+        remove_action( 'wp_head', 'print_emoji_detection_script', 7 );
+        remove_action( 'wp_print_styles', 'print_emoji_styles' );
+        remove_filter( 'the_content_feed', 'wp_staticize_emoji' );
+        remove_filter( 'comment_text_rss', 'wp_staticize_emoji' );
+        remove_filter( 'wp_mail', 'wp_staticize_emoji_for_email' );
+        wp_deregister_script( 'wp-emoji' );
+        wp_dequeue_script( 'wp-emoji' );
     }
 
     /**
@@ -567,7 +601,7 @@ class CD_Plugin {
             "default-src 'self' data: https://*.google.com https://*.googleapis.com https://*.gstatic.com https://*.wp.com https://*.gravatar.com",
             "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.google.com https://*.googleapis.com https://*.gstatic.com https://*.wp.com",
             "style-src 'self' 'unsafe-inline' https://*.googleapis.com https://*.wp.com https://*.gstatic.com",
-            "img-src 'self' data: blob: https://*.googleusercontent.com https://*.gravatar.com https://*.wp.com https://secure.gravatar.com",
+            "img-src 'self' data: blob: https://*.googleusercontent.com https://*.gravatar.com https://*.wp.com https://secure.gravatar.com https://s.w.org",
             "connect-src 'self' https://accounts.google.com https://*.googleapis.com",
             "frame-src 'self' https://accounts.google.com https://*.google.com https://widgets.wp.com https://wordpress.com https://*.wordpress.com",
             "font-src 'self' data: https://*.gstatic.com https://*.wp.com https://fonts.gstatic.com",
@@ -595,7 +629,7 @@ class CD_Plugin {
      * immediately after community-directory.js to register components.
      */
     public function protect_scripts_from_optimization( $tag, $handle ) {
-        if ( in_array( $handle, array( 'community-directory', 'alpinejs' ), true ) ) {
+        if ( in_array( $handle, array( 'community-directory', 'alpinejs', 'cropperjs' ), true ) ) {
             // data-no-optimize: Autoptimize / LiteSpeed
             // data-cfasync="false": Cloudflare Rocket Loader
             // data-pagespeed-no-defer: PageSpeed
@@ -687,6 +721,23 @@ class CD_Plugin {
         $invite_email = get_query_var( 'cd_invite_email', '' );
         if ( ! empty( $invite_email ) ) {
             wp_add_inline_script( 'community-directory', 'window.cdInviteEmail = ' . wp_json_encode( $invite_email ) . ';', 'before' );
+        }
+
+        // Cropper.js (vendored) — image crop/zoom editor for photo uploads
+        if ( in_array( $page, array( 'profile' ), true ) ) {
+            wp_enqueue_style(
+                'cropperjs',
+                CD_PLUGIN_URL . 'public/css/cropper.min.css',
+                array(),
+                '1.6.2'
+            );
+            wp_enqueue_script(
+                'cropperjs',
+                CD_PLUGIN_URL . 'public/js/cropper.min.js',
+                array(),
+                '1.6.2',
+                true
+            );
         }
 
         // Plugin CSS

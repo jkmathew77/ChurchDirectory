@@ -430,6 +430,32 @@ $nonce    = wp_create_nonce( 'wp_rest' );
             html += '<button type="button" class="button button-small" onclick="addSocialRow(' + row.id + ')">+ Add Profile</button>';
             html += '</div>';
 
+            // Directory Preferences
+            html += '<div style="grid-column: 1 / -1; margin-top:10px;">';
+            html += '<label class="cd-label"><strong>' + esc(<?php echo wp_json_encode( __( 'Directory View Preference', 'community-directory' ) ); ?>) + '</strong></label>';
+            var dpVal = (row.directory_preferences && row.directory_preferences.default_view) ? row.directory_preferences.default_view : 'adults_only';
+            // Migrate old values
+            if (dpVal === 'all_first_name' || dpVal === 'all_last_name') dpVal = 'all';
+            html += '<select id="edit-dir-pref-' + row.id + '" style="width:100%;max-width:300px;">';
+            var dpOpts = [
+                ['all', <?php echo wp_json_encode( __( 'All Members', 'community-directory' ) ); ?>],
+                ['adults_only', <?php echo wp_json_encode( __( 'Adults Only', 'community-directory' ) ); ?>],
+                ['children_only', <?php echo wp_json_encode( __( 'Children & Others', 'community-directory' ) ); ?>],
+                ['primary_only', <?php echo wp_json_encode( __( 'Primary Members Only', 'community-directory' ) ); ?>],
+                ['household_view', <?php echo wp_json_encode( __( 'Household Cards', 'community-directory' ) ); ?>]
+            ];
+            dpOpts.forEach(function(opt) {
+                html += '<option value="' + opt[0] + '" ' + (dpVal === opt[0] ? 'selected' : '') + '>' + esc(opt[1]) + '</option>';
+            });
+            html += '</select>';
+            // Sort order
+            var soVal = (row.directory_preferences && row.directory_preferences.sort_order) ? row.directory_preferences.sort_order : 'last_name';
+            html += '<label class="cd-label" style="margin-top:8px;"><strong>' + esc(<?php echo wp_json_encode( __( 'Sort Order', 'community-directory' ) ); ?>) + '</strong></label>';
+            html += '<select id="edit-dir-sort-' + row.id + '" style="width:100%;max-width:300px;">';
+            html += '<option value="first_name" ' + (soVal === 'first_name' ? 'selected' : '') + '>' + esc(<?php echo wp_json_encode( __( 'First name A-Z', 'community-directory' ) ); ?>) + '</option>';
+            html += '<option value="last_name" ' + (soVal === 'last_name' ? 'selected' : '') + '>' + esc(<?php echo wp_json_encode( __( 'Last name A-Z', 'community-directory' ) ); ?>) + '</option>';
+            html += '</select></div>';
+
         } else {
             html += '<div class="cd-detail-field"><span class="cd-label">DOB:</span> <span class="cd-value">' + esc(row.date_of_birth || '—') + '</span></div>';
             // Removed Name Day view
@@ -448,6 +474,13 @@ $nonce    = wp_create_nonce( 'wp_rest' );
                  }).join(', ');
                  html += '<div class="cd-detail-field" style="grid-column: 1 / -1;"><span class="cd-label">Social:</span> <span class="cd-value">' + linksHtml + '</span></div>';
             }
+            // Directory Preference
+            var dpLabels = { all: 'All Members', adults_only: 'Adults Only', children_only: 'Children & Others', primary_only: 'Primary Only', household_view: 'Household Cards' };
+            var soLabels = { first_name: 'First Name A-Z', last_name: 'Last Name A-Z' };
+            var dpView = (row.directory_preferences && row.directory_preferences.default_view) ? row.directory_preferences.default_view : '—';
+            var soView = (row.directory_preferences && row.directory_preferences.sort_order) ? row.directory_preferences.sort_order : '—';
+            html += '<div class="cd-detail-field"><span class="cd-label">Dir. View:</span> <span class="cd-value">' + esc(dpLabels[dpView] || dpView) + '</span></div>';
+            html += '<div class="cd-detail-field"><span class="cd-label">Sort:</span> <span class="cd-value">' + esc(soLabels[soView] || soView) + '</span></div>';
         }
         html += '</div>';
 
@@ -585,9 +618,15 @@ $nonce    = wp_create_nonce( 'wp_rest' );
              preferred_language: getVal('preferred_language'),
              // avatar_url: getVal('avatar_url'), // Removed
              
-             social_links: socialLinks
+             social_links: socialLinks,
+
+             directory_preferences: {
+                 default_view: (document.getElementById('edit-dir-pref-' + id) || {}).value || 'adults_only',
+                 sort_order: (document.getElementById('edit-dir-sort-' + id) || {}).value || 'last_name',
+                 search_sections: ['all', 'households']
+             }
          };
-         
+
          // Call API
          fetch(API_BASE + '/admin/members/' + id, {
             method: 'PUT',

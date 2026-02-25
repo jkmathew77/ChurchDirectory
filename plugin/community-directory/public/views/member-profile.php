@@ -141,66 +141,8 @@ get_header();
                     </div>
                 </div>
 
-                <!-- Household -->
-                <div class="cd-card" x-show="household">
-                    <h3 class="cd-section-title"><?php esc_html_e( 'Household', 'community-directory' ); ?></h3>
-
-                    <!-- Family Photo Carousel -->
-                    <template x-if="household && household.photos && household.photos.length > 0">
-                        <div class="cd-hh-carousel" x-data="{ current: 0 }">
-                            <div class="cd-hh-carousel-viewport">
-                                <img :src="household.photos[current]" :alt="household.name" class="cd-hh-carousel-img">
-                            </div>
-                            <template x-if="household.photos.length > 1">
-                                <div class="cd-hh-carousel-controls">
-                                    <button type="button" class="cd-hh-carousel-btn" @click="current = (current - 1 + household.photos.length) % household.photos.length" aria-label="<?php esc_attr_e( 'Previous', 'community-directory' ); ?>">&#8249;</button>
-                                    <span class="cd-hh-carousel-counter" x-text="(current + 1) + ' / ' + household.photos.length"></span>
-                                    <button type="button" class="cd-hh-carousel-btn" @click="current = (current + 1) % household.photos.length" aria-label="<?php esc_attr_e( 'Next', 'community-directory' ); ?>">&#8250;</button>
-                                </div>
-                            </template>
-                        </div>
-                    </template>
-
-                    <div class="cd-hh-profile-header">
-                        <span class="cd-hh-profile-name" x-text="household ? household.name : ''"></span>
-                    </div>
-
-                    <!-- Household address (if visible) -->
-                    <template x-if="household && household.address && (household.address.line_1 || household.address.city)">
-                        <p class="cd-text-muted" style="font-size: 0.9em; margin: 4px 0 12px;" x-text="[household.address.line_1, household.address.line_2, [household.address.city, household.address.state, household.address.zip].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
-                    </template>
-
-                    <div class="cd-hh-profile-members">
-                        <template x-for="hm in (household ? household.members : [])" :key="hm.uuid">
-                            <a
-                                :href="hm.is_self ? 'javascript:void(0)' : ('<?php echo esc_url( home_url( $base_slug . '/member/' ) ); ?>' + hm.uuid + '/')"
-                                class="cd-hh-profile-card"
-                                :class="{ 'cd-hh-profile-card-self': hm.is_self }"
-                            >
-                                <div class="cd-hh-profile-card-avatar">
-                                    <template x-if="hm.avatar_url">
-                                        <img :src="hm.avatar_url" :alt="hm.first_name" class="cd-avatar-sm-img">
-                                    </template>
-                                    <template x-if="!hm.avatar_url">
-                                        <div
-                                            class="cd-avatar-sm"
-                                            :style="'background-color: ' + getAvatarColor((hm.first_name || '') + ' ' + (hm.last_name || ''))"
-                                        >
-                                            <span x-text="getInitials(hm.first_name, hm.last_name)"></span>
-                                        </div>
-                                    </template>
-                                </div>
-                                <div class="cd-hh-profile-card-info">
-                                    <span class="cd-hh-profile-card-name" x-text="hm.first_name + ' ' + hm.last_name"></span>
-                                    <span class="cd-badge cd-badge-role-sm" x-text="hm.role_label"></span>
-                                </div>
-                            </a>
-                        </template>
-                    </div>
-                </div>
-
-                <!-- Education (own profile, child role only) -->
-                <div class="cd-card" x-show="isOwnProfile && member.school_type">
+                <!-- Education -->
+                <div class="cd-card" x-show="member.school_type">
                     <h3 class="cd-section-title"><?php esc_html_e( 'Education', 'community-directory' ); ?></h3>
                     <p x-show="member.school_name">
                         <span class="cd-detail-label"><?php esc_html_e( 'School:', 'community-directory' ); ?></span>
@@ -267,8 +209,8 @@ get_header();
                     </div>
                 </div>
 
-                <!-- Personal Dates (own profile or admin only) -->
-                <div class="cd-card" x-show="isOwnProfile && (member.date_of_birth || member.baptism_date || member.name_day || member.wedding_anniversary)">
+                <!-- Personal Dates -->
+                <div class="cd-card" x-show="member.date_of_birth || member.baptism_date || member.name_day || member.wedding_anniversary">
                     <h3 class="cd-section-title"><?php esc_html_e( 'Personal Dates', 'community-directory' ); ?></h3>
                     <p x-show="member.date_of_birth">
                         <span class="cd-detail-label"><?php esc_html_e( 'Birthday:', 'community-directory' ); ?></span>
@@ -286,6 +228,64 @@ get_header();
                         <span class="cd-detail-label"><?php esc_html_e( 'Wedding Anniversary:', 'community-directory' ); ?></span>
                         <span x-text="member.wedding_anniversary"></span>
                     </p>
+                </div>
+
+                <!-- Household -->
+                <div class="cd-card" x-show="household">
+                    <h3 class="cd-section-title"><?php esc_html_e( 'Household', 'community-directory' ); ?></h3>
+
+                    <!-- Family Photo Carousel -->
+                    <template x-if="household && household.photos && household.photos.length > 0">
+                        <div class="cd-hh-carousel" x-data="{ current: 0 }">
+                            <div class="cd-hh-carousel-viewport">
+                                <img :src="household.photos[current]" :alt="household.name" class="cd-hh-carousel-img">
+                            </div>
+                            <template x-if="household.photos.length > 1">
+                                <div class="cd-hh-carousel-controls">
+                                    <button type="button" class="cd-hh-carousel-btn" @click="current = (current - 1 + household.photos.length) % household.photos.length" aria-label="<?php esc_attr_e( 'Previous', 'community-directory' ); ?>">&#8249;</button>
+                                    <span class="cd-hh-carousel-counter" x-text="(current + 1) + ' / ' + household.photos.length"></span>
+                                    <button type="button" class="cd-hh-carousel-btn" @click="current = (current + 1) % household.photos.length" aria-label="<?php esc_attr_e( 'Next', 'community-directory' ); ?>">&#8250;</button>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+
+                    <div class="cd-hh-profile-header">
+                        <span class="cd-hh-profile-name" x-text="household ? household.name : ''"></span>
+                    </div>
+
+                    <!-- Household address (if visible) -->
+                    <template x-if="household && household.address && (household.address.line_1 || household.address.city)">
+                        <p class="cd-text-muted" style="font-size: 0.9em; margin: 4px 0 12px;" x-text="[household.address.line_1, household.address.line_2, [household.address.city, household.address.state, household.address.zip].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
+                    </template>
+
+                    <div class="cd-hh-profile-members">
+                        <template x-for="hm in (household ? household.members : [])" :key="hm.uuid">
+                            <a
+                                :href="hm.is_self ? 'javascript:void(0)' : ('<?php echo esc_url( home_url( $base_slug . '/member/' ) ); ?>' + hm.uuid + '/')"
+                                class="cd-hh-profile-card"
+                                :class="{ 'cd-hh-profile-card-self': hm.is_self }"
+                            >
+                                <div class="cd-hh-profile-card-avatar">
+                                    <template x-if="hm.avatar_url">
+                                        <img :src="hm.avatar_url" :alt="hm.first_name" class="cd-avatar-sm-img">
+                                    </template>
+                                    <template x-if="!hm.avatar_url">
+                                        <div
+                                            class="cd-avatar-sm"
+                                            :style="'background-color: ' + getAvatarColor((hm.first_name || '') + ' ' + (hm.last_name || ''))"
+                                        >
+                                            <span x-text="getInitials(hm.first_name, hm.last_name)"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div class="cd-hh-profile-card-info">
+                                    <span class="cd-hh-profile-card-name" x-text="hm.first_name + ' ' + hm.last_name"></span>
+                                    <span class="cd-badge cd-badge-role-sm" x-text="hm.role_label"></span>
+                                </div>
+                            </a>
+                        </template>
+                    </div>
                 </div>
             </div>
         </template>

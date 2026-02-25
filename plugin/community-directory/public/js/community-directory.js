@@ -159,25 +159,19 @@ document.addEventListener('alpine:init', () => {
         },
 
         async loginWithGoogle() {
-            console.log('CD Debug: loginWithGoogle clicked');
             this.errorMessage = '';
             this.loading = true;
 
             try {
-                console.log('CD Debug: Requesting auth URL from /auth/google');
                 const result = await cdApi.get('/auth/google');
-                console.log('CD Debug: API Response', result);
 
                 if (result.data && result.data.auth_url) {
-                    console.log('CD Debug: Redirecting to', result.data.auth_url);
                     window.location.href = result.data.auth_url;
                 } else {
-                    console.error('CD Debug: No auth_url in response');
                     this.errorMessage = 'Configuration error: No Auth URL returned.';
                     this.loading = false;
                 }
             } catch (err) {
-                console.error('CD Debug: API Error', err);
                 this.errorMessage = err.message;
                 this.loading = false;
             }
@@ -624,6 +618,13 @@ document.addEventListener('alpine:init', () => {
                 waSaving: false,
                 waShowForm: false,
 
+                // Directory preferences state
+                showSettingsModal: false,
+                dirPrefs: { default_view: 'adults_only', sort_order: 'last_name', search_sections: ['all', 'households'] },
+                settingsForm: { default_view: 'adults_only', sort_order: 'last_name', search_sections: ['all', 'households'] },
+                prefsLoading: false,
+                prefsSaving: false,
+
                 init() {
                     // Safety: Force loading to stop after 5s if API hangs
                     setTimeout(() => {
@@ -645,7 +646,7 @@ document.addEventListener('alpine:init', () => {
                         }
                     }
 
-                    this.loadMembers();
+                    this.loadPreferences().then(() => this.loadMembers());
                     this.loadWhatsAppGroups();
 
                     // Officers: fetch pending count + stats on init
@@ -662,7 +663,30 @@ document.addEventListener('alpine:init', () => {
                 async loadMembers() {
                     this.loading = true;
                     try {
+                        // Build API params based on preferences
+                        var prefs = this.dirPrefs;
+                        var sortBy = prefs.sort_order || 'last_name';
+                        var memberFilter = 'all';
+                        var viewMode = 'members';
+
+                        if (!this.searchQuery) {
+                            // Default view determines filter
+                            switch (prefs.default_view) {
+                                case 'all':
+                                    memberFilter = 'all'; break;
+                                case 'adults_only':
+                                    memberFilter = 'adults'; break;
+                                case 'children_only':
+                                    memberFilter = 'children'; break;
+                                case 'primary_only':
+                                    memberFilter = 'primary'; break;
+                                case 'household_view':
+                                    viewMode = 'households'; break;
+                            }
+                        }
+
                         let url = '/directory?page=' + this.page + '&per_page=' + this.perPage;
+                        url += '&sort_by=' + sortBy + '&member_filter=' + memberFilter + '&view_mode=' + viewMode;
                         if (this.searchQuery) {
                             url += '&search=' + encodeURIComponent(this.searchQuery);
                         }
@@ -1093,6 +1117,148 @@ document.addEventListener('alpine:init', () => {
                     }
                 },
 
+                // ── Directory Preferences ──
+
+                async loadPreferences() {
+                    try {
+                        const result = await cdApi.get('/members/me');
+                        var prefs = result.data.directory_preferences;
+                        if (prefs && prefs.default_view) {
+                            // Migrate old all_first_name/all_last_name values
+                            var dv = prefs.default_view;
+                            var so = prefs.sort_order || 'last_name';
+                            if (dv === 'all_first_name') { dv = 'all'; so = 'first_name'; }
+                            if (dv === 'all_last_name') { dv = 'all'; so = 'last_name'; }
+                            this.dirPrefs = {
+                                default_view: dv,
+                                sort_order: so,
+                                search_sections: Array.isArray(prefs.search_sections) ? prefs.search_sections : ['all', 'households']
+                            };
+                        }
+                    } catch (err) {
+                        console.warn('CD: Could not load preferences', err);
+                    }
+                },
+
+                async savePreferences() {
+                    this.prefsSaving = true;
+                    try {
+                        await cdApi.put('/members/me', {
+                            directory_preferences: {
+                                default_view: this.settingsForm.default_view,
+                                sort_order: this.settingsForm.sort_order,
+                                search_sections: this.settingsForm.search_sections
+                            }
+                        });
+                        // Apply to live state
+                        this.dirPrefs = {
+                            default_view: this.settingsForm.default_view,
+                            sort_order: this.settingsForm.sort_order,
+                            search_sections: [...this.settingsForm.search_sections]
+                        };
+                        this.showSettingsModal = false;
+                        this.page = 1;
+                        this.loadMembers();
+                    } catch (err) {
+                        alert('Error saving preferences: ' + err.message);
+                    } finally {
+                        this.prefsSaving = false;
+                    }
+                },
+
+                openSettings() {
+                    this.settingsForm = {
+                        default_view: this.dirPrefs.default_view,
+                        sort_order: this.dirPrefs.sort_order || 'last_name',
+                        search_sections: [...this.dirPrefs.search_sections]
+                    };
+                    this.showSettingsModal = true;
+                },
+
+                viewLabel() {
+                    var labels = {
+                        all: 'All Members',
+                        adults_only: 'Adults Only',
+                        children_only: 'Children & Others',
+                        primary_only: 'Primary Members Only',
+                        household_view: 'Household View'
+                    };
+                    var sortLabels = { first_name: 'First Name A-Z', last_name: 'Last Name A-Z' };
+                    var view = labels[this.dirPrefs.default_view] || 'Directory';
+                    var sort = sortLabels[this.dirPrefs.sort_order] || '';
+                    return sort ? view + ' \u00B7 ' + sort : view;
+                },
+
+                sectionLabel(section) {
+                    var labels = {
+                        all: 'All Members',
+                        adults: 'Adults Only',
+                        children: 'Children & Others',
+                        households: 'Households'
+                    };
+                    return labels[section] || section;
+                },
+
+                getVisibleSections() {
+                    if (this.searchQuery) {
+                        // During search, use search_sections preference
+                        return this.dirPrefs.search_sections || ['all', 'households'];
+                    }
+                    // Default view: show single section
+                    var view = this.dirPrefs.default_view;
+                    if (view === 'household_view') return ['households'];
+                    return ['all'];
+                },
+
+                getMembersForSection(section) {
+                    if (section === 'households') return []; // handled by households array
+                    if (!this.searchQuery) return this.members; // API already filtered
+                    // During search, filter client-side by section
+                    if (section === 'all') return this.members;
+                    if (section === 'adults') {
+                        return this.members.filter(function (m) {
+                            return !m.household_role || m.household_role === 'head' || m.household_role === 'spouse';
+                        });
+                    }
+                    if (section === 'children') {
+                        return this.members.filter(function (m) {
+                            return m.household_role === 'child' || m.household_role === 'other';
+                        });
+                    }
+                    return this.members;
+                },
+
+                sectionTitle(section) {
+                    return this.sectionLabel(section);
+                },
+
+                moveSection(idx, direction) {
+                    var arr = this.settingsForm.search_sections;
+                    var newIdx = idx + direction;
+                    if (newIdx < 0 || newIdx >= arr.length) return;
+                    var temp = arr[idx];
+                    arr[idx] = arr[newIdx];
+                    arr[newIdx] = temp;
+                    this.settingsForm.search_sections = [...arr];
+                },
+
+                removeSection(section) {
+                    this.settingsForm.search_sections = this.settingsForm.search_sections.filter(function (s) { return s !== section; });
+                },
+
+                addSection(section) {
+                    if (!section) return;
+                    if (this.settingsForm.search_sections.indexOf(section) === -1) {
+                        this.settingsForm.search_sections = [...this.settingsForm.search_sections, section];
+                    }
+                },
+
+                availableSections() {
+                    var all = ['all', 'adults', 'children', 'households'];
+                    var current = this.settingsForm.search_sections;
+                    return all.filter(function (s) { return current.indexOf(s) === -1; });
+                },
+
                 // ── Shared Helpers ──
 
                 formatAppStatus(status) {
@@ -1141,17 +1307,32 @@ document.addEventListener('alpine:init', () => {
                 waLoading: false,
                 waShowForm: false,
                 waForm: {},
+                showSettingsModal: false,
+                dirPrefs: { default_view: 'adults_only', sort_order: 'last_name', search_sections: ['all', 'households'] },
+                settingsForm: { default_view: 'adults_only', sort_order: 'last_name', search_sections: ['all', 'households'] },
+                prefsSaving: false,
                 getError() { return 'Application error: ' + e.message; },
                 displayName() { return 'Error'; },
                 getAvatarColor() { return '#ccc'; },
                 getInitials() { return '!!'; },
                 hasActiveFilters() { return false; },
-                switchTab() {},
-                switchAdminSection() {},
+                switchTab() { },
+                switchAdminSection() { },
                 formatAppStatus() { return ''; },
                 formatDate() { return ''; },
                 regStatusLabel() { return ''; },
-                regStatusClass() { return ''; }
+                regStatusClass() { return ''; },
+                viewLabel() { return 'Directory'; },
+                getVisibleSections() { return ['all']; },
+                getMembersForSection() { return []; },
+                sectionTitle() { return ''; },
+                sectionLabel() { return ''; },
+                openSettings() { },
+                savePreferences() { },
+                moveSection() { },
+                removeSection() { },
+                addSection() { },
+                availableSections() { return []; }
             };
         }
     });
@@ -1258,9 +1439,13 @@ document.addEventListener('alpine:init', () => {
                 email: 'visible',
                 phone: 'visible',
                 address: 'visible',
-                social: 'hidden',
-                date_of_birth: 'hidden',
-                wedding_anniversary: 'hidden',
+                social: 'visible',
+                date_of_birth: 'visible',
+                wedding_anniversary: 'visible',
+                baptism_date: 'visible',
+                name_day: 'visible',
+                occupation: 'visible',
+                education: 'visible',
             },
         },
         loading: true,
@@ -1297,7 +1482,8 @@ document.addEventListener('alpine:init', () => {
         showEditMember: false,
         editMemberLoading: false,
         editMemberSaving: false,
-        editMemberForm: { member_id: null, first_name: '', last_name: '', salutation: '', email: '', phone: '', date_of_birth: '', occupation: '', employer: '' },
+        editMemberForm: { member_id: null, first_name: '', last_name: '', salutation: '', email: '', phone: '', date_of_birth: '', occupation: '', employer: '', avatar_url: '' },
+        editMemberPhotoUploading: false,
 
         // Lifecycle state
         showLeaveConfirm: false,
@@ -1312,6 +1498,34 @@ document.addEventListener('alpine:init', () => {
         mergeTargetHouseholdId: '',
         mergeSearching: false,
         deletionReason: '',
+
+        // Photo position editor state
+        hhPhotoEditor: {
+            open: false,
+            url: null,
+            fx: 50,
+            fy: 50,
+            zoom: 1.0,
+            saving: false,
+            _dragging: false,
+            _lastX: 0,
+            _lastY: 0,
+        },
+
+        // Image cropper state
+        cropModal: {
+            show: false,
+            cropper: null,
+            imageUrl: '',
+            aspectRatio: 1,
+            uploadContext: null,
+            memberId: null,
+            uploading: false,
+            error: '',
+            zoomLevel: 0,
+            originalFile: null,
+            maxOutputSize: 1200,
+        },
 
         async init() {
             const uuid = cdConfig.currentMemberUuid;
@@ -1370,7 +1584,7 @@ document.addEventListener('alpine:init', () => {
                 this.householdRole = result.data.household_role || null;
 
                 // Load privacy settings with defaults
-                const defaults = { email: 'visible', phone: 'visible', address: 'visible', social: 'hidden', date_of_birth: 'hidden', wedding_anniversary: 'hidden' };
+                const defaults = { email: 'visible', phone: 'visible', address: 'visible', social: 'visible', date_of_birth: 'visible', wedding_anniversary: 'visible', baptism_date: 'visible', name_day: 'visible', occupation: 'visible', education: 'visible' };
                 const saved = (typeof data.privacy_settings === 'object' && data.privacy_settings) ? data.privacy_settings : {};
                 this.form.privacy_settings = { ...defaults, ...saved };
 
@@ -1423,42 +1637,190 @@ document.addEventListener('alpine:init', () => {
             this.form.social_links.splice(index, 1);
         },
 
+        // ── Image Crop Methods ──
+
+        openCropModal(file, context, options) {
+            options = options || {};
+            if (this.cropModal.imageUrl) {
+                URL.revokeObjectURL(this.cropModal.imageUrl);
+            }
+            if (this.cropModal.cropper) {
+                this.cropModal.cropper.destroy();
+                this.cropModal.cropper = null;
+            }
+            this.cropModal.imageUrl = URL.createObjectURL(file);
+            this.cropModal.uploadContext = context;
+            this.cropModal.aspectRatio = options.aspectRatio !== undefined ? options.aspectRatio : 1;
+            this.cropModal.memberId = options.memberId || null;
+            this.cropModal.uploading = false;
+            this.cropModal.error = '';
+            this.cropModal.zoomLevel = 0;
+            this.cropModal.originalFile = file;
+            this.cropModal.show = true;
+        },
+
+        initCropper() {
+            var img = this.$refs.cropImage;
+            if (!img) return;
+            if (this.cropModal.cropper) {
+                this.cropModal.cropper.destroy();
+            }
+            this.cropModal.cropper = new Cropper(img, {
+                aspectRatio: this.cropModal.aspectRatio,
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 0.85,
+                responsive: true,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: false,
+                cropBoxMovable: true,
+                cropBoxResizable: true,
+                toggleDragModeOnDblclick: false,
+                rotatable: true,
+                scalable: true,
+                zoomable: true,
+                zoomOnTouch: true,
+                zoomOnWheel: true,
+                wheelZoomRatio: 0.1,
+                minContainerWidth: 200,
+                minContainerHeight: 200,
+            });
+        },
+
+        cancelCrop() {
+            if (this.cropModal.cropper) {
+                this.cropModal.cropper.destroy();
+                this.cropModal.cropper = null;
+            }
+            if (this.cropModal.imageUrl) {
+                URL.revokeObjectURL(this.cropModal.imageUrl);
+            }
+            this.cropModal.show = false;
+            this.cropModal.imageUrl = '';
+            this.cropModal.originalFile = null;
+            this.cropModal.error = '';
+        },
+
+        async confirmCrop() {
+            if (!this.cropModal.cropper) return;
+            this.cropModal.uploading = true;
+            this.cropModal.error = '';
+
+            try {
+                var maxSize = this.cropModal.maxOutputSize;
+                var cropData = this.cropModal.cropper.getData();
+                var outputWidth = Math.round(cropData.width);
+                var outputHeight = Math.round(cropData.height);
+
+                if (outputWidth > maxSize || outputHeight > maxSize) {
+                    var scale = maxSize / Math.max(outputWidth, outputHeight);
+                    outputWidth = Math.round(outputWidth * scale);
+                    outputHeight = Math.round(outputHeight * scale);
+                }
+
+                var canvas = this.cropModal.cropper.getCroppedCanvas({
+                    width: outputWidth,
+                    height: outputHeight,
+                    imageSmoothingEnabled: true,
+                    imageSmoothingQuality: 'high',
+                    fillColor: '#ffffff',
+                });
+
+                if (!canvas) {
+                    this.cropModal.error = 'Failed to create cropped image.';
+                    this.cropModal.uploading = false;
+                    return;
+                }
+
+                var blob = await new Promise(function (resolve, reject) {
+                    canvas.toBlob(
+                        function (b) { b ? resolve(b) : reject(new Error('Failed to create image.')); },
+                        'image/jpeg', 0.9
+                    );
+                });
+
+                var originalName = (this.cropModal.originalFile && this.cropModal.originalFile.name) || 'photo.jpg';
+                var fileName = originalName.replace(/\.[^.]+$/, '') + '-cropped.jpg';
+                var formData = new FormData();
+                formData.append('file', blob, fileName);
+
+                var ctx = this.cropModal.uploadContext;
+                var url;
+                if (ctx === 'avatar' || ctx === 'camera') {
+                    url = cdConfig.apiUrl + '/members/avatar';
+                } else if (ctx === 'household') {
+                    url = cdConfig.apiUrl + '/members/me/household/photo';
+                } else if (ctx === 'editMember') {
+                    url = cdConfig.apiUrl + '/members/me/household/members/' + this.cropModal.memberId + '/avatar';
+                }
+
+                var response = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'X-WP-Nonce': cdConfig.nonce },
+                    credentials: 'same-origin',
+                    body: formData,
+                });
+
+                var responseData = await response.json();
+                if (!response.ok) {
+                    throw new Error(responseData.message || responseData.error?.message || 'Upload failed (HTTP ' + response.status + ')');
+                }
+
+                // Route success handling by context
+                if (ctx === 'avatar' || ctx === 'camera') {
+                    if (responseData.data && responseData.data.url) {
+                        this.form.avatar_url = responseData.data.url;
+                        this.successMessage = ctx === 'camera' ? 'Photo captured and uploaded.' : 'Avatar uploaded successfully.';
+                    }
+                } else if (ctx === 'household') {
+                    if (responseData.data && responseData.data.photos) {
+                        this.household.photos = responseData.data.photos;
+                        this.household.photo_url = responseData.data.photos[0] || '';
+                        this.householdMessage = responseData.data.message || 'Family photo uploaded.';
+                    }
+                } else if (ctx === 'editMember') {
+                    if (responseData.data && responseData.data.url) {
+                        this.editMemberForm.avatar_url = responseData.data.url;
+                        this.householdMessage = responseData.data.message || 'Photo uploaded.';
+                    }
+                }
+
+                this.cancelCrop();
+            } catch (err) {
+                this.cropModal.error = err.message || 'Upload failed. Please try again.';
+            } finally {
+                this.cropModal.uploading = false;
+            }
+        },
+
+        cropZoom(delta) {
+            if (this.cropModal.cropper) this.cropModal.cropper.zoom(delta);
+        },
+
+        cropZoomTo(value) {
+            if (this.cropModal.cropper) this.cropModal.cropper.zoomTo(Math.pow(2, parseFloat(value)));
+        },
+
+        cropRotate(degrees) {
+            if (this.cropModal.cropper) this.cropModal.cropper.rotate(degrees);
+        },
+
+        cropReset() {
+            if (this.cropModal.cropper) {
+                this.cropModal.cropper.reset();
+                this.cropModal.zoomLevel = 0;
+            }
+        },
+
+        // ── Photo Upload Entry Points ──
+
         uploadAvatar(event) {
             const file = event.target.files[0];
             if (!file) return;
-
-            this.uploadingAvatar = true;
-            const formData = new FormData();
-            formData.append('file', file);
-
-            // Use fetch directly for file upload to handle FormData correctly if cdApi wrapper doesn't support it easily
-            // But cdApi should support it if we pass body as FormData.
-            // Let's use cdApi.request with custom options
-
-            const url = cdConfig.apiUrl + '/members/avatar';
-
-            fetch(url, {
-                method: 'POST',
-                headers: {
-                    'X-WP-Nonce': cdConfig.nonce,
-                },
-                body: formData
-            })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.data && data.data.url) {
-                        this.form.avatar_url = data.data.url;
-                        this.successMessage = 'Avatar uploaded successfully.';
-                    } else {
-                        throw new Error(data.message || 'Upload failed');
-                    }
-                })
-                .catch(err => {
-                    this.errorMessage = err.message;
-                })
-                .finally(() => {
-                    this.uploadingAvatar = false;
-                });
+            event.target.value = '';
+            this.openCropModal(file, 'avatar', { aspectRatio: 1 });
         },
 
         async deleteAvatar() {
@@ -1540,57 +1902,26 @@ document.addEventListener('alpine:init', () => {
                 return;
             }
 
-            // Ensure video has actual dimensions (stream is playing)
             if (!video.videoWidth || !video.videoHeight) {
                 this.errorMessage = 'Camera not ready yet. Please wait a moment and try again.';
                 return;
             }
 
-            // Square crop: use the smaller dimension
-            const size = Math.min(video.videoWidth, video.videoHeight);
-            canvas.width = size;
-            canvas.height = size;
+            // Capture full frame — let crop modal handle framing
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
             const ctx = canvas.getContext('2d');
-            const sx = (video.videoWidth - size) / 2;
-            const sy = (video.videoHeight - size) / 2;
-            ctx.drawImage(video, sx, sy, size, size, 0, 0, size, size);
+            ctx.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
 
-            // Stop camera AFTER drawing to canvas (canvas is outside x-if now, so it persists)
             this.stopCamera();
 
-            // Convert canvas to blob and upload
             canvas.toBlob((blob) => {
                 if (!blob) {
                     this.errorMessage = 'Failed to capture photo. Please try again.';
                     return;
                 }
-                this.uploadingAvatar = true;
-                const formData = new FormData();
-                formData.append('file', blob, 'camera-photo.jpg');
-
-                const url = cdConfig.apiUrl + '/members/avatar';
-                fetch(url, {
-                    method: 'POST',
-                    headers: { 'X-WP-Nonce': cdConfig.nonce },
-                    credentials: 'same-origin',
-                    body: formData,
-                })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.data && data.data.url) {
-                            this.form.avatar_url = data.data.url;
-                            this.successMessage = 'Photo captured and uploaded.';
-                        } else {
-                            throw new Error(data.message || data.error?.message || 'Upload failed');
-                        }
-                    })
-                    .catch(err => {
-                        this.errorMessage = err.message;
-                    })
-                    .finally(() => {
-                        this.uploadingAvatar = false;
-                    });
-            }, 'image/jpeg', 0.9);
+                this.openCropModal(blob, 'camera', { aspectRatio: 1 });
+            }, 'image/jpeg', 0.92);
         },
 
         stopCamera() {
@@ -1668,67 +1999,18 @@ document.addEventListener('alpine:init', () => {
             this.ecResults = [];
         },
 
-        // Household photo upload (multi-photo: appends to photos array)
+        // Household photo upload (multi-photo: opens crop modal with free aspect)
         uploadHouseholdPhoto(event) {
             const file = event.target.files[0];
             if (!file) return;
+            event.target.value = '';
 
-            // Check limit client-side
             if (this.household.photos && this.household.photos.length >= 10) {
                 this.householdError = 'Maximum 10 photos allowed. Delete one to add another.';
                 return;
             }
 
-            this.uploadingHouseholdPhoto = true;
-            this.householdError = '';
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            fetch(cdConfig.apiUrl + '/members/me/household/photo', {
-                method: 'POST',
-                headers: { 'X-WP-Nonce': cdConfig.nonce },
-                credentials: 'same-origin',
-                body: formData,
-            })
-                .then(r => {
-                    if (!r.ok) {
-                        return r.text().then(text => {
-                            try {
-                                const json = JSON.parse(text);
-                                throw new Error(json.error?.message || json.message || 'Upload failed (HTTP ' + r.status + ')');
-                            } catch (e) {
-                                if (e.message && !e.message.startsWith('Unexpected')) throw e;
-                                throw new Error('Upload failed — server returned HTTP ' + r.status);
-                            }
-                        });
-                    }
-                    return r.json();
-                })
-                .then(data => {
-                    if (!data) return; // error path already threw
-                    if (data.data && data.data.photos) {
-                        this.household.photos = data.data.photos;
-                        this.household.photo_url = data.data.photos[0] || '';
-                        this.householdMessage = data.data.message || 'Family photo uploaded.';
-                    } else if (data.data && data.data.url) {
-                        // Backwards compat: old API returned single url
-                        if (!this.household.photos) this.household.photos = [];
-                        this.household.photos.push(data.data.url);
-                        this.household.photo_url = this.household.photos[0] || '';
-                        this.householdMessage = data.data.message || 'Family photo uploaded.';
-                    } else {
-                        throw new Error((data.error && data.error.message) || data.message || 'Upload failed');
-                    }
-                })
-                .catch(err => {
-                    this.householdError = err.message || 'Upload failed. Please try again.';
-                })
-                .finally(() => {
-                    this.uploadingHouseholdPhoto = false;
-                    // Reset file input so the same file can be re-selected
-                    if (event.target) event.target.value = '';
-                });
+            this.openCropModal(file, 'household', { aspectRatio: NaN });
         },
 
         async deleteHouseholdPhoto(photoUrl) {
@@ -1740,16 +2022,92 @@ document.addEventListener('alpine:init', () => {
                     method: 'DELETE',
                     body: JSON.stringify({ photo_url: photoUrl }),
                 });
-                // Remove from local array
+                // Remove from local array (handle new object format)
                 if (this.household.photos) {
-                    this.household.photos = this.household.photos.filter(p => p !== photoUrl);
-                    this.household.photo_url = this.household.photos[0] || '';
+                    this.household.photos = this.household.photos.filter(p =>
+                        (typeof p === 'object' ? p.url : p) !== photoUrl
+                    );
+                    const firstPhoto = this.household.photos[0];
+                    this.household.photo_url = firstPhoto
+                        ? (typeof firstPhoto === 'object' ? firstPhoto.url : firstPhoto)
+                        : '';
                 }
                 this.householdMessage = 'Family photo removed.';
             } catch (err) {
                 this.householdError = err.message;
             } finally {
                 this.uploadingHouseholdPhoto = false;
+            }
+        },
+
+        // Photo position editor
+        openPhotoEditor(photo) {
+            // photo may be an object {url, fx, fy, zoom} or legacy string
+            const p = typeof photo === 'object' ? photo : { url: photo, fx: 50, fy: 50, zoom: 1.0 };
+            this.hhPhotoEditor.url = p.url;
+            this.hhPhotoEditor.fx = p.fx ?? 50;
+            this.hhPhotoEditor.fy = p.fy ?? 50;
+            this.hhPhotoEditor.zoom = p.zoom ?? 1.0;
+            this.hhPhotoEditor.saving = false;
+            this.hhPhotoEditor.open = true;
+        },
+
+        hhEditorDragStart(e) {
+            this.hhPhotoEditor._dragging = true;
+            const pos = e.touches ? e.touches[0] : e;
+            this.hhPhotoEditor._lastX = pos.clientX;
+            this.hhPhotoEditor._lastY = pos.clientY;
+        },
+
+        hhEditorDragMove(e) {
+            if (!this.hhPhotoEditor._dragging) return;
+            const pos = e.touches ? e.touches[0] : e;
+            const dx = pos.clientX - this.hhPhotoEditor._lastX;
+            const dy = pos.clientY - this.hhPhotoEditor._lastY;
+            this.hhPhotoEditor._lastX = pos.clientX;
+            this.hhPhotoEditor._lastY = pos.clientY;
+
+            const el = document.getElementById('cd-photo-editor-preview');
+            if (!el) return;
+            const rect = el.getBoundingClientRect();
+
+            // Convert pixel delta to percentage of the container, reversed (drag right → focal moves right)
+            const pctX = (dx / rect.width) * 100;
+            const pctY = (dy / rect.height) * 100;
+
+            this.hhPhotoEditor.fx = Math.max(0, Math.min(100, this.hhPhotoEditor.fx - pctX));
+            this.hhPhotoEditor.fy = Math.max(0, Math.min(100, this.hhPhotoEditor.fy - pctY));
+        },
+
+        hhEditorDragEnd() {
+            this.hhPhotoEditor._dragging = false;
+        },
+
+        async savePhotoPosition() {
+            this.hhPhotoEditor.saving = true;
+            this.householdError = '';
+            try {
+                const result = await cdApi.request('/members/me/household/photo-position', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                        url: this.hhPhotoEditor.url,
+                        fx: parseFloat(this.hhPhotoEditor.fx),
+                        fy: parseFloat(this.hhPhotoEditor.fy),
+                        zoom: parseFloat(this.hhPhotoEditor.zoom),
+                    }),
+                });
+                // Update local household photos array with new positions
+                if (result.data && result.data.photos) {
+                    this.household.photos = result.data.photos;
+                    const first = this.household.photos[0];
+                    this.household.photo_url = first ? (typeof first === 'object' ? first.url : first) : '';
+                }
+                this.hhPhotoEditor.open = false;
+                this.householdMessage = 'Photo position saved.';
+            } catch (err) {
+                this.householdError = err.message || 'Failed to save position.';
+            } finally {
+                this.hhPhotoEditor.saving = false;
             }
         },
 
@@ -1792,9 +2150,11 @@ document.addEventListener('alpine:init', () => {
                 this.household = result.data.household || null;
                 if (this.household) {
                     this.hasDifferentAddress = this.household.has_different_address || false;
-                    // Ensure photos is always an array
+                    // Ensure photos is always an array; don't coerce objects to strings
                     if (!Array.isArray(this.household.photos)) {
-                        this.household.photos = this.household.photo_url ? [this.household.photo_url] : [];
+                        this.household.photos = this.household.photo_url
+                            ? [{ url: this.household.photo_url, fx: 50, fy: 50, zoom: 1.0 }]
+                            : [];
                     }
                 }
             } catch (err) {
@@ -1914,6 +2274,7 @@ document.addEventListener('alpine:init', () => {
                     date_of_birth: m.date_of_birth || '',
                     occupation: m.occupation || '',
                     employer: m.employer || '',
+                    avatar_url: m.avatar_url || '',
                 };
             } catch (err) {
                 this.householdError = err.message;
@@ -1953,6 +2314,15 @@ document.addEventListener('alpine:init', () => {
             } finally {
                 this.editMemberSaving = false;
             }
+        },
+
+        uploadEditMemberPhoto(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const memberId = this.editMemberForm.member_id;
+            if (!memberId) return;
+            event.target.value = '';
+            this.openCropModal(file, 'editMember', { aspectRatio: 1, memberId: memberId });
         },
 
         // ── Lifecycle Methods ──
@@ -2104,10 +2474,12 @@ document.addEventListener('alpine:init', () => {
             this.errorMessage = '';
             this.successMessage = '';
 
-            // Validate at least one email
+            const isHeadOrSpouse = this.householdRole === 'head' || this.householdRole === 'spouse';
+
+            // Validate email — required for head/spouse only
             const validEmails = this.form.emails.filter(e => e.value.trim() !== '');
-            if (validEmails.length === 0) {
-                this.errorMessage = 'Please provide at least one email address.';
+            if (isHeadOrSpouse && validEmails.length === 0) {
+                this.errorMessage = 'Primary membership holders and spouses must provide at least one email address.';
                 window.scrollTo({ top: 0, behavior: 'smooth' });
                 return;
             }
@@ -2119,6 +2491,14 @@ document.addEventListener('alpine:init', () => {
                     window.scrollTo({ top: 0, behavior: 'smooth' });
                     return;
                 }
+            }
+
+            // Validate phone — required for head/spouse only
+            const validPhones = this.form.phones.filter(p => p.value.trim() !== '');
+            if (isHeadOrSpouse && validPhones.length === 0) {
+                this.errorMessage = 'Primary membership holders and spouses must provide at least one phone number.';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+                return;
             }
 
             this.saving = true;

@@ -42,10 +42,10 @@ get_header();
                 </div>
 
                 <!-- Error Message -->
-                <div x-show="errorMessage" class="cd-alert cd-alert-error" x-text="errorMessage" style="display:none;"></div>
+                <div x-show="errorMessage" x-cloak class="cd-alert cd-alert-error" x-text="errorMessage"></div>
 
                 <!-- Success Message -->
-                <div x-show="successMessage" class="cd-alert cd-alert-success" x-text="successMessage" style="display:none;"></div>
+                <div x-show="successMessage" x-cloak class="cd-alert cd-alert-success" x-text="successMessage"></div>
 
                 <!-- Edit Form -->
                 <form x-show="!loading" @submit.prevent="saveProfile" class="cd-form-responsive">
@@ -137,7 +137,13 @@ get_header();
 
                         <!-- Emails -->
                         <div class="cd-form-group">
-                            <label class="cd-label"><?php esc_html_e( 'Email Addresses', 'community-directory' ); ?></label>
+                            <label class="cd-label">
+                                <?php esc_html_e( 'Email Addresses', 'community-directory' ); ?>
+                                <template x-if="householdRole === 'head' || householdRole === 'spouse'"> <span class="cd-required"> *</span></template>
+                            </label>
+                            <template x-if="householdRole === 'head' || householdRole === 'spouse'">
+                                <p class="cd-field-hint"><?php esc_html_e( 'Required for primary members and spouses.', 'community-directory' ); ?></p>
+                            </template>
                             <template x-for="(email, index) in form.emails" :key="index">
                                 <div class="cd-dynamic-row">
                                     <input type="email" class="cd-input" x-model="email.value" placeholder="email@example.com">
@@ -155,7 +161,13 @@ get_header();
 
                         <!-- Phones -->
                         <div class="cd-form-group">
-                            <label class="cd-label"><?php esc_html_e( 'Phone Numbers', 'community-directory' ); ?></label>
+                            <label class="cd-label">
+                                <?php esc_html_e( 'Phone Numbers', 'community-directory' ); ?>
+                                <template x-if="householdRole === 'head' || householdRole === 'spouse'"> <span class="cd-required"> *</span></template>
+                            </label>
+                            <template x-if="householdRole === 'head' || householdRole === 'spouse'">
+                                <p class="cd-field-hint"><?php esc_html_e( 'Required for primary members and spouses.', 'community-directory' ); ?></p>
+                            </template>
                             <template x-for="(phone, index) in form.phones" :key="index">
                                 <div class="cd-dynamic-row">
                                     <input type="tel" class="cd-input" x-model="phone.value" placeholder="(555) 123-4567">
@@ -478,9 +490,15 @@ get_header();
                                     <div class="cd-hh-photo-grid">
                                         <template x-for="(photo, idx) in household.photos" :key="'hp-'+idx">
                                             <div class="cd-hh-photo-thumb">
-                                                <img :src="photo" alt="<?php esc_attr_e( 'Family Photo', 'community-directory' ); ?>" class="cd-hh-photo-thumb-img">
+                                                <img :src="photo.url" alt="<?php esc_attr_e( 'Family Photo', 'community-directory' ); ?>" class="cd-hh-photo-thumb-img"
+                                                     :style="'object-position: ' + (photo.fx ?? 50) + '% ' + (photo.fy ?? 50) + '%; transform: scale(' + (photo.zoom ?? 1) + '); transform-origin: ' + (photo.fx ?? 50) + '% ' + (photo.fy ?? 50) + '%'">
                                                 <template x-if="household.can_manage">
-                                                    <button type="button" class="cd-hh-photo-delete" @click="deleteHouseholdPhoto(photo)" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">&times;</button>
+                                                    <div class="cd-hh-photo-thumb-actions">
+                                                        <button type="button" class="cd-hh-photo-adjust" @click.prevent="openPhotoEditor(photo)" title="<?php esc_attr_e( 'Adjust Position', 'community-directory' ); ?>">
+                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                                                        </button>
+                                                        <button type="button" class="cd-hh-photo-delete" @click.prevent="deleteHouseholdPhoto(photo.url)" title="<?php esc_attr_e( 'Remove', 'community-directory' ); ?>">&times;</button>
+                                                    </div>
                                                 </template>
                                             </div>
                                         </template>
@@ -744,6 +762,26 @@ get_header();
                 </template>
                 <template x-if="!editMemberLoading">
                     <div>
+                        <!-- Member Photo -->
+                        <div class="cd-form-group" style="text-align: center; margin-bottom: 16px;">
+                            <template x-if="editMemberForm.avatar_url">
+                                <img :src="editMemberForm.avatar_url" alt="Photo" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; margin-bottom: 8px;">
+                            </template>
+                            <template x-if="!editMemberForm.avatar_url">
+                                <div class="cd-avatar-preview cd-avatar-initials" style="width: 100px; height: 100px; margin: 0 auto 8px; font-size: 2rem;" :style="'background-color: ' + getAvatarColor(editMemberForm.first_name + ' ' + editMemberForm.last_name)">
+                                    <span x-text="getInitials(editMemberForm.first_name, editMemberForm.last_name)"></span>
+                                </div>
+                            </template>
+                            <div>
+                                <label class="cd-btn cd-btn-sm cd-btn-secondary" :class="{ 'cd-btn-disabled': editMemberPhotoUploading }" style="cursor: pointer;">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: -2px;"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                                    <?php esc_html_e( 'Upload Photo', 'community-directory' ); ?>
+                                    <input type="file" @change="uploadEditMemberPhoto" accept="image/*" style="display:none;" :disabled="editMemberPhotoUploading">
+                                </label>
+                                <span x-show="editMemberPhotoUploading" class="cd-spinner-sm" style="margin-left: 6px;"></span>
+                            </div>
+                        </div>
+
                         <div class="cd-form-group">
                             <label class="cd-label"><?php esc_html_e( 'Salutation', 'community-directory' ); ?></label>
                             <select class="cd-select" x-model="editMemberForm.salutation">
@@ -983,39 +1021,150 @@ get_header();
                 <p class="cd-text-muted"><?php esc_html_e( 'Select which information is visible to other members. Checked = Visible.', 'community-directory' ); ?></p>
                 
                 <div class="cd-privacy-options">
-                    <label class="cd-checkbox-label">
+                    <!-- Only show privacy options for fields that have data AND are relevant to this member type -->
+                    <label class="cd-checkbox-label" x-show="form.emails && form.emails.some(e => e.value && e.value.trim())">
                         <input type="checkbox" :checked="form.privacy_settings.email === 'visible'" @change="togglePrivacy('email')">
                         <?php esc_html_e( 'Email Addresses', 'community-directory' ); ?>
                     </label>
-                    
-                    <label class="cd-checkbox-label">
+
+                    <label class="cd-checkbox-label" x-show="form.phones && form.phones.some(p => p.value && p.value.trim())">
                         <input type="checkbox" :checked="form.privacy_settings.phone === 'visible'" @change="togglePrivacy('phone')">
                         <?php esc_html_e( 'Phone Numbers', 'community-directory' ); ?>
                     </label>
-                    
-                    <label class="cd-checkbox-label">
+
+                    <label class="cd-checkbox-label" x-show="form.address_home || form.city">
                         <input type="checkbox" :checked="form.privacy_settings.address === 'visible'" @change="togglePrivacy('address')">
                         <?php esc_html_e( 'Home Address', 'community-directory' ); ?>
                     </label>
-                    
-                    <label class="cd-checkbox-label">
+
+                    <label class="cd-checkbox-label" x-show="form.social_links && form.social_links.some(s => s.url && s.url.trim())">
                         <input type="checkbox" :checked="form.privacy_settings.social === 'visible'" @change="togglePrivacy('social')">
                         <?php esc_html_e( 'Social Media Links', 'community-directory' ); ?>
                     </label>
 
-                    <label class="cd-checkbox-label">
+                    <label class="cd-checkbox-label" x-show="form.date_of_birth">
                         <input type="checkbox" :checked="form.privacy_settings.date_of_birth === 'visible'" @change="togglePrivacy('date_of_birth')">
                         <?php esc_html_e( 'Date of Birth', 'community-directory' ); ?>
                     </label>
 
-                    <label class="cd-checkbox-label">
+                    <!-- Wedding Anniversary: adults only + has data -->
+                    <label class="cd-checkbox-label" x-show="householdRole !== 'child' && form.wedding_anniversary">
                         <input type="checkbox" :checked="form.privacy_settings.wedding_anniversary === 'visible'" @change="togglePrivacy('wedding_anniversary')">
                         <?php esc_html_e( 'Wedding Anniversary', 'community-directory' ); ?>
                     </label>
+
+                    <label class="cd-checkbox-label" x-show="form.baptism_date">
+                        <input type="checkbox" :checked="form.privacy_settings.baptism_date === 'visible'" @change="togglePrivacy('baptism_date')">
+                        <?php esc_html_e( 'Baptism Date', 'community-directory' ); ?>
+                    </label>
+
+                    <label class="cd-checkbox-label" x-show="form.name_day">
+                        <input type="checkbox" :checked="form.privacy_settings.name_day === 'visible'" @change="togglePrivacy('name_day')">
+                        <?php esc_html_e( 'Name Day', 'community-directory' ); ?>
+                    </label>
+
+                    <!-- Occupation: adults only + has data -->
+                    <label class="cd-checkbox-label" x-show="householdRole !== 'child' && (form.occupation || form.employer)">
+                        <input type="checkbox" :checked="form.privacy_settings.occupation === 'visible'" @change="togglePrivacy('occupation')">
+                        <?php esc_html_e( 'Occupation / Employer', 'community-directory' ); ?>
+                    </label>
+
+                    <!-- Education: children only + has data -->
+                    <label class="cd-checkbox-label" x-show="householdRole === 'child' && (form.school_type || form.school_name)">
+                        <input type="checkbox" :checked="form.privacy_settings.education === 'visible'" @change="togglePrivacy('education')">
+                        <?php esc_html_e( 'Education', 'community-directory' ); ?>
+                    </label>
+
+                    <!-- Empty state when no fields have data yet -->
+                    <p class="cd-text-muted" x-show="!(form.emails && form.emails.some(e => e.value && e.value.trim())) && !(form.phones && form.phones.some(p => p.value && p.value.trim())) && !form.address_home && !form.city && !form.date_of_birth && !form.baptism_date && !form.name_day && !(form.social_links && form.social_links.some(s => s.url && s.url.trim())) && (householdRole === 'child' || (!form.wedding_anniversary && !form.occupation && !form.employer)) && (householdRole !== 'child' || (!form.school_type && !form.school_name))" style="font-style: italic;">
+                        <?php esc_html_e( 'Add information to your profile to manage its visibility here.', 'community-directory' ); ?>
+                    </p>
                 </div>
             </div>
             <div class="cd-modal-footer">
                 <button type="button" class="cd-btn cd-btn-primary" @click="showPrivacyModal = false"><?php esc_html_e( 'Done', 'community-directory' ); ?></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ──── Image Crop Modal ──── -->
+    <template x-if="cropModal.show">
+        <div class="cd-modal-overlay" x-transition>
+            <div class="cd-modal cd-modal-crop">
+                <div class="cd-modal-header">
+                    <h3><?php esc_html_e( 'Adjust Photo', 'community-directory' ); ?></h3>
+                    <button type="button" class="cd-btn-icon" @click="cancelCrop()">&times;</button>
+                </div>
+                <div class="cd-modal-body cd-crop-body">
+                    <div class="cd-crop-container" :class="{ 'cd-crop-circle': cropModal.aspectRatio === 1 }">
+                        <img x-ref="cropImage" :src="cropModal.imageUrl" @load="initCropper()" alt="Crop preview">
+                    </div>
+                    <div class="cd-crop-error" x-show="cropModal.error" x-text="cropModal.error"></div>
+                </div>
+                <div class="cd-crop-controls">
+                    <div class="cd-crop-zoom-row">
+                        <button type="button" class="cd-btn cd-btn-icon cd-btn-secondary-icon" @click="cropZoom(-0.1)" title="<?php esc_attr_e( 'Zoom out', 'community-directory' ); ?>">&minus;</button>
+                        <input type="range" class="cd-crop-slider" min="-1" max="2" step="0.05" x-model.number="cropModal.zoomLevel" @input="cropZoomTo($event.target.value)">
+                        <button type="button" class="cd-btn cd-btn-icon cd-btn-secondary-icon" @click="cropZoom(0.1)" title="<?php esc_attr_e( 'Zoom in', 'community-directory' ); ?>">+</button>
+                    </div>
+                    <div class="cd-crop-action-row">
+                        <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="cropRotate(-90)" title="<?php esc_attr_e( 'Rotate left', 'community-directory' ); ?>">&#x21BA;</button>
+                        <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="cropRotate(90)" title="<?php esc_attr_e( 'Rotate right', 'community-directory' ); ?>">&#x21BB;</button>
+                        <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="cropReset()"><?php esc_html_e( 'Reset', 'community-directory' ); ?></button>
+                    </div>
+                </div>
+                <div class="cd-modal-footer">
+                    <button type="button" class="cd-btn cd-btn-secondary" @click="cancelCrop()"><?php esc_html_e( 'Cancel', 'community-directory' ); ?></button>
+                    <button type="button" class="cd-btn cd-btn-primary" @click="confirmCrop()" :disabled="cropModal.uploading">
+                        <span x-show="!cropModal.uploading"><?php esc_html_e( 'Use This Photo', 'community-directory' ); ?></span>
+                        <span x-show="cropModal.uploading"><?php esc_html_e( 'Uploading...', 'community-directory' ); ?></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </template>
+    <!-- ──── Photo Position Editor Modal ──── -->
+    <div x-show="hhPhotoEditor.open" class="cd-modal-overlay cd-photo-editor-overlay" x-cloak x-transition
+         @mouseup="hhEditorDragEnd()" @touchend="hhEditorDragEnd()">
+        <div class="cd-modal cd-photo-editor-modal">
+            <div class="cd-modal-header">
+                <h3><?php esc_html_e( 'Adjust Photo Position', 'community-directory' ); ?></h3>
+                <button type="button" class="cd-btn-icon" @click="hhPhotoEditor.open = false">&times;</button>
+            </div>
+            <div class="cd-modal-body">
+                <p class="cd-photo-editor-hint"><?php esc_html_e( 'Drag the photo to reposition. Use the slider to zoom.', 'community-directory' ); ?></p>
+
+                <!-- Live card preview: 300×140 matching directory card ratio -->
+                <div class="cd-photo-editor-preview"
+                     id="cd-photo-editor-preview"
+                     @mousedown="hhEditorDragStart($event)"
+                     @mousemove="hhEditorDragMove($event)"
+                     @touchstart.prevent="hhEditorDragStart($event)"
+                     @touchmove.prevent="hhEditorDragMove($event)">
+                    <img :src="hhPhotoEditor.url"
+                         class="cd-photo-editor-img"
+                         :style="'object-position: ' + hhPhotoEditor.fx + '% ' + hhPhotoEditor.fy + '%; transform: scale(' + hhPhotoEditor.zoom + '); transform-origin: ' + hhPhotoEditor.fx + '% ' + hhPhotoEditor.fy + '%'"
+                         draggable="false">
+                    <div class="cd-photo-editor-crosshair"
+                         :style="'left: ' + hhPhotoEditor.fx + '%; top: ' + hhPhotoEditor.fy + '%'"></div>
+                </div>
+
+                <!-- Zoom control -->
+                <div class="cd-photo-editor-zoom-row">
+                    <label class="cd-photo-editor-zoom-label"><?php esc_html_e( 'Zoom', 'community-directory' ); ?></label>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity:0.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35M11 8v6M8 11h6"/></svg>
+                    <input type="range" min="1" max="3" step="0.05" x-model="hhPhotoEditor.zoom"
+                           class="cd-photo-editor-zoom-slider">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35M11 8v6M8 11h6"/></svg>
+                    <span class="cd-photo-editor-zoom-val" x-text="parseFloat(hhPhotoEditor.zoom).toFixed(1) + '×'"></span>
+                </div>
+            </div>
+            <div class="cd-modal-footer">
+                <button type="button" class="cd-btn cd-btn-secondary" @click="hhPhotoEditor.open = false"><?php esc_html_e( 'Cancel', 'community-directory' ); ?></button>
+                <button type="button" class="cd-btn cd-btn-primary" @click="savePhotoPosition()" :disabled="hhPhotoEditor.saving">
+                    <span x-show="!hhPhotoEditor.saving"><?php esc_html_e( 'Save Position', 'community-directory' ); ?></span>
+                    <span x-show="hhPhotoEditor.saving"><?php esc_html_e( 'Saving...', 'community-directory' ); ?></span>
+                </button>
             </div>
         </div>
     </div>

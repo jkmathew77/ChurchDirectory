@@ -344,31 +344,56 @@ class CD_API_Admin extends CD_API_Base {
             // Handle emails/phones separately (JSON)
             // We expect the frontend to send the full array if possible, or we wrap single values
             if ( isset( $params['emails'] ) && is_array( $params['emails'] ) ) {
-                 // Sanitize recursive? For now, we trust the structure but sanitize values?
-                 // Simple save for now
-                 $profile_update['emails'] = json_encode( $params['emails'] );
+                 $clean_emails = array();
+                 foreach ( $params['emails'] as $em ) {
+                     if ( ! is_array( $em ) || empty( $em['value'] ) ) continue;
+                     $val = sanitize_email( $em['value'] );
+                     if ( ! is_email( $val ) ) continue;
+                     $clean_emails[] = array(
+                         'type'    => sanitize_text_field( $em['type'] ?? 'home' ),
+                         'value'   => $val,
+                         'primary' => ! empty( $em['primary'] ),
+                     );
+                 }
+                 $profile_update['emails'] = wp_json_encode( $clean_emails );
                  $profile_format[] = '%s';
             } elseif ( isset( $params['email'] ) ) {
                 $email = sanitize_email( $params['email'] );
                 $emails = array( array( 'type' => 'home', 'value' => $email, 'primary' => true ) );
-                $profile_update['emails'] = json_encode( $emails );
+                $profile_update['emails'] = wp_json_encode( $emails );
                 $profile_format[] = '%s';
             }
-            
+
             if ( isset( $params['phones'] ) && is_array( $params['phones'] ) ) {
-                 // Simple save
-                 $profile_update['phones'] = json_encode( $params['phones'] );
+                 $clean_phones = array();
+                 foreach ( $params['phones'] as $ph ) {
+                     if ( ! is_array( $ph ) || empty( $ph['value'] ) ) continue;
+                     $clean_phones[] = array(
+                         'type'    => sanitize_text_field( $ph['type'] ?? 'mobile' ),
+                         'value'   => sanitize_text_field( $ph['value'] ),
+                         'primary' => ! empty( $ph['primary'] ),
+                     );
+                 }
+                 $profile_update['phones'] = wp_json_encode( $clean_phones );
                  $profile_format[] = '%s';
             } elseif ( isset( $params['phone'] ) ) {
                 $phone = sanitize_text_field( $params['phone'] );
                 $phones = array( array( 'type' => 'mobile', 'value' => $phone, 'primary' => true ) );
-                $profile_update['phones'] = json_encode( $phones );
+                $profile_update['phones'] = wp_json_encode( $phones );
                 $profile_format[] = '%s';
             }
-            
+
             // Social Links (expecting array)
-            if ( isset( $params['social_links'] ) ) {
-                $profile_update['social_links'] = json_encode( $params['social_links'] );
+            if ( isset( $params['social_links'] ) && is_array( $params['social_links'] ) ) {
+                $clean_links = array();
+                foreach ( $params['social_links'] as $link ) {
+                    if ( ! is_array( $link ) || empty( $link['url'] ) ) continue;
+                    $clean_links[] = array(
+                        'platform' => sanitize_text_field( $link['platform'] ?? '' ),
+                        'url'      => esc_url_raw( $link['url'] ),
+                    );
+                }
+                $profile_update['social_links'] = wp_json_encode( $clean_links );
                 $profile_format[] = '%s';
             }
             
@@ -398,6 +423,30 @@ class CD_API_Admin extends CD_API_Base {
             if ( isset( $params['emergency_contact_member_id'] ) ) {
                 $profile_update['emergency_contact_member_id'] = absint( $params['emergency_contact_member_id'] ) ?: null;
                 $profile_format[] = '%d';
+            }
+
+            // Directory preferences (JSON)
+            if ( isset( $params['directory_preferences'] ) && is_array( $params['directory_preferences'] ) ) {
+                $allowed_views = array( 'all', 'adults_only', 'children_only', 'primary_only', 'household_view' );
+                $allowed_sorts = array( 'first_name', 'last_name' );
+                $allowed_sections = array( 'all', 'adults', 'children', 'households' );
+                $prefs = array();
+                if ( isset( $params['directory_preferences']['default_view'] ) ) {
+                    $view = sanitize_text_field( $params['directory_preferences']['default_view'] );
+                    $prefs['default_view'] = in_array( $view, $allowed_views, true ) ? $view : 'adults_only';
+                }
+                if ( isset( $params['directory_preferences']['sort_order'] ) ) {
+                    $sort = sanitize_text_field( $params['directory_preferences']['sort_order'] );
+                    $prefs['sort_order'] = in_array( $sort, $allowed_sorts, true ) ? $sort : 'last_name';
+                }
+                if ( isset( $params['directory_preferences']['search_sections'] ) && is_array( $params['directory_preferences']['search_sections'] ) ) {
+                    $prefs['search_sections'] = array_values( array_filter(
+                        array_map( 'sanitize_text_field', $params['directory_preferences']['search_sections'] ),
+                        function( $s ) use ( $allowed_sections ) { return in_array( $s, $allowed_sections, true ); }
+                    ) );
+                }
+                $profile_update['directory_preferences'] = wp_json_encode( $prefs );
+                $profile_format[] = '%s';
             }
 
             if ( ! empty( $profile_update ) ) {
@@ -572,6 +621,7 @@ class CD_API_Admin extends CD_API_Base {
             $row->social_links = json_decode( $row->social_links ?? '', true );
             $row->ministry_tags = json_decode( $row->ministry_tags ?? '', true );
             $row->privacy_settings = json_decode( $row->privacy_settings ?? '', true );
+            $row->directory_preferences = json_decode( $row->directory_preferences ?? '', true );
 
             // Decrypt sensitive PII fields
             $encrypted_fields = array( 'date_of_birth', 'address_home', 'address_mailing', 'emergency_contact_name', 'emergency_contact_phone' );
@@ -681,24 +731,25 @@ class CD_API_Admin extends CD_API_Base {
         ";
 
         // 2. Member Invites Query Parts
-        // Members who have no user_id (not registered) but have an invite
-        // We look for the MOST RECENT invite for each member to determine status check? 
-        // Or just list members who are 'active' but 'user_id' is NULL?
-        // Let's list Members with user_id=NULL AND status='active'.
-        // We fake the 'status' column to 'pending_verification' (or 'invited') for UI.
+        // Only include members who have an actual invite with an email address.
+        // Children added without email/phone are parent-managed only — they have
+        // no registration to complete, so exclude them from this pipeline.
         $sql_members = "
-            SELECT 
-                m.id, 
-                'member_invite' as type, 
-                p.first_name, 
-                p.last_name, 
-                (SELECT email FROM {$invites_table} WHERE member_id = m.id ORDER BY created_at DESC LIMIT 1) as email,
-                'pending_verification' as status, 
-                m.created_at as submitted_at, 
-                NULL as verified_at 
+            SELECT
+                m.id,
+                'member_invite' as type,
+                p.first_name,
+                p.last_name,
+                i.email as email,
+                'pending_verification' as status,
+                m.created_at as submitted_at,
+                NULL as verified_at
             FROM {$members_table} m
             JOIN {$profiles_table} p ON m.id = p.member_id
+            INNER JOIN {$invites_table} i ON i.member_id = m.id
+                AND i.email IS NOT NULL AND i.email != ''
             WHERE m.wp_user_id IS NULL AND m.status = 'active'
+            GROUP BY m.id
         ";
 
         // Wrappers for filtering
@@ -733,8 +784,12 @@ class CD_API_Admin extends CD_API_Base {
         // Calculate Counts (Expensive? We can do separate count queries)
         // Count Applications
         $count_apps = $wpdb->get_results( "SELECT status, COUNT(*) as cnt FROM {$apps_table} GROUP BY status" );
-        // Count Pending Invites (Members)
-        $count_invites = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$members_table} WHERE wp_user_id IS NULL AND status = 'active'" );
+        // Count Pending Invites (Members) — only those with an invite email
+        $count_invites = (int) $wpdb->get_var(
+            "SELECT COUNT(DISTINCT m.id) FROM {$members_table} m
+             INNER JOIN {$invites_table} i ON i.member_id = m.id AND i.email IS NOT NULL AND i.email != ''
+             WHERE m.wp_user_id IS NULL AND m.status = 'active'"
+        );
 
         $counts = array( 'all' => 0 );
         
@@ -2999,6 +3054,10 @@ class CD_API_Admin extends CD_API_Base {
     public function get_dashboard_stats( WP_REST_Request $request ) {
         global $wpdb;
 
+        // Suppress $wpdb HTML error output that corrupts JSON responses
+        // (e.g. when WP_DEBUG is on and a table/column doesn't exist yet).
+        $suppress_prev = $wpdb->suppress_errors( true );
+
         $members_table  = CD_Database::table( 'members' );
         $profiles_table = CD_Database::table( 'directory_profiles' );
         $hh_table       = CD_Database::table( 'households' );
@@ -3076,6 +3135,9 @@ class CD_API_Admin extends CD_API_Base {
             "SELECT COUNT(*) FROM {$apps_table} WHERE submitted_at >= %s",
             gmdate( 'Y-m-01 00:00:00' )
         ) ) ?? 0 );
+
+        // Restore previous error suppression setting.
+        $wpdb->suppress_errors( $suppress_prev );
 
         return $this->success( array(
             'status_counts'    => array_merge( $status_counts, array(

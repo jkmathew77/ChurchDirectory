@@ -51,7 +51,7 @@ get_header();
         <!-- DIRECTORY TAB (default view for all users) -->
         <!-- ═══════════════════════════════════════════ -->
         <div class="cd-main" x-show="activeTab === 'directory'">
-            <!-- Search -->
+            <!-- Search + Settings Gear -->
             <div class="cd-search-bar">
                 <input
                     type="search"
@@ -60,6 +60,7 @@ get_header();
                     x-model="searchQuery"
                     @input.debounce.300ms="search()"
                 >
+                <button type="button" class="cd-settings-gear" @click="openSettings()" :title="'<?php echo esc_js( __( 'Directory Settings', 'community-directory' ) ); ?>'" aria-label="<?php esc_attr_e( 'Directory Settings', 'community-directory' ); ?>"><svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
             </div>
 
             <!-- Advanced Filters Toggle -->
@@ -106,6 +107,11 @@ get_header();
                 <span><?php esc_html_e( 'Loading directory...', 'community-directory' ); ?></span>
             </div>
 
+            <!-- Active View Label -->
+            <div class="cd-view-label" x-show="!loading && !searchQuery">
+                <span class="cd-text-muted" x-text="viewLabel()"></span>
+            </div>
+
             <!-- Empty State -->
             <template x-if="!loading && members.length === 0 && households.length === 0">
                 <div class="cd-empty-state">
@@ -113,47 +119,83 @@ get_header();
                 </div>
             </template>
 
-            <!-- Member Grid (shown first) -->
-            <template x-if="!loading && members.length > 0"><div>
-                <template x-if="households.length > 0">
-                    <h2 class="cd-section-title" style="margin-top: 0;"><?php esc_html_e( 'Members', 'community-directory' ); ?></h2>
-                </template>
-                <div class="cd-member-grid">
-                <template x-for="member in members" :key="member.uuid">
-                    <a :href="'<?php echo esc_url( $member_url_base ); ?>' + member.uuid" class="cd-member-card">
-                        <div class="cd-member-avatar-wrapper">
-                            <template x-if="member.avatar_url">
-                                <img
-                                    :src="member.avatar_url"
-                                    class="cd-member-avatar-img"
-                                    @error="$el.style.display='none'; $el.nextElementSibling.style.display='flex'"
-                                >
+            <!-- ── Results rendered by section order ── -->
+            <template x-for="section in getVisibleSections()" :key="section">
+                <div>
+                    <!-- Member Grid Section -->
+                    <template x-if="section !== 'households' && getMembersForSection(section).length > 0"><div>
+                        <template x-if="getVisibleSections().length > 1">
+                            <h2 class="cd-section-title" style="margin-top: 0.5rem;" x-text="sectionTitle(section)"></h2>
+                        </template>
+                        <div class="cd-member-grid">
+                        <template x-for="member in getMembersForSection(section)" :key="member.uuid">
+                            <a :href="'<?php echo esc_url( $member_url_base ); ?>' + member.uuid" class="cd-member-card">
+                                <div class="cd-member-avatar-wrapper">
+                                    <template x-if="member.avatar_url">
+                                        <img :src="member.avatar_url" class="cd-member-avatar-img"
+                                            @error="$el.style.display='none'; $el.nextElementSibling.style.display='flex'">
+                                    </template>
+                                    <div class="cd-member-avatar-fallback"
+                                        :style="'background-color: ' + getAvatarColor(member.first_name + ' ' + member.last_name) + '; display: ' + (member.avatar_url ? 'none' : 'flex')">
+                                        <span x-text="getInitials(member.first_name, member.last_name)"></span>
+                                    </div>
+                                </div>
+                                <div class="cd-member-info">
+                                    <h3 x-text="displayName(member)"></h3>
+                                    <div class="cd-member-meta" x-show="member.city">
+                                        <span x-text="member.city + (member.state ? ', ' + member.state : '')"></span>
+                                    </div>
+                                    <div class="cd-member-tags" x-show="member.ministry_tags && member.ministry_tags.length > 0">
+                                        <template x-for="tag in member.ministry_tags.slice(0, 3)">
+                                            <span class="cd-tag" x-text="tag"></span>
+                                        </template>
+                                        <span x-show="member.ministry_tags.length > 3" class="cd-tag-more" x-text="'+' + (member.ministry_tags.length - 3)"></span>
+                                    </div>
+                                </div>
+                            </a>
+                        </template>
+                        </div>
+                    </div></template>
+
+                    <!-- Household Grid Section -->
+                    <template x-if="section === 'households' && households.length > 0"><div class="cd-household-results">
+                        <template x-if="getVisibleSections().length > 1">
+                            <h2 class="cd-section-title" style="margin-top: 1.5rem;"><?php esc_html_e( 'Households', 'community-directory' ); ?></h2>
+                        </template>
+                        <div class="cd-household-grid">
+                            <template x-for="hh in households" :key="'hh-'+hh.id">
+                                <a :href="hh.owner_uuid ? '<?php echo esc_url( $member_url_base ); ?>' + hh.owner_uuid : '#'" class="cd-household-card cd-household-card-link">
+                                    <div class="cd-household-card-photo" x-show="hh.photo_url">
+                                        <img :src="hh.photo_url" :alt="hh.name" class="cd-household-card-img"
+                                             :style="'object-position: ' + (hh.photo_fx ?? 50) + '% ' + (hh.photo_fy ?? 50) + '%; transform: scale(' + (hh.photo_zoom ?? 1) + '); transform-origin: ' + (hh.photo_fx ?? 50) + '% ' + (hh.photo_fy ?? 50) + '%'">
+                                    </div>
+                                    <div class="cd-household-card-body">
+                                        <h3 class="cd-household-card-name" x-text="hh.name"></h3>
+                                        <template x-if="hh.owner_first_name">
+                                            <p class="cd-household-card-owner cd-text-muted" x-text="hh.owner_first_name + ' ' + hh.owner_last_name" style="font-size: 0.85em; margin: 2px 0 4px;"></p>
+                                        </template>
+                                        <p class="cd-text-muted cd-household-card-addr" x-show="hh.address && (hh.address.city || hh.address.line_1)" x-text="[hh.address.line_1, [hh.address.city, hh.address.state].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
+                                        <div class="cd-household-card-members">
+                                            <template x-for="hm in hh.members" :key="hm.uuid">
+                                                <span class="cd-household-card-member cd-household-avatar-link" :title="hm.first_name + ' ' + hm.last_name" @click.prevent.stop="window.location.href = '<?php echo esc_url( $member_url_base ); ?>' + hm.uuid">
+                                                    <template x-if="hm.avatar_url">
+                                                        <img :src="hm.avatar_url" :alt="hm.first_name" class="cd-avatar-xs-img">
+                                                    </template>
+                                                    <template x-if="!hm.avatar_url">
+                                                        <div class="cd-avatar-xs" :style="'background-color: ' + getAvatarColor((hm.first_name||'') + ' ' + (hm.last_name||''))">
+                                                            <span x-text="getInitials(hm.first_name, hm.last_name)"></span>
+                                                        </div>
+                                                    </template>
+                                                </span>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </a>
                             </template>
-                            <div
-                                class="cd-member-avatar-fallback"
-                                :style="'background-color: ' + getAvatarColor(member.first_name + ' ' + member.last_name) + '; display: ' + (member.avatar_url ? 'none' : 'flex')"
-                            >
-                                <span x-text="getInitials(member.first_name, member.last_name)"></span>
-                            </div>
                         </div>
-
-                        <div class="cd-member-info">
-                            <h3 x-text="displayName(member)"></h3>
-                            <div class="cd-member-meta" x-show="member.city">
-                                <span x-text="member.city + (member.state ? ', ' + member.state : '')"></span>
-                            </div>
-
-                            <!-- Ministry Tags -->
-                            <div class="cd-member-tags" x-show="member.ministry_tags && member.ministry_tags.length > 0">
-                                <template x-for="tag in member.ministry_tags.slice(0, 3)">
-                                    <span class="cd-tag" x-text="tag"></span>
-                                </template>
-                                <span x-show="member.ministry_tags.length > 3" class="cd-tag-more" x-text="'+' + (member.ministry_tags.length - 3)"></span>
-                            </div>
-                        </div>
-                    </a>
-                </template>
-            </div></div></template>
+                    </div></template>
+                </div>
+            </template>
 
             <!-- Pagination -->
             <template x-if="totalPages > 1 && !loading">
@@ -166,35 +208,96 @@ get_header();
                 </div>
             </template>
 
-            <!-- Household Results (shown below members) -->
-            <template x-if="!loading && households.length > 0"><div class="cd-household-results">
-                <h2 class="cd-section-title" style="margin-top: 1.5rem;"><?php esc_html_e( 'Households', 'community-directory' ); ?></h2>
-                <div class="cd-household-grid">
-                    <template x-for="hh in households" :key="'hh-'+hh.id">
-                        <div class="cd-household-card">
-                            <div class="cd-household-card-photo" x-show="hh.photo_url">
-                                <img :src="hh.photo_url" :alt="hh.name" class="cd-household-card-img">
-                            </div>
-                            <div class="cd-household-card-body">
-                                <h3 class="cd-household-card-name" x-text="hh.name"></h3>
-                                <p class="cd-text-muted cd-household-card-addr" x-show="hh.address && (hh.address.city || hh.address.line_1)" x-text="[hh.address.line_1, [hh.address.city, hh.address.state].filter(Boolean).join(', ')].filter(Boolean).join(', ')"></p>
-                                <div class="cd-household-card-members">
-                                    <template x-for="hm in hh.members" :key="hm.uuid">
-                                        <a :href="'<?php echo esc_url( $member_url_base ); ?>' + hm.uuid" class="cd-household-card-member" :title="hm.first_name + ' ' + hm.last_name">
-                                            <template x-if="hm.avatar_url">
-                                                <img :src="hm.avatar_url" :alt="hm.first_name" class="cd-avatar-xs-img">
-                                            </template>
-                                            <template x-if="!hm.avatar_url">
-                                                <div class="cd-avatar-xs" :style="'background-color: ' + getAvatarColor((hm.first_name||'') + ' ' + (hm.last_name||''))">
-                                                    <span x-text="getInitials(hm.first_name, hm.last_name)"></span>
-                                                </div>
-                                            </template>
-                                        </a>
-                                    </template>
-                                </div>
+            <!-- ═══ Settings Modal ═══ -->
+            <template x-if="showSettingsModal"><div class="cd-modal-overlay" @click.self="showSettingsModal = false">
+                <div class="cd-modal cd-modal-settings">
+                    <div class="cd-modal-header">
+                        <h3><?php esc_html_e( 'Directory Settings', 'community-directory' ); ?></h3>
+                        <button type="button" class="cd-btn cd-btn-text" @click="showSettingsModal = false" style="padding: 4px 8px; font-size: 1.25rem; line-height: 1;">&times;</button>
+                    </div>
+                    <div class="cd-modal-body">
+                        <!-- Default View -->
+                        <div class="cd-settings-group">
+                            <label class="cd-label"><?php esc_html_e( 'Default View', 'community-directory' ); ?></label>
+                            <p class="cd-help-text" style="margin: 0 0 8px;"><?php esc_html_e( 'Choose what you see when you first open the directory.', 'community-directory' ); ?></p>
+                            <div class="cd-settings-radios">
+                                <label class="cd-radio-label">
+                                    <input type="radio" name="cd_default_view" value="all" x-model="settingsForm.default_view">
+                                    <?php esc_html_e( 'All members', 'community-directory' ); ?>
+                                </label>
+                                <label class="cd-radio-label">
+                                    <input type="radio" name="cd_default_view" value="adults_only" x-model="settingsForm.default_view">
+                                    <?php esc_html_e( 'Adults only', 'community-directory' ); ?>
+                                </label>
+                                <label class="cd-radio-label">
+                                    <input type="radio" name="cd_default_view" value="children_only" x-model="settingsForm.default_view">
+                                    <?php esc_html_e( 'Children & others only', 'community-directory' ); ?>
+                                </label>
+                                <label class="cd-radio-label">
+                                    <input type="radio" name="cd_default_view" value="primary_only" x-model="settingsForm.default_view">
+                                    <?php esc_html_e( 'Primary members only (heads of household)', 'community-directory' ); ?>
+                                </label>
+                                <label class="cd-radio-label">
+                                    <input type="radio" name="cd_default_view" value="household_view" x-model="settingsForm.default_view">
+                                    <?php esc_html_e( 'Household cards', 'community-directory' ); ?>
+                                </label>
                             </div>
                         </div>
-                    </template>
+
+                        <!-- Sort Order -->
+                        <div class="cd-settings-group" style="margin-top: 1.25rem;">
+                            <label class="cd-label"><?php esc_html_e( 'Sort Order', 'community-directory' ); ?></label>
+                            <p class="cd-help-text" style="margin: 0 0 8px;"><?php esc_html_e( 'How members are sorted in all views and search results.', 'community-directory' ); ?></p>
+                            <div class="cd-settings-radios">
+                                <label class="cd-radio-label">
+                                    <input type="radio" name="cd_sort_order" value="first_name" x-model="settingsForm.sort_order">
+                                    <?php esc_html_e( 'First name A-Z', 'community-directory' ); ?>
+                                </label>
+                                <label class="cd-radio-label">
+                                    <input type="radio" name="cd_sort_order" value="last_name" x-model="settingsForm.sort_order">
+                                    <?php esc_html_e( 'Last name A-Z', 'community-directory' ); ?>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Search Result Sections -->
+                        <div class="cd-settings-group" style="margin-top: 1.25rem;">
+                            <label class="cd-label"><?php esc_html_e( 'Search Result Sections', 'community-directory' ); ?></label>
+                            <p class="cd-help-text" style="margin: 0 0 8px;"><?php esc_html_e( 'Toggle and reorder which sections appear in search results.', 'community-directory' ); ?></p>
+                            <div class="cd-settings-sections">
+                                <template x-for="(sec, idx) in settingsForm.search_sections" :key="sec">
+                                    <div class="cd-settings-section-row">
+                                        <div class="cd-settings-section-arrows">
+                                            <button type="button" class="cd-settings-arrow" :disabled="idx === 0" @click="moveSection(idx, -1)" title="Move up">&uarr;</button>
+                                            <button type="button" class="cd-settings-arrow" :disabled="idx === settingsForm.search_sections.length - 1" @click="moveSection(idx, 1)" title="Move down">&darr;</button>
+                                        </div>
+                                        <span class="cd-settings-section-label" x-text="sectionLabel(sec)"></span>
+                                        <button type="button" class="cd-settings-section-remove" @click="removeSection(sec)" title="Remove">&times;</button>
+                                    </div>
+                                </template>
+                            </div>
+                            <!-- Add section dropdown -->
+                            <template x-if="availableSections().length > 0">
+                                <div style="margin-top: 8px;">
+                                    <select class="cd-input" style="font-size: 0.85rem; padding: 6px 10px;" @change="addSection($event.target.value); $event.target.value = ''">
+                                        <option value=""><?php esc_html_e( '+ Add section...', 'community-directory' ); ?></option>
+                                        <template x-for="s in availableSections()" :key="s">
+                                            <option :value="s" x-text="sectionLabel(s)"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="cd-modal-footer" style="display: flex; gap: 8px; justify-content: flex-end;">
+                        <button type="button" class="cd-btn cd-btn-sm cd-btn-secondary" @click="showSettingsModal = false">
+                            <?php esc_html_e( 'Cancel', 'community-directory' ); ?>
+                        </button>
+                        <button type="button" class="cd-btn cd-btn-sm cd-btn-primary" :disabled="prefsSaving" @click="savePreferences()">
+                            <span x-show="!prefsSaving"><?php esc_html_e( 'Save', 'community-directory' ); ?></span>
+                            <span x-show="prefsSaving"><?php esc_html_e( 'Saving...', 'community-directory' ); ?></span>
+                        </button>
+                    </div>
                 </div>
             </div></template>
 

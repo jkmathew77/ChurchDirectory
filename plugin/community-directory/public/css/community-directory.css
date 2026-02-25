@@ -727,10 +727,13 @@
 /* ─── Search ─── */
 .cd-search-bar {
     margin-bottom: 24px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
 }
 
 .cd-search-input {
-    width: 100%;
+    flex: 1;
     padding: 12px 16px;
     border: 1px solid var(--cd-border);
     border-radius: var(--cd-radius-lg);
@@ -814,6 +817,105 @@
     text-align: right;
     background: var(--cd-bg);
     border-radius: 0 0 var(--cd-radius-lg) var(--cd-radius-lg);
+}
+
+/* ─── Crop Modal ─── */
+.cd-modal-crop {
+    max-width: 540px;
+}
+
+.cd-crop-body {
+    padding: 0 !important;
+    overflow: hidden;
+}
+
+.cd-crop-container {
+    width: 100%;
+    max-height: 60vh;
+    background: #1e293b;
+}
+
+.cd-crop-container img {
+    display: block;
+    max-width: 100%;
+}
+
+/* Circular crop-box hint for avatar uploads */
+.cd-crop-container.cd-crop-circle .cropper-view-box {
+    border-radius: 50%;
+    outline-color: rgba(255, 255, 255, 0.3);
+}
+
+.cd-crop-container.cd-crop-circle .cropper-face {
+    border-radius: 50%;
+}
+
+.cd-crop-controls {
+    padding: 12px 24px;
+    background: var(--cd-bg);
+    border-top: 1px solid var(--cd-border);
+}
+
+.cd-crop-zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cd-crop-slider {
+    flex: 1;
+    height: 4px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--cd-border);
+    border-radius: 2px;
+    outline: none;
+}
+
+.cd-crop-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--cd-primary);
+    cursor: pointer;
+}
+
+.cd-crop-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--cd-primary);
+    cursor: pointer;
+    border: none;
+}
+
+.cd-crop-action-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    justify-content: center;
+}
+
+.cd-crop-error {
+    color: var(--cd-danger);
+    font-size: 0.85rem;
+    padding: 8px 24px;
+}
+
+@media (max-width: 480px) {
+    .cd-modal-crop {
+        max-width: 100%;
+        margin: 8px;
+    }
+
+    .cd-crop-container {
+        max-height: 50vh;
+    }
+
+    .cd-crop-controls {
+        padding: 10px 16px;
+    }
 }
 
 .cd-privacy-options {
@@ -2090,6 +2192,57 @@
     gap: 8px;
 }
 
+/* Overlay row with Adjust + Delete buttons shown on thumb hover */
+.cd-hh-photo-thumb-actions {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 4px;
+    background: rgba(0, 0, 0, 0.42);
+    opacity: 0;
+    transition: opacity 0.15s;
+}
+
+.cd-hh-photo-thumb:hover .cd-hh-photo-thumb-actions {
+    opacity: 1;
+}
+
+.cd-hh-photo-adjust,
+.cd-hh-photo-delete {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 50%;
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    flex-shrink: 0;
+}
+
+.cd-hh-photo-adjust {
+    background: rgba(30, 120, 220, 0.9);
+}
+
+.cd-hh-photo-adjust:hover {
+    background: rgba(30, 120, 220, 1);
+}
+
+.cd-hh-photo-delete {
+    background: rgba(220, 38, 38, 0.9);
+}
+
+.cd-hh-photo-delete:hover {
+    background: rgba(220, 38, 38, 1);
+}
+
 /* ─── Household Family Photo Carousel (Profile View) ─── */
 .cd-hh-carousel {
     margin-bottom: 12px;
@@ -2170,6 +2323,26 @@
     transform: translateY(-2px);
 }
 
+.cd-household-card-link {
+    text-decoration: none;
+    color: inherit;
+    display: block;
+    cursor: pointer;
+}
+
+.cd-household-avatar-link {
+    cursor: pointer;
+    position: relative;
+    z-index: 1;
+    transition: transform 0.15s, box-shadow 0.15s;
+    border-radius: 50%;
+}
+
+.cd-household-avatar-link:hover {
+    transform: scale(1.15);
+    box-shadow: 0 0 0 2px var(--cd-primary);
+}
+
 .cd-household-card-photo {
     height: 140px;
     overflow: hidden;
@@ -2222,7 +2395,7 @@
     object-fit: cover;
     display: block;
     border: 2px solid var(--cd-bg-white);
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 .cd-avatar-xs {
@@ -2236,7 +2409,7 @@
     font-weight: 700;
     font-size: 0.65rem;
     border: 2px solid var(--cd-bg-white);
-    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
 /* ─── Officer Tab Switcher ─── */
@@ -2638,23 +2811,53 @@
     margin-top: 4px;
 }
 
-.cd-dash-card-primary { border-left: 4px solid var(--cd-primary); }
-.cd-dash-card-primary .cd-dash-card-value { color: var(--cd-primary); }
+.cd-dash-card-primary {
+    border-left: 4px solid var(--cd-primary);
+}
 
-.cd-dash-card-warning { border-left: 4px solid var(--cd-warning); }
-.cd-dash-card-warning .cd-dash-card-value { color: var(--cd-warning); }
+.cd-dash-card-primary .cd-dash-card-value {
+    color: var(--cd-primary);
+}
 
-.cd-dash-card-info { border-left: 4px solid #3b82f6; }
-.cd-dash-card-info .cd-dash-card-value { color: #3b82f6; }
+.cd-dash-card-warning {
+    border-left: 4px solid var(--cd-warning);
+}
 
-.cd-dash-card-danger { border-left: 4px solid var(--cd-danger); }
-.cd-dash-card-danger .cd-dash-card-value { color: var(--cd-danger); }
+.cd-dash-card-warning .cd-dash-card-value {
+    color: var(--cd-warning);
+}
 
-.cd-dash-card-success { border-left: 4px solid var(--cd-success); }
-.cd-dash-card-success .cd-dash-card-value { color: var(--cd-success); }
+.cd-dash-card-info {
+    border-left: 4px solid #3b82f6;
+}
 
-.cd-dash-card-muted { border-left: 4px solid var(--cd-secondary); }
-.cd-dash-card-muted .cd-dash-card-value { color: var(--cd-secondary); }
+.cd-dash-card-info .cd-dash-card-value {
+    color: #3b82f6;
+}
+
+.cd-dash-card-danger {
+    border-left: 4px solid var(--cd-danger);
+}
+
+.cd-dash-card-danger .cd-dash-card-value {
+    color: var(--cd-danger);
+}
+
+.cd-dash-card-success {
+    border-left: 4px solid var(--cd-success);
+}
+
+.cd-dash-card-success .cd-dash-card-value {
+    color: var(--cd-success);
+}
+
+.cd-dash-card-muted {
+    border-left: 4px solid var(--cd-secondary);
+}
+
+.cd-dash-card-muted .cd-dash-card-value {
+    color: var(--cd-secondary);
+}
 
 /* ─── Activity List ─── */
 .cd-activity-list {
@@ -2753,11 +2956,30 @@
     text-transform: capitalize;
 }
 
-.cd-status-warning { background: var(--cd-warning-light); color: var(--cd-warning); }
-.cd-status-info { background: var(--cd-primary-light); color: var(--cd-primary); }
-.cd-status-success { background: var(--cd-success-light); color: var(--cd-success); }
-.cd-status-danger { background: var(--cd-danger-light); color: var(--cd-danger); }
-.cd-status-muted { background: #f3f4f6; color: #6b7280; }
+.cd-status-warning {
+    background: var(--cd-warning-light);
+    color: var(--cd-warning);
+}
+
+.cd-status-info {
+    background: var(--cd-primary-light);
+    color: var(--cd-primary);
+}
+
+.cd-status-success {
+    background: var(--cd-success-light);
+    color: var(--cd-success);
+}
+
+.cd-status-danger {
+    background: var(--cd-danger-light);
+    color: var(--cd-danger);
+}
+
+.cd-status-muted {
+    background: #f3f4f6;
+    color: #6b7280;
+}
 
 /* ─── Requests (Deletion + Household) ─── */
 .cd-req-list {
@@ -2846,6 +3068,132 @@
     flex-shrink: 0;
 }
 
+/* ─── Settings Gear Button ─── */
+.cd-settings-gear {
+    flex-shrink: 0;
+    width: 42px;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius-lg);
+    background: var(--cd-bg-white);
+    color: #555;
+    cursor: pointer;
+    font-size: 1.35rem;
+    line-height: 1;
+    transition: color 0.15s, border-color 0.15s, background-color 0.15s;
+}
+
+.cd-settings-gear:hover {
+    color: var(--cd-primary);
+    border-color: var(--cd-primary);
+    background: var(--cd-primary-light);
+}
+
+/* ─── View Label ─── */
+.cd-view-label {
+    margin-bottom: 12px;
+    font-size: 0.85rem;
+}
+
+/* ─── Settings Modal ─── */
+.cd-modal-settings {
+    max-width: 520px;
+}
+
+.cd-settings-group {
+    margin-bottom: 0;
+}
+
+.cd-settings-radios {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.cd-settings-radios .cd-radio-label {
+    font-size: 0.85rem;
+    padding: 8px 12px;
+}
+
+.cd-settings-sections {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.cd-settings-section-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    background: var(--cd-bg);
+    border: 1px solid var(--cd-border);
+    border-radius: var(--cd-radius);
+}
+
+.cd-settings-section-arrows {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+.cd-settings-arrow {
+    width: 22px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--cd-border);
+    border-radius: 3px;
+    font-size: 0.7rem;
+    cursor: pointer;
+    color: var(--cd-text-muted);
+    padding: 0;
+    line-height: 1;
+}
+
+.cd-settings-arrow:hover:not(:disabled) {
+    color: var(--cd-primary);
+    border-color: var(--cd-primary);
+    background: var(--cd-primary-light);
+}
+
+.cd-settings-arrow:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.cd-settings-section-label {
+    flex: 1;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.cd-settings-section-remove {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--cd-text-light);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0;
+    border-radius: 50%;
+}
+
+.cd-settings-section-remove:hover {
+    color: var(--cd-danger);
+    background: var(--cd-danger-light);
+}
+
 /* ─── Extra-small button variant ─── */
 .cd-btn-xs {
     padding: 3px 10px;
@@ -2898,4 +3246,96 @@
         align-items: flex-start;
         gap: 4px;
     }
+}
+
+/* \u2500\u2500\u2500 Photo Position Editor Modal \u2500\u2500\u2500 */
+.cd-photo-editor-modal {
+    max-width: 420px;
+    width: 100%;
+}
+
+.cd-photo-editor-hint {
+    font-size: 0.85em;
+    color: var(--cd-text-muted, #666);
+    margin: 0 0 12px;
+}
+
+.cd-photo-editor-preview {
+    width: 100%;
+    max-width: 380px;
+    height: 140px;
+    overflow: hidden;
+    position: relative;
+    border-radius: var(--cd-radius, 6px);
+    background: #e0e0e0;
+    cursor: grab;
+    margin: 0 auto 16px;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.cd-photo-editor-preview:active {
+    cursor: grabbing;
+}
+
+.cd-photo-editor-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    pointer-events: none;
+}
+
+.cd-photo-editor-crosshair {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    margin-left: -10px;
+    margin-top: -10px;
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5), 0 0 6px rgba(0, 0, 0, 0.3);
+    pointer-events: none;
+}
+
+.cd-photo-editor-zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.cd-photo-editor-zoom-label {
+    font-size: 0.85em;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--cd-text, #333);
+}
+
+.cd-photo-editor-zoom-slider {
+    flex: 1;
+    accent-color: var(--cd-primary, #1e78dc);
+    height: 4px;
+    cursor: pointer;
+}
+
+.cd-photo-editor-zoom-val {
+    font-size: 0.85em;
+    font-weight: 600;
+    min-width: 3ch;
+    text-align: right;
+    color: var(--cd-text, #333);
+}
+
+/* ─── Required field markers ─── */
+.cd-required {
+    color: #cc1818;
+    font-weight: 700;
+}
+
+.cd-field-hint {
+    font-size: 0.78em;
+    color: var(--cd-text-muted, #888);
+    margin: 2px 0 6px;
+    font-style: italic;
 }
