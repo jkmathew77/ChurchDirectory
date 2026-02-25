@@ -238,7 +238,10 @@ get_header();
                     <template x-if="household && household.photos && household.photos.length > 0">
                         <div class="cd-hh-carousel" x-data="{ current: 0 }">
                             <div class="cd-hh-carousel-viewport">
-                                <img :src="household.photos[current]" :alt="household.name" class="cd-hh-carousel-img">
+                                <img :src="household.photos[current].url || household.photos[current]"
+                                     :alt="household.name"
+                                     class="cd-hh-carousel-img"
+                                     :style="'object-position: ' + (household.photos[current].fx ?? 50) + '% ' + (household.photos[current].fy ?? 50) + '%; transform: scale(' + (household.photos[current].zoom ?? 1) + '); transform-origin: ' + (household.photos[current].fx ?? 50) + '% ' + (household.photos[current].fy ?? 50) + '%'">
                             </div>
                             <template x-if="household.photos.length > 1">
                                 <div class="cd-hh-carousel-controls">

@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin constants
-define( 'CD_VERSION', '0.5.0' );
+define( 'CD_VERSION', '0.5.1' );
 define( 'CD_DB_VERSION', '007' );
 define( 'CD_PLUGIN_FILE', __FILE__ );
 define( 'CD_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );

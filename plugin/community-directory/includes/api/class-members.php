@@ -332,7 +332,8 @@ class CD_API_Members extends CD_API_Base {
                         'zoom' => (float) ( $p['zoom'] ?? 1.0 ),
                     );
             }
-            $primary_photo = ! empty( $hh_photos ) ? $hh_photos[0] : null;
+            // Randomize which photo is shown in the card on each page load
+            $primary_photo = ! empty( $hh_photos ) ? $hh_photos[ array_rand( $hh_photos ) ] : null;
 
             $results[] = array(
                 'id'               => (int) $hh->id,
