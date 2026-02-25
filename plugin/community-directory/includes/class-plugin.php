@@ -382,6 +382,13 @@ class CD_Plugin {
             'top'
         );
 
+        // Google OAuth callback (non-REST to bypass ModSecurity/WAF)
+        add_rewrite_rule(
+            '^' . $base_slug . '/auth/google-callback/?$',
+            'index.php?cd_page=google_callback',
+            'top'
+        );
+
         // PWA routes
         add_rewrite_rule(
             '^' . $base_slug . '/manifest\.json$',
@@ -477,6 +484,20 @@ class CD_Plugin {
         }
 
         $base_slug = get_option( 'cd_base_slug', 'community' );
+
+        // Google OAuth callback — process and redirect (bypass REST API/WAF)
+        if ( 'google_callback' === $page ) {
+            CD_Logger::info( 'google_callback via rewrite rule (non-REST)' );
+            $auth_api = new CD_API_Auth();
+            $request  = new WP_REST_Request( 'GET', '/' . CD_API_NAMESPACE . '/auth/google/callback' );
+            // Forward all query params from the Google redirect
+            foreach ( $_GET as $key => $val ) {
+                $request->set_param( $key, $val );
+            }
+            $auth_api->google_callback( $request );
+            // google_callback() calls exit; but just in case:
+            exit;
+        }
 
         // Logged-in members skip landing/login and go to directory
         if ( in_array( $page, array( 'landing', 'login' ), true ) ) {
@@ -801,7 +822,7 @@ class CD_Plugin {
      * Checks a stored version and flushes if it's behind.
      */
     private function maybe_flush_rewrites() {
-        $current_rewrite_version = 5; // Bump this when adding new rewrite rules
+        $current_rewrite_version = 6; // Bump this when adding new rewrite rules
         $stored = (int) get_option( 'cd_rewrite_version', 1 );
 
         if ( $stored < $current_rewrite_version ) {
