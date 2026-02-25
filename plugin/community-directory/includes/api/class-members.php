@@ -25,18 +25,18 @@ class CD_API_Members extends CD_API_Base {
             'permission_callback' => array( $this, 'permission_member' ),
         ) );
 
-        // GET /members/me — get own profile
+        // GET & PUT /members/me — get/update own profile
         register_rest_route( CD_API_NAMESPACE, '/members/me', array(
-            'methods'             => WP_REST_Server::READABLE,
-            'callback'            => array( $this, 'get_own_profile' ),
-            'permission_callback' => array( $this, 'permission_member' ),
-        ) );
-
-        // PUT /members/me — update OWN profile
-        register_rest_route( CD_API_NAMESPACE, '/members/me', array(
-            'methods'             => 'PUT',
-            'callback'            => array( $this, 'update_profile' ),
-            'permission_callback' => array( $this, 'permission_member' ),
+            array(
+                'methods'             => WP_REST_Server::READABLE,
+                'callback'            => array( $this, 'get_own_profile' ),
+                'permission_callback' => array( $this, 'permission_member' ),
+            ),
+            array(
+                'methods'             => 'PUT',
+                'callback'            => array( $this, 'update_profile' ),
+                'permission_callback' => array( $this, 'permission_member' ),
+            ),
         ) );
 
         // POST /members/avatar — upload avatar
