@@ -426,13 +426,13 @@ class CD_API_Auth extends CD_API_Base {
             }
         }
 
-        // If still not found, try by profile secondary emails (PRD 5.2)
+        // If still not found, try by profile emails (JSON field in directory_profiles)
         if ( ! $member ) {
             $profiles_table = CD_Database::table( 'directory_profiles' );
             $email_lower    = strtolower( $google_email );
 
+            // Search profile emails JSON
             if ( CD_Database::supports_json() ) {
-                // JSON-aware search
                 $member = $wpdb->get_row( $wpdb->prepare(
                     "SELECT m.* FROM {$members_table} m
                      JOIN {$profiles_table} p ON m.id = p.member_id
@@ -444,7 +444,6 @@ class CD_API_Auth extends CD_API_Base {
                     $google_email
                 ) );
             } else {
-                // Fallback: LIKE search on stored JSON string
                 $like = '%' . $wpdb->esc_like( '"' . $email_lower . '"' ) . '%';
                 $member = $wpdb->get_row( $wpdb->prepare(
                     "SELECT m.* FROM {$members_table} m
@@ -454,6 +453,24 @@ class CD_API_Auth extends CD_API_Base {
                      LIMIT 1",
                     $like
                 ) );
+            }
+
+            CD_Logger::info( 'lookup by profile emails → ' . ( $member ? 'FOUND member id=' . $member->id : 'not found' ) );
+
+            // If still not found, try by profile first_name + last_name matching the WP user
+            // This handles cases where wp_user_id was never linked to the member
+            if ( ! $member && isset( $user ) && $user ) {
+                $member = $wpdb->get_row( $wpdb->prepare(
+                    "SELECT m.* FROM {$members_table} m
+                     JOIN {$profiles_table} p ON m.id = p.member_id
+                     WHERE m.status IN ('active','self_deactivated')
+                     AND LOWER(p.first_name) = LOWER(%s)
+                     AND LOWER(p.last_name)  = LOWER(%s)
+                     LIMIT 1",
+                    $payload['given_name'] ?? '',
+                    $payload['family_name'] ?? ''
+                ) );
+                CD_Logger::info( 'lookup by name (' . ( $payload['given_name'] ?? '' ) . ' ' . ( $payload['family_name'] ?? '' ) . ') → ' . ( $member ? 'FOUND member id=' . $member->id : 'not found' ) );
             }
 
             if ( $member ) {
