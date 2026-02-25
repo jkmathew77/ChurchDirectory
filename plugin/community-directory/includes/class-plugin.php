@@ -47,6 +47,10 @@ class CD_Plugin {
         // Google Contacts OAuth callback
         CD_Google_Contacts::register_ajax();
 
+        // Google Login OAuth callback via admin-ajax (bypasses ModSecurity WAF)
+        add_action( 'wp_ajax_cd_google_callback', array( $this, 'handle_google_callback_ajax' ) );
+        add_action( 'wp_ajax_nopriv_cd_google_callback', array( $this, 'handle_google_callback_ajax' ) );
+
         // PWA support
         CD_PWA::init();
 
@@ -821,6 +825,22 @@ class CD_Plugin {
      * Flush rewrite rules once when new routes are added in a plugin update.
      * Checks a stored version and flushes if it's behind.
      */
+    /**
+     * Handle Google OAuth callback via admin-ajax.php.
+     * This bypasses Bluehost ModSecurity which blocks OAuth codes in /wp-json/ and custom URLs.
+     */
+    public function handle_google_callback_ajax() {
+        CD_Logger::info( 'google_callback via admin-ajax.php' );
+        $auth_api = new CD_API_Auth();
+        $request  = new WP_REST_Request( 'GET', '/' . CD_API_NAMESPACE . '/auth/google/callback' );
+        // Forward all query params from Google redirect
+        foreach ( $_GET as $key => $val ) {
+            $request->set_param( $key, sanitize_text_field( $val ) );
+        }
+        $auth_api->google_callback( $request );
+        exit;
+    }
+
     private function maybe_flush_rewrites() {
         $current_rewrite_version = 6; // Bump this when adding new rewrite rules
         $stored = (int) get_option( 'cd_rewrite_version', 1 );

@@ -183,10 +183,10 @@ class CD_API_Auth extends CD_API_Base {
             return $this->error( 'not_configured', __( 'Google sign-in is not configured. Please use email and password.', 'community-directory' ) );
         }
 
-        // Use a non-REST URL for the callback to bypass Bluehost ModSecurity/WAF
-        // which blocks /wp-json/ URLs containing OAuth authorization codes.
-        $base_slug    = get_option( 'cd_base_slug', 'community' );
-        $redirect_uri = home_url( $base_slug . '/auth/google-callback/' );
+        // Use admin-ajax.php for the callback to bypass Bluehost ModSecurity/WAF
+        // which blocks OAuth authorization codes (code=4/0...) on all URL paths.
+        // admin-ajax.php is a core WordPress file typically whitelisted by WAFs.
+        $redirect_uri = admin_url( 'admin-ajax.php?action=cd_google_callback' );
         $nonce = wp_create_nonce( 'cd_google_login' );
 
         CD_Logger::info( 'google_auth_url called. redirect_uri=' . $redirect_uri . ' nonce=' . substr( $nonce, 0, 8 ) . '...' );
