@@ -10,9 +10,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 class CD_Activator {
 
     public static function activate() {
-        // Create/update database tables
+        // Run only migrations that have not already been applied. Reactivating
+        // the plugin after maintenance or a hosting upgrade must not replay the
+        // entire migration chain against an existing production database.
+        $installed_version = get_option( 'cd_db_version', '000' );
         $db = new CD_Database();
-        $db->run_migrations( '000' );
+        $db->run_migrations( $installed_version );
 
         // Add custom capabilities to administrator
         CD_Capabilities::add_caps();
@@ -60,13 +63,13 @@ class CD_Activator {
             'cd_menu_label'              => 'Community',
             'cd_menu_visible'            => '1',
             'cd_verification_expiry'     => 48,      // hours
-            'cd_invite_expiry'           => 14,       // days
-            'cd_login_rate_limit'        => 5,        // attempts per 15 min
-            'cd_password_reset_limit'    => 3,        // per hour per email
-            'cd_reapplication_cooldown'  => 30,       // days
-            'cd_data_retention_period'   => 730,      // days (2 years)
+            'cd_invite_expiry'           => 14,      // days
+            'cd_login_rate_limit'        => 5,       // attempts per 15 min
+            'cd_password_reset_limit'    => 3,       // per hour per email
+            'cd_reapplication_cooldown'  => 30,      // days
+            'cd_data_retention_period'   => 730,     // days (2 years)
             'cd_unverified_archive_days' => 30,
-            'cd_avatar_max_size'         => 10,       // MB
+            'cd_avatar_max_size'         => 10,      // MB
             'cd_google_oauth_enabled'    => '0',
             'cd_google_sync_enabled'     => '0',
             'cd_push_enabled'            => '0',
