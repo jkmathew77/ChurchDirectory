@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: stthekla-production-recovery
+  group: stthekla-site-core-production
   cancel-in-progress: false
 
 jobs:
@@ -44,7 +44,11 @@ jobs:
 
       - name: Stop when deployment is idle
         if: env.SITE_CORE_MODE == 'idle'
-        run: echo 'Site Core deployment is idle.'
+        shell: bash
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/deployment-results"
+          printf 'mode=idle\n' > "$GITHUB_WORKSPACE/deployment-results/idle.txt"
+          echo 'Site Core deployment is idle.'
 
       - name: Configure SSH key
         if: env.SITE_CORE_MODE == 'deploy'
