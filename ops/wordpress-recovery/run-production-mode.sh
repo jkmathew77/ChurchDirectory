@@ -105,6 +105,18 @@ case "$MODE" in
     } > "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  repair-config-logs)
+    change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-config-logs"
+    bash "$SCRIPT_DIR/repair-config-and-rotate-logs.sh" "$WP_PATH" "$change_dir"
+    cp "$change_dir/runtime-before.json" "$SAFE_DIR/runtime-before.json"
+    cp "$change_dir/runtime-after.json" "$SAFE_DIR/runtime-after.json"
+    cp "$change_dir/removed-lines.txt" "$SAFE_DIR/removed-lines.txt"
+    cp "$change_dir/wp-config-new-lint.txt" "$SAFE_DIR/wp-config-new-lint.txt"
+    cp "$change_dir/log-archive-manifest.csv" "$SAFE_DIR/log-archive-manifest.csv"
+    cp "$change_dir/archive-SHA256SUMS.txt" "$SAFE_DIR/archive-SHA256SUMS.txt"
+    cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   harden-settings)
     change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-settings"
     bash "$SCRIPT_DIR/harden-settings.sh" "$WP_PATH" "$change_dir"
