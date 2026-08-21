@@ -65,6 +65,16 @@ case "$MODE" in
       "$RUN_TOKEN" "$audit_dir" "$WP_PATH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  inspect-wpforms)
+    audit_dir="${HOME}/stthekla-audits/wpforms-source-${RUN_TOKEN}"
+    bash "$SCRIPT_DIR/inspect-wpforms-source.sh" "$WP_PATH" "$audit_dir"
+    for filename in wpforms-lite-source.tar.gz wpforms-lite-files.txt SHA256SUMS.txt wpforms-plugin-state.json; do
+      [[ -f "$audit_dir/$filename" ]] && cp "$audit_dir/$filename" "$SAFE_DIR/$filename"
+    done
+    printf 'mode=inspect-wpforms\nrun_token=%s\naudit_directory=%s\nwordpress_path=%s\ncompleted_utc=%s\ncontains_wordpress_content=no\n' \
+      "$RUN_TOKEN" "$audit_dir" "$WP_PATH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   repair-config-logs)
     change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-config-logs"
     bash "$SCRIPT_DIR/repair-config-and-rotate-logs.sh" "$WP_PATH" "$change_dir"
