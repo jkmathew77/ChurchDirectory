@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - .github/workflows/stthekla-production-recovery.yml
-      - ops/wordpress-recovery/.production-recovery-trigger
+      - ops/wordpress-recovery/**
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   recovery:
-    name: Read-only production recovery
+    name: Controlled production recovery
     runs-on: ubuntu-latest
     timeout-minutes: 120
     env:
@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           mode="$(tr -d '[:space:]' < "$TRIGGER_FILE")"
           case "$mode" in
-            connectivity|backup-audit) ;;
+            connectivity|backup-audit|deep-audit|harden-settings|quarantine-risky) ;;
             *)
               echo "Unsupported recovery mode: $mode" >&2
               exit 1
@@ -90,19 +90,20 @@ jobs:
             | tee "$GITHUB_WORKSPACE/recovery-results/connectivity.txt"
 
       - name: Package recovery toolkit
-        if: steps.mode.outputs.mode == 'backup-audit'
+        if: steps.mode.outputs.mode != 'connectivity'
         shell: bash
         run: |
           set -euo pipefail
           tar -czf "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" ops/wordpress-recovery
 
-      - name: Upload toolkit and create private backup and audit
-        if: steps.mode.outputs.mode == 'backup-audit'
+      - name: Execute approved production mode
+        if: steps.mode.outputs.mode != 'connectivity'
         shell: bash
         run: |
           set -euo pipefail
+          mode="${{ steps.mode.outputs.mode }}"
           run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          remote_root="stthekla-recovery-runs/$run_token"
+          remote_root="$HOME/stthekla-recovery-runs/$run_token"
           ssh_base=(
             -i "$HOME/.ssh/id_rsa_stthekla"
             -p "$SSH_PORT"
@@ -126,74 +127,21 @@ jobs:
             "$SSH_USER@$SSH_HOST:$remote_root/toolkit.tar.gz"
 
           ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" \
-            bash -s -- "$run_token" "$WP_PATH" <<'REMOTE_SCRIPT'
+            bash -s -- "$mode" "$run_token" "$WP_PATH" <<'REMOTE_SCRIPT'
           set -euo pipefail
           umask 077
 
-          run_token="$1"
-          wp_path="$2"
+          mode="$1"
+          run_token="$2"
+          wp_path="$3"
           remote_root="$HOME/stthekla-recovery-runs/$run_token"
           toolkit_dir="$remote_root/toolkit"
-          backup_log="$remote_root/backup.log"
-          audit_log="$remote_root/audit.log"
-          audit_dir="$HOME/stthekla-audits/github-$run_token"
-          safe_dir="$remote_root/safe-results"
 
-          mkdir -p "$toolkit_dir" "$safe_dir"
+          mkdir -p "$toolkit_dir"
           tar -xzf "$remote_root/toolkit.tar.gz" -C "$toolkit_dir"
-          chmod 700 "$toolkit_dir/ops/wordpress-recovery/backup-before-recovery.sh"
-          chmod 700 "$toolkit_dir/ops/wordpress-recovery/site-audit.sh"
-
-          bash "$toolkit_dir/ops/wordpress-recovery/backup-before-recovery.sh" "$wp_path" | tee "$backup_log"
-          backup_dir="$(sed -n 's/^Location: //p' "$backup_log" | tail -n 1)"
-          if [[ -z "$backup_dir" || ! -d "$backup_dir" ]]; then
-            echo "Unable to determine completed backup directory." >&2
-            exit 1
-          fi
-
-          bash "$toolkit_dir/ops/wordpress-recovery/site-audit.sh" "$wp_path" "$audit_dir" | tee "$audit_log"
-
-          safe_files=(
-            core-version.txt
-            core-checksums.txt
-            plugins.csv
-            themes.csv
-            user-count.txt
-            roles.csv
-            cron-events.csv
-            public-registration.txt
-            default-comment-status.txt
-            permalink-structure.txt
-            database-table-sizes.csv
-            shortcode-usage.csv
-            community-directory-health.json
-            community-directory-filesystem.txt
-            plugin-directory-sizes.csv
-          )
-
-          for filename in "${safe_files[@]}"; do
-            if [[ -f "$audit_dir/$filename" ]]; then
-              cp "$audit_dir/$filename" "$safe_dir/$filename"
-            fi
-          done
-
-          cp "$backup_dir/SHA256SUMS" "$safe_dir/backup-SHA256SUMS.txt"
-          cp "$backup_dir/wordpress-version.txt" "$safe_dir/backup-wordpress-version.txt"
-          cp "$backup_dir/plugins.csv" "$safe_dir/backup-plugins.csv"
-          cp "$backup_dir/themes.csv" "$safe_dir/backup-themes.csv"
-          du -h "$backup_dir/database.sql" "$backup_dir/site-files.tar.gz" > "$safe_dir/backup-file-sizes.txt"
-
-          {
-            printf 'run_token=%s\n' "$run_token"
-            printf 'backup_directory=%s\n' "$backup_dir"
-            printf 'audit_directory=%s\n' "$audit_dir"
-            printf 'wordpress_path=%s\n' "$wp_path"
-            printf 'completed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            printf 'user_reconciliation_retained_privately=%s\n' "$audit_dir/users-directory-reconciliation.csv"
-          } > "$safe_dir/execution-summary.txt"
-
-          tar -czf "$remote_root/safe-results.tar.gz" -C "$safe_dir" .
-          chmod -R go-rwx "$remote_root" "$backup_dir" "$audit_dir"
+          chmod 700 "$toolkit_dir/ops/wordpress-recovery/"*.sh
+          bash "$toolkit_dir/ops/wordpress-recovery/run-production-mode.sh" \
+            "$mode" "$wp_path" "$run_token" "$remote_root"
           rm -f "$remote_root/toolkit.tar.gz"
           REMOTE_SCRIPT
 
@@ -201,9 +149,9 @@ jobs:
             "$SSH_USER@$SSH_HOST:$remote_root/safe-results.tar.gz" \
             "$RUNNER_TEMP/stthekla-safe-results.tar.gz"
 
-          mkdir -p "$GITHUB_WORKSPACE/recovery-results/production-audit"
+          mkdir -p "$GITHUB_WORKSPACE/recovery-results/production-results"
           tar -xzf "$RUNNER_TEMP/stthekla-safe-results.tar.gz" \
-            -C "$GITHUB_WORKSPACE/recovery-results/production-audit"
+            -C "$GITHUB_WORKSPACE/recovery-results/production-results"
 
       - name: Upload safe recovery reports
         if: always()
