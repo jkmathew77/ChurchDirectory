@@ -22,7 +22,7 @@ find "$PLUGIN_DIR" -type f -printf '%P\n' | sort > "$OUTPUT_DIR/wpforms-lite-fil
 sha256sum "$OUTPUT_DIR/wpforms-lite-source.tar.gz" > "$OUTPUT_DIR/SHA256SUMS.txt"
 
 if command -v wp >/dev/null 2>&1; then
-  wp --path="$WP_PATH" plugin get wpforms-lite --fields=name,status,version,update,update_version --format=json \
+  wp --path="$WP_PATH" plugin get wpforms-lite --fields=name,status,version --format=json \
     > "$OUTPUT_DIR/wpforms-plugin-state.json"
 fi
 
