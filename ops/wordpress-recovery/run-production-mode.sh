@@ -91,6 +91,8 @@ case "$MODE" in
     audit_dir="${HOME}/stthekla-audits/config-${RUN_TOKEN}"
     bash "$SCRIPT_DIR/config-log-audit.sh" "$WP_PATH" "$audit_dir"
     cp "$audit_dir/selected-constants.json" "$SAFE_DIR/selected-constants.json"
+    cp "$audit_dir/selected-constant-occurrences.txt" "$SAFE_DIR/selected-constant-occurrences.txt"
+    cp "$audit_dir/runtime-constants.json" "$SAFE_DIR/runtime-constants.json"
     cp "$audit_dir/wp-config-php-lint.txt" "$SAFE_DIR/wp-config-php-lint.txt"
     cp "$audit_dir/log-files.csv" "$SAFE_DIR/log-files.csv"
     {
