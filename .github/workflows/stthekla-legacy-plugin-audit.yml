@@ -1,9 +1,9 @@
 name: St. Thekla inactive plugin content audit
 
 on:
-  push:
+  pull_request:
     branches:
-      - ops/stthekla-production-execution
+      - main
     paths:
       - .github/workflows/stthekla-legacy-plugin-audit.yml
       - ops/wordpress-recovery/legacy-plugin-content-audit.php
