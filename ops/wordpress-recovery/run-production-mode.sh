@@ -117,6 +117,16 @@ case "$MODE" in
     cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  restore-config)
+    change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-config-restore"
+    bash "$SCRIPT_DIR/restore-config-after-safeguard.sh" "$WP_PATH" "$change_dir"
+    cp "$change_dir/runtime-after-restore.json" "$SAFE_DIR/runtime-after-restore.json"
+    cp "$change_dir/archived-config-lint.txt" "$SAFE_DIR/archived-config-lint.txt"
+    cp "$change_dir/restored-config-lint.txt" "$SAFE_DIR/restored-config-lint.txt"
+    cp "$change_dir/config-SHA256SUMS.txt" "$SAFE_DIR/config-SHA256SUMS.txt"
+    cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   harden-settings)
     change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-settings"
     bash "$SCRIPT_DIR/harden-settings.sh" "$WP_PATH" "$change_dir"
