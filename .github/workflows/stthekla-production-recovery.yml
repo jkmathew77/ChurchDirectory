@@ -26,6 +26,7 @@ jobs:
       SSH_USER: stthekla
       WP_PATH: /home3/stthekla/public_html
       TRIGGER_FILE: ops/wordpress-recovery/.production-recovery-trigger
+      DIRECTORY_SOURCE_REF: 65f5da89a9128c6797d96bb5b6ce39b32f6bf115
     steps:
       - name: Check out recovery branch
         uses: actions/checkout@v4
@@ -37,7 +38,7 @@ jobs:
           set -euo pipefail
           mode="$(tr -d '[:space:]' < "$TRIGGER_FILE")"
           case "$mode" in
-            connectivity|backup-audit|deep-audit|config-audit|inspect-wpforms|repair-config-logs|restore-config|harden-settings|quarantine-risky|restore-mail|restore-contact) ;;
+            connectivity|backup-audit|deep-audit|config-audit|inspect-wpforms|repair-config-logs|restore-config|harden-settings|quarantine-risky|restore-mail|restore-contact|restore-ninja|restore-shortcodes|deploy-directory) ;;
             *)
               echo "Unsupported recovery mode: $mode" >&2
               exit 1
@@ -45,6 +46,13 @@ jobs:
           esac
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "Recovery mode: $mode"
+
+      - name: Check out validated Community Directory source
+        if: steps.mode.outputs.mode == 'deploy-directory'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DIRECTORY_SOURCE_REF }}
+          path: repair-source
 
       - name: Configure SSH key
         shell: bash
@@ -94,7 +102,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tar -czf "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" ops/wordpress-recovery
+          package_paths=(ops/wordpress-recovery)
+          if [[ "${{ steps.mode.outputs.mode }}" == "deploy-directory" ]]; then
+            test -f repair-source/plugin/community-directory/community-directory.php
+            package_paths+=(repair-source/plugin/community-directory)
+          fi
+          tar -czf "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" "${package_paths[@]}"
 
       - name: Execute approved production mode
         if: steps.mode.outputs.mode != 'connectivity'
