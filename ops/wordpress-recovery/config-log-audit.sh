@@ -17,13 +17,14 @@ mkdir -p "$OUTPUT_DIR"
 
 php -l "$CONFIG" > "$OUTPUT_DIR/wp-config-php-lint.txt" 2>&1
 
-python3 - "$CONFIG" > "$OUTPUT_DIR/selected-constants.json" <<'PY'
+python3 - "$CONFIG" "$OUTPUT_DIR/selected-constant-occurrences.txt" > "$OUTPUT_DIR/selected-constants.json" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
 path = Path(sys.argv[1])
+occurrences_path = Path(sys.argv[2])
 lines = path.read_text(encoding='utf-8', errors='replace').splitlines()
 selected = {
     'WP_CRON_LOCK_TIMEOUT',
@@ -38,21 +39,52 @@ selected = {
     'WP_MAX_MEMORY_LIMIT',
     'WP_ENVIRONMENT_TYPE',
 }
-pattern = re.compile(r"^\s*define\s*\(\s*['\"]([A-Z0-9_]+)['\"]\s*,\s*(.*?)\s*\)\s*;\s*(?://.*|#.*)?$")
+pattern = re.compile(r"^\s*@?define\s*\(\s*['\"]([A-Z0-9_]+)['\"]\s*,\s*(.*?)\s*\)\s*;\s*(?://.*|#.*)?$")
 report = {name: [] for name in sorted(selected)}
+occurrences = []
 for line_number, line in enumerate(lines, start=1):
     match = pattern.match(line)
-    if not match:
-        continue
-    name, value = match.groups()
-    if name not in selected:
-        continue
-    value = value.strip()
-    if len(value) > 120:
-        value = value[:120] + '…'
-    report[name].append({'line': line_number, 'value': value})
+    if match:
+        name, value = match.groups()
+        if name in selected:
+            value = value.strip()
+            if len(value) > 120:
+                value = value[:120] + '…'
+            report[name].append({'line': line_number, 'value': value})
+    for name in sorted(selected):
+        if name in line:
+            safe_line = line.strip()
+            if len(safe_line) > 240:
+                safe_line = safe_line[:240] + '…'
+            occurrences.append(f'{line_number}: {safe_line}')
+            break
+occurrences_path.write_text('\n'.join(occurrences) + ('\n' if occurrences else ''), encoding='utf-8')
 print(json.dumps(report, indent=2, sort_keys=True))
 PY
+
+wp --path="$WP_PATH" eval '
+$names = array(
+    "WP_CRON_LOCK_TIMEOUT",
+    "AUTOSAVE_INTERVAL",
+    "WP_POST_REVISIONS",
+    "EMPTY_TRASH_DAYS",
+    "WP_DEBUG",
+    "WP_DEBUG_LOG",
+    "WP_DEBUG_DISPLAY",
+    "WP_CACHE",
+    "WP_MEMORY_LIMIT",
+    "WP_MAX_MEMORY_LIMIT",
+    "WP_ENVIRONMENT_TYPE",
+);
+$result = array();
+foreach ( $names as $name ) {
+    $result[$name] = array(
+        "defined" => defined($name),
+        "value" => defined($name) ? constant($name) : null,
+    );
+}
+echo wp_json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+' > "$OUTPUT_DIR/runtime-constants.json"
 
 {
   printf 'path,size_bytes,modified_utc,permissions\n'
