@@ -1,0 +1,166 @@
+name: St. Thekla Site Core production deployment
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/stthekla-site-core-production.yml
+      - ops/wordpress-recovery/.site-core-production-trigger
+      - ops/wordpress-recovery/deploy-site-core.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stthekla-production-recovery
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy and verify Site Core
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      TRIGGER_FILE: ops/wordpress-recovery/.site-core-production-trigger
+    steps:
+      - name: Check out deployment branch
+        uses: actions/checkout@v4
+
+      - name: Validate deployment trigger
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(tr -d '[:space:]' < "$TRIGGER_FILE")"
+          if [[ "$mode" != "deploy" && "$mode" != "idle" ]]; then
+            echo "Unsupported Site Core deployment trigger: $mode" >&2
+            exit 1
+          fi
+          echo "SITE_CORE_MODE=$mode" >> "$GITHUB_ENV"
+
+      - name: Stop when deployment is idle
+        if: env.SITE_CORE_MODE == 'idle'
+        run: echo 'Site Core deployment is idle.'
+
+      - name: Configure SSH key
+        if: env.SITE_CORE_MODE == 'deploy'
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+
+      - name: Record and verify Bluehost host keys
+        if: env.SITE_CORE_MODE == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh" "$GITHUB_WORKSPACE/deployment-results"
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -lf "$HOME/.ssh/known_hosts" > "$GITHUB_WORKSPACE/deployment-results/host-key-fingerprints.txt"
+
+      - name: Verify SSH and WordPress access
+        if: env.SITE_CORE_MODE == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/id_rsa_stthekla" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "set -e; test -f '$WP_PATH/wp-config.php'; command -v wp >/dev/null; command -v git >/dev/null; command -v php >/dev/null; command -v curl >/dev/null; printf 'ssh=ok\\nwordpress=%s\\nphp=%s\\n' \"\$(wp --path='$WP_PATH' core version)\" \"\$(php -r 'echo PHP_VERSION;')\"" \
+            | tee "$GITHUB_WORKSPACE/deployment-results/connectivity.txt"
+
+      - name: Upload deployment script and deploy
+        if: env.SITE_CORE_MODE == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_root_rel="stthekla-site-core-runs/$run_token"
+          ssh_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root_rel'"
+          scp "${scp_base[@]}" \
+            ops/wordpress-recovery/deploy-site-core.sh \
+            "$SSH_USER@$SSH_HOST:$remote_root_rel/deploy-site-core.sh"
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" \
+            bash -s -- "$run_token" "$WP_PATH" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          umask 077
+          run_token="$1"
+          wp_path="$2"
+          remote_root="$HOME/stthekla-site-core-runs/$run_token"
+          output_dir="$HOME/stthekla-change-logs/$run_token-site-core"
+          chmod 700 "$remote_root/deploy-site-core.sh"
+          bash "$remote_root/deploy-site-core.sh" "$wp_path" "$output_dir"
+          safe_dir="$remote_root/safe-results"
+          mkdir -p "$safe_dir"
+          for filename in \
+            summary.txt \
+            plugin-installed-before.txt \
+            plugin-active-before.txt \
+            php-lint.txt \
+            site-core-files-SHA256SUMS.txt \
+            activation.txt \
+            internal-verification.json \
+            rewrite-flush.txt \
+            cache-flush.txt \
+            homepage-curl-stderr.txt \
+            public-api-verification.json \
+            public-homepage-verification.json \
+            plugin-state-after.json; do
+            [[ -f "$output_dir/$filename" ]] && cp "$output_dir/$filename" "$safe_dir/$filename"
+          done
+          tar -czf "$remote_root/safe-results.tar.gz" -C "$safe_dir" .
+          chmod -R go-rwx "$remote_root" "$output_dir"
+          REMOTE_SCRIPT
+
+          scp "${scp_base[@]}" \
+            "$SSH_USER@$SSH_HOST:$remote_root_rel/safe-results.tar.gz" \
+            "$RUNNER_TEMP/stthekla-site-core-results.tar.gz"
+          mkdir -p "$GITHUB_WORKSPACE/deployment-results/production-results"
+          tar -xzf "$RUNNER_TEMP/stthekla-site-core-results.tar.gz" \
+            -C "$GITHUB_WORKSPACE/deployment-results/production-results"
+
+      - name: Upload deployment report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-site-core-production-${{ github.run_id }}-${{ github.run_attempt }}
+          path: deployment-results
+          if-no-files-found: error
+          retention-days: 14
