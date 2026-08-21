@@ -1,0 +1,30 @@
+name: Recovery toolkit checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Configure PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          coverage: none
+
+      - name: Validate shell scripts
+        run: |
+          bash -n ops/wordpress-recovery/backup-before-recovery.sh
+          bash -n ops/wordpress-recovery/site-audit.sh
+
+      - name: Validate PHP audit scripts
+        run: |
+          php -l ops/wordpress-recovery/user-audit.php
+          php -l ops/wordpress-recovery/shortcode-audit.php
