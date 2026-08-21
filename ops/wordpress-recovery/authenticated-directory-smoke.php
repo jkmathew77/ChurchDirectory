@@ -11,8 +11,8 @@ if ( PHP_SAPI !== 'cli' ) {
 
 global $wpdb;
 
-$_SERVER['REMOTE_ADDR']    = '127.0.0.1';
-$_SERVER['HTTP_REFERER']   = home_url( '/community/directory/' );
+$_SERVER['REMOTE_ADDR']     = '127.0.0.1';
+$_SERVER['HTTP_REFERER']    = home_url( '/community/directory/' );
 $_SERVER['HTTP_USER_AGENT'] = 'Mozilla/5.0 StTheklaRecoverySmoke/1.0';
 
 $namespace = '/community-directory/v1';
@@ -56,17 +56,21 @@ function st_smoke_find_count( $data ) {
         return null;
     }
 
-    foreach ( array( 'items', 'results', 'members', 'households', 'groups', 'applications', 'registrations', 'requests' ) as $key ) {
-        if ( isset( $data[ $key ] ) && is_array( $data[ $key ] ) ) {
-            return count( $data[ $key ] );
-        }
-    }
-
     if ( array_is_list( $data ) ) {
         return count( $data );
     }
 
-    return null;
+    // Some directory responses contain both members and households, with the
+    // unused collection intentionally empty. Return the largest collection so
+    // the active view is represented instead of whichever key appears first.
+    $counts = array();
+    foreach ( array( 'items', 'results', 'households', 'members', 'groups', 'applications', 'registrations', 'requests' ) as $key ) {
+        if ( isset( $data[ $key ] ) && is_array( $data[ $key ] ) ) {
+            $counts[] = count( $data[ $key ] );
+        }
+    }
+
+    return empty( $counts ) ? null : max( $counts );
 }
 
 function st_smoke_request( $method, $route, $params = array() ) {
@@ -222,7 +226,9 @@ if ( $oauth_state ) {
     delete_transient( 'cd_google_invite_' . $oauth_state );
 }
 
-$encrypted_secret = get_option( 'cd_google_client_secret_enc', '' );
+// The plugin stores the encrypted login/contact secret in this option. The
+// form-only cd_google_client_secret_raw option intentionally remains empty.
+$encrypted_secret = get_option( 'cd_google_client_secret', '' );
 $oauth_secret_decrypts = false;
 if ( $encrypted_secret && class_exists( 'CD_Encryption' ) ) {
     $oauth_secret_decrypts = '' !== CD_Encryption::decrypt( $encrypted_secret );
@@ -254,7 +260,6 @@ $report = array(
         'tests'           => $admin_tests,
     ),
     'google_oauth' => array(
-        'enabled_option'        => (string) get_option( 'cd_google_oauth_enabled', '0' ),
         'client_id_configured'  => '' !== (string) get_option( 'cd_google_client_id', '' ),
         'secret_option_present' => '' !== (string) $encrypted_secret,
         'secret_decrypts'       => $oauth_secret_decrypts,
@@ -263,8 +268,8 @@ $report = array(
     ),
     'pwa' => array(
         'enabled_option' => (string) get_option( 'cd_pwa_enabled', '0' ),
-        'app_name_configured' => '' !== (string) get_option( 'cd_pwa_app_name', '' ),
-        'short_name_configured' => '' !== (string) get_option( 'cd_pwa_short_name', '' ),
+        'app_name_effective' => (string) get_option( 'cd_pwa_app_name', 'St. Thekla Directory' ),
+        'short_name_effective' => (string) get_option( 'cd_pwa_short_name', 'St. Thekla' ),
     ),
     'data_preservation' => array(
         'custom_table_counts_unchanged' => $table_counts_unchanged,
