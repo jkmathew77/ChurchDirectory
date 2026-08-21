@@ -54,7 +54,12 @@ DEBUG_LOG="$WP_PATH/wp-content/debug.log"
 if [[ -f "$DEBUG_LOG" ]]; then
   cp -p "$DEBUG_LOG" "$OUTPUT_DIR/private/debug.log.before"
   sha256sum "$OUTPUT_DIR/private/debug.log.before" > "$OUTPUT_DIR/private/debug-log-before-SHA256SUMS.txt"
-  stat -c 'size_bytes=%s\npermissions=%a\nmodified_epoch=%Y' "$DEBUG_LOG" > "$OUTPUT_DIR/debug-log-before.txt"
+  {
+    printf 'status=present\n'
+    printf 'size_bytes=%s\n' "$(stat -c %s "$DEBUG_LOG")"
+    printf 'permissions=%s\n' "$(stat -c %a "$DEBUG_LOG")"
+    printf 'modified_epoch=%s\n' "$(stat -c %Y "$DEBUG_LOG")"
+  } > "$OUTPUT_DIR/debug-log-before.txt"
 else
   printf 'status=missing\n' > "$OUTPUT_DIR/debug-log-before.txt"
 fi
@@ -168,21 +173,15 @@ fetch_page() {
   local name="$1"
   local url="$2"
   local output="$OUTPUT_DIR/${name}.html"
+  local separator='?'
   local status
+  [[ "$url" == *\?* ]] && separator='&'
   status="$(curl -sS -L --max-time 60 \
     -o "$output" \
     -w '%{http_code}' \
     -H 'Cache-Control: no-cache, no-store, must-revalidate' \
     -H 'Pragma: no-cache' \
-    "${url}${url#*\?}" >/dev/null 2>&1 || true)"
-  # The odd-looking URL construction above is intentionally replaced below;
-  # retain a single canonical cache-busted request for deterministic output.
-  status="$(curl -sS -L --max-time 60 \
-    -o "$output" \
-    -w '%{http_code}' \
-    -H 'Cache-Control: no-cache, no-store, must-revalidate' \
-    -H 'Pragma: no-cache' \
-    "${url}$([[ "$url" == *\?* ]] && printf '&' || printf '?')disable_debug_check=1&ts=$(date +%s%N)" \
+    "${url}${separator}disable_debug_check=1&ts=$(date +%s%N)" \
     2> "$OUTPUT_DIR/${name}-curl-stderr.txt")"
   printf '%s\n' "$status" > "$OUTPUT_DIR/${name}-http-status.txt"
   if [[ "$status" != "200" ]]; then
@@ -233,7 +232,7 @@ if not isinstance(schedule_rows, list):
 checks = {
     "homepage_raw_ninja_shortcode_absent": "[ninja_tables" not in home,
     "homepage_holy_liturgy_present": "Holy Liturgy" in home,
-    "homepage_site_core_markup_present": bool(re.search(r"stc[-_]|st-thekla", home, re.I)),
+    "homepage_site_core_markup_present": "stc-weekly-schedule-table" in home,
     "contact_raw_jetpack_shortcode_absent": "[contact-form" not in contact and "[contact-field" not in contact,
     "contact_wpforms_present": "wpforms" in contact.lower(),
     "contact_current_address_present": "2 Old Ox Road" in contact and "Nyack" in contact,
@@ -263,8 +262,7 @@ PY
 
 rm -f "$OUTPUT_DIR/"*.html
 
-# Confirm that normal WordPress execution did not recreate a debug log after
-# WP_DEBUG and WP_DEBUG_LOG were disabled.
+# Confirm that normal WordPress execution remains healthy after debug shutdown.
 for _ in 1 2 3; do
   wp --path="$WP_PATH" core version >/dev/null
   wp --path="$WP_PATH" plugin list --format=count >/dev/null
@@ -272,7 +270,12 @@ for _ in 1 2 3; do
 done
 
 if [[ -f "$DEBUG_LOG" ]]; then
-  stat -c 'status=present\nsize_bytes=%s\npermissions=%a\nmodified_epoch=%Y' "$DEBUG_LOG" > "$OUTPUT_DIR/debug-log-after.txt"
+  {
+    printf 'status=present\n'
+    printf 'size_bytes=%s\n' "$(stat -c %s "$DEBUG_LOG")"
+    printf 'permissions=%s\n' "$(stat -c %a "$DEBUG_LOG")"
+    printf 'modified_epoch=%s\n' "$(stat -c %Y "$DEBUG_LOG")"
+  } > "$OUTPUT_DIR/debug-log-after.txt"
 else
   printf 'status=absent\n' > "$OUTPUT_DIR/debug-log-after.txt"
 fi
