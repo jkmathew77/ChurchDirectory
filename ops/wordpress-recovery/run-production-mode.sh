@@ -150,6 +150,13 @@ case "$MODE" in
     cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  directory-smoke)
+    audit_dir="${HOME}/stthekla-audits/${RUN_TOKEN}-directory-authenticated-smoke"
+    bash "$SCRIPT_DIR/authenticated-directory-smoke.sh" "$WP_PATH" "$audit_dir"
+    copy_if_present "$audit_dir" plugin-state.json authenticated-rest-smoke.json pwa-public-verification.json combined-verification.json login-curl-stderr.txt manifest-curl-stderr.txt service-worker-curl-stderr.txt
+    cp "$audit_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   *)
     echo "Unsupported production mode: $MODE" >&2
     exit 1
