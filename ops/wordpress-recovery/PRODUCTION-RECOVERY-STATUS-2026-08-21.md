@@ -32,6 +32,7 @@ This report records the non-sensitive production results of the controlled Blueh
 - The recurring schedule contains six rows: Morning Prayers, Holy Liturgy, Dismissal, Refreshments, Tree of Life, and End of Tree of Life.
 - The public weekly schedule API is available at `/wp-json/st-thekla/v1/weekly-schedule`.
 - The current church location is centrally configured as St. Thomas Lutheran Church, 2 Old Ox Road, Nyack, NY 10960.
+- Ninja Tables is inactive. Its six historical schedule rows and table record remain preserved, while Site Core owns the live homepage schedule.
 
 ## Community Directory
 
@@ -53,6 +54,32 @@ This report records the non-sensitive production results of the controlled Blueh
   - officers: 9
   - WhatsApp groups: 2
 
+## Final public verification
+
+A cache-busted production verification passed every tested public check:
+
+- Homepage Site Core schedule present
+- Homepage raw Ninja Tables shortcode absent
+- Contact form present
+- Current Nyack address present
+- Former West Nyack address absent
+- Raw Jetpack contact shortcode absent
+- Community Directory member-login component present
+- Community Directory session endpoint returned JSON
+- Donation-page QuickPay and PayPal instructions present
+- Donation-page raw Shortcodes Ultimate markup absent
+- Site Core schedule API returned all six expected rows
+
+## Current ordinary active plugins
+
+- Community Directory 0.5.2
+- St. Thekla Site Core 0.2.0
+- WPForms Lite 2.0.0.5
+- WP Mail SMTP 4.9.0
+- Shortcodes Ultimate 7.8.4 — temporary legacy dependency
+
+Bluehost’s Endurance cache and SSO must-use plugins remain in place.
+
 ## User audit — no accounts changed
 
 - WordPress contains 676 users.
@@ -66,7 +93,7 @@ This report records the non-sensitive production results of the controlled Blueh
 
 1. Perform member-authenticated testing of email/password login, Google OAuth, directory search, profiles, households, photos, officer administration, and PWA behavior.
 2. Review the 636 unlinked subscriber accounts before any deletion decision.
-3. Retire Ninja Tables and Shortcodes Ultimate after their remaining content is fully migrated to church-owned code.
+3. Replace the remaining Shortcodes Ultimate donation markup with church-owned Site Core content, then deactivate that plugin.
 4. Replace the legacy PDF Embedder shortcode on the historical Palm Sunday event.
 5. Disable production debugging after the observation period.
 6. Review obsolete inactive themes as a separate cleanup task.
