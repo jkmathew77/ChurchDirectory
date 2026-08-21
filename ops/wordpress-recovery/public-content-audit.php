@@ -77,6 +77,21 @@ function stpc_extract_shortcodes( $content ) {
     return $shortcodes;
 }
 
+function stpc_read_safe_diagnostic_file( $path ) {
+    if ( ! is_file( $path ) ) {
+        return null;
+    }
+    $content = file_get_contents( $path );
+    if ( false === $content ) {
+        return null;
+    }
+    $decoded = json_decode( $content, true );
+    if ( JSON_ERROR_NONE === json_last_error() ) {
+        return stpc_sanitize_value( $decoded );
+    }
+    return stpc_sanitize_value( $content, 'diagnostic' );
+}
+
 $public_posts = array();
 foreach ( array( 5, 7, 196, 2932 ) as $post_id ) {
     $post = get_post( $post_id );
@@ -145,10 +160,45 @@ foreach ( $table_names as $table_name ) {
     break;
 }
 
+$legacy_diagnostic = array(
+    'directory_found' => false,
+    'directory'       => null,
+    'files'           => array(),
+);
+$home_dir = getenv( 'HOME' );
+$diagnostic_dirs = $home_dir ? glob( trailingslashit( $home_dir ) . 'stthekla-change-logs/*-legacy-public-content', GLOB_ONLYDIR ) : array();
+if ( is_array( $diagnostic_dirs ) && ! empty( $diagnostic_dirs ) ) {
+    usort( $diagnostic_dirs, static function ( $a, $b ) {
+        return filemtime( $b ) <=> filemtime( $a );
+    } );
+    $latest = $diagnostic_dirs[0];
+    $legacy_diagnostic['directory_found'] = true;
+    $legacy_diagnostic['directory'] = basename( $latest );
+    foreach ( array(
+        'plugin-state-before.csv',
+        'content-migration.json',
+        'content-migration-stderr.txt',
+        'shortcodes-ultimate-deactivation.txt',
+        'pdf-embedder-deactivation.txt',
+        'shortcode-usage-after-content.csv',
+        'public-verification-before-quarantine.json',
+        'quarantine-manifest.csv',
+        'public-verification-final.json',
+        'plugins-after.csv',
+        'summary.txt',
+    ) as $filename ) {
+        $value = stpc_read_safe_diagnostic_file( trailingslashit( $latest ) . $filename );
+        if ( null !== $value ) {
+            $legacy_diagnostic['files'][ $filename ] = $value;
+        }
+    }
+}
+
 $report = array(
-    'generated_at_utc' => gmdate( 'c' ),
-    'public_posts'     => $public_posts,
-    'ninja_table_142'  => $ninja,
+    'generated_at_utc'             => gmdate( 'c' ),
+    'public_posts'                 => $public_posts,
+    'ninja_table_142'              => $ninja,
+    'legacy_migration_diagnostic'  => $legacy_diagnostic,
 );
 
 echo wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . PHP_EOL;
