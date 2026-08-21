@@ -164,6 +164,13 @@ case "$MODE" in
     cp "$audit_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  migrate-legacy-content)
+    change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-legacy-public-content"
+    bash "$SCRIPT_DIR/migrate-legacy-public-content.sh" "$WP_PATH" "$change_dir"
+    copy_if_present "$change_dir" plugin-state-before.csv content-migration.json content-migration-stderr.txt shortcodes-ultimate-deactivation.txt pdf-embedder-deactivation.txt shortcode-usage-after-content.csv public-verification-before-quarantine.json quarantine-manifest.csv public-verification-final.json plugins-after.csv donation-http-status.txt palm-sunday-http-status.txt homepage-http-status.txt contact-http-status.txt directory-login-http-status.txt schedule-api-http-status.txt donation-final-http-status.txt palm-sunday-final-http-status.txt homepage-final-http-status.txt contact-final-http-status.txt directory-login-final-http-status.txt schedule-api-final-http-status.txt
+    cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   *)
     echo "Unsupported production mode: $MODE" >&2
     exit 1
