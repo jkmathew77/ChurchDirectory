@@ -1,0 +1,286 @@
+name: St. Thekla approved core repair v2
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - ops/wordpress-recovery/.execute-approved-core-repair-v2-20260821
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: stthekla-core-repair-v2
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      RESULTS_DIR: ops/wordpress-recovery/results/core-repair-v2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/stthekla-production-execution
+          fetch-depth: 0
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Build Community Directory 0.5.2
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin repair/wordpress-upgrade-resilience
+          src="$RUNNER_TEMP/community-directory-source"
+          git worktree add --detach "$src" origin/repair/wordpress-upgrade-resilience
+          find "$src/plugin/community-directory" -type f -name '*.php' -print0 \
+            | sort -z | xargs -0 -n1 php -l >/dev/null
+          ( cd "$src/plugin" && zip -qr "$RUNNER_TEMP/community-directory-0.5.2.zip" community-directory )
+          unzip -t "$RUNNER_TEMP/community-directory-0.5.2.zip" >/dev/null
+          sha256sum "$RUNNER_TEMP/community-directory-0.5.2.zip" > "$RUNNER_TEMP/community-directory-0.5.2.zip.sha256"
+
+      - name: Backup and repair production
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_root="stthekla-core-v2-runs/$run_token"
+          ssh_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root'"
+          scp "${scp_opts[@]}" \
+            "$RUNNER_TEMP/community-directory-0.5.2.zip" \
+            "$RUNNER_TEMP/community-directory-0.5.2.zip.sha256" \
+            "$SSH_USER@$SSH_HOST:$remote_root/"
+
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" bash -s -- "$run_token" "$WP_PATH" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          run_token="$1"
+          wp_path="$2"
+          remote_root="$HOME/stthekla-core-v2-runs/$run_token"
+          safe_dir="$remote_root/safe-results"
+          backup_dir="$HOME/stthekla-backups/core-v2-$run_token"
+          plugin_backup_dir="$HOME/stthekla-plugin-backups"
+          directory_path="$wp_path/wp-content/plugins/community-directory"
+          old_plugin_archive="$plugin_backup_dir/community-directory-before-v2-$run_token.tar.gz"
+          rollback=0
+          mkdir -p "$safe_dir" "$backup_dir" "$plugin_backup_dir"
+          exec > >(tee -a "$remote_root/repair.log") 2>&1
+
+          rollback_files() {
+            rc=$?
+            if [[ $rc -ne 0 && $rollback -eq 1 ]]; then
+              echo 'Rolling Community Directory files back to the pre-repair copy.'
+              wp --path="$wp_path" plugin deactivate community-directory --skip-plugins --skip-themes || true
+              rm -rf "$directory_path"
+              tar -xzf "$old_plugin_archive" -C "$wp_path/wp-content/plugins"
+              wp --path="$wp_path" plugin activate community-directory --skip-plugins --skip-themes || true
+              wp --path="$wp_path" rewrite flush --hard --skip-plugins --skip-themes || true
+            fi
+            exit $rc
+          }
+          trap rollback_files EXIT
+
+          test -f "$wp_path/wp-config.php"
+          command -v wp >/dev/null
+          command -v php >/dev/null
+          command -v unzip >/dev/null
+          cd "$remote_root"
+          sha256sum -c community-directory-0.5.2.zip.sha256
+          unzip -t community-directory-0.5.2.zip >/dev/null
+
+          echo 'Creating database and files backup.'
+          wp --path="$wp_path" core version > "$backup_dir/wordpress-version.txt"
+          wp --path="$wp_path" plugin list --format=csv > "$backup_dir/plugins.csv"
+          wp --path="$wp_path" theme list --format=csv > "$backup_dir/themes.csv"
+          wp --path="$wp_path" db export "$backup_dir/database.sql" --add-drop-table
+          tar --exclude='wp-content/cache' --exclude='wp-content/upgrade' --exclude='wp-content/debug.log' \
+            -czf "$backup_dir/site-files.tar.gz" -C "$wp_path" wp-content wp-config.php .htaccess 2>/dev/null \
+            || tar --exclude='wp-content/cache' --exclude='wp-content/upgrade' --exclude='wp-content/debug.log' \
+              -czf "$backup_dir/site-files.tar.gz" -C "$wp_path" wp-content wp-config.php
+          ( cd "$backup_dir" && sha256sum database.sql site-files.tar.gz > SHA256SUMS && sha256sum -c SHA256SUMS )
+          cp "$backup_dir/SHA256SUMS" "$safe_dir/backup-SHA256SUMS.txt"
+          du -h "$backup_dir/database.sql" "$backup_dir/site-files.tar.gz" > "$safe_dir/backup-file-sizes.txt"
+
+          echo 'Checking existing directory data before deployment.'
+          prefix="$(wp --path="$wp_path" db prefix)"
+          for table in members directory_profiles; do
+            full="${prefix}cd_${table}"
+            exists="$(wp --path="$wp_path" db query "SHOW TABLES LIKE '$full';" --skip-column-names | tr -d '[:space:]')"
+            test "$exists" = "$full"
+          done
+          pre_members="$(wp --path="$wp_path" db query "SELECT COUNT(*) FROM ${prefix}cd_members;" --skip-column-names | tr -d '[:space:]')"
+          pre_profiles="$(wp --path="$wp_path" db query "SELECT COUNT(*) FROM ${prefix}cd_directory_profiles;" --skip-column-names | tr -d '[:space:]')"
+          printf 'members_before=%s\nprofiles_before=%s\n' "$pre_members" "$pre_profiles" > "$safe_dir/directory-counts-before.txt"
+
+          if [[ -e "$directory_path" || -L "$directory_path" ]]; then
+            tar -czhf "$old_plugin_archive" -C "$wp_path/wp-content/plugins" community-directory
+            sha256sum "$old_plugin_archive" > "$old_plugin_archive.sha256"
+          else
+            echo 'Community Directory plugin directory is missing.' >&2
+            exit 1
+          fi
+
+          echo 'Disabling open public registration and closing comments by default.'
+          wp --path="$wp_path" option update users_can_register 0
+          wp --path="$wp_path" option update default_comment_status closed
+
+          echo 'Restoring Ninja Tables.'
+          wp --path="$wp_path" plugin is-installed ninja-tables
+          ninja_dir="$wp_path/wp-content/plugins/ninja-tables"
+          test -d "$ninja_dir"
+          find "$ninja_dir" -type f -name '*.php' -print0 | sort -z | xargs -0 -n1 php -l > "$safe_dir/ninja-tables-php-lint.txt"
+          wp --path="$wp_path" plugin activate ninja-tables
+          test "$(wp --path="$wp_path" eval 'echo shortcode_exists("ninja_tables") ? "yes" : "no";')" = 'yes'
+
+          echo 'Installing Community Directory 0.5.2.'
+          wp --path="$wp_path" plugin deactivate community-directory || true
+          rollback=1
+          rm -rf "$directory_path"
+          unzip -q community-directory-0.5.2.zip -d "$wp_path/wp-content/plugins"
+          test -f "$directory_path/community-directory.php"
+          find "$directory_path" -type d -exec chmod 755 {} +
+          find "$directory_path" -type f -exec chmod 644 {} +
+          find "$directory_path" -type f -name '*.php' -print0 | sort -z | xargs -0 -n1 php -l > "$safe_dir/community-directory-php-lint.txt"
+          wp --path="$wp_path" plugin activate community-directory
+          wp --path="$wp_path" plugin is-active community-directory
+          version="$(wp --path="$wp_path" plugin get community-directory --field=version | tr -d '[:space:]')"
+          test "$version" = '0.5.2'
+          wp --path="$wp_path" rewrite flush --hard
+          wp --path="$wp_path" cache flush || true
+          wp --path="$wp_path" transient delete --all || true
+
+          post_members="$(wp --path="$wp_path" db query "SELECT COUNT(*) FROM ${prefix}cd_members;" --skip-column-names | tr -d '[:space:]')"
+          post_profiles="$(wp --path="$wp_path" db query "SELECT COUNT(*) FROM ${prefix}cd_directory_profiles;" --skip-column-names | tr -d '[:space:]')"
+          test "$post_members" = "$pre_members"
+          test "$post_profiles" = "$pre_profiles"
+          printf 'members_after=%s\nprofiles_after=%s\n' "$post_members" "$post_profiles" > "$safe_dir/directory-counts-after.txt"
+
+          cat > "$remote_root/health.php" <<'PHP'
+          <?php
+          global $wpdb;
+          if ( ! function_exists('get_plugin_data') ) require_once ABSPATH . 'wp-admin/includes/plugin.php';
+          $file=WP_PLUGIN_DIR.'/community-directory/community-directory.php';
+          $data=file_exists($file)?get_plugin_data($file,false,false):array();
+          $tables=array('members','directory_profiles','households','household_members','invites','applications','officers');
+          $out=array(
+            'generated_at_utc'=>gmdate('c'),
+            'plugin_version'=>$data['Version']??null,
+            'active'=>is_plugin_active('community-directory/community-directory.php'),
+            'db_version'=>get_option('cd_db_version'),
+            'base_slug'=>get_option('cd_base_slug'),
+            'tables'=>array(),
+          );
+          foreach($tables as $t){$n=$wpdb->prefix.'cd_'.$t;$e=$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$n))===$n;$out['tables'][$t]=array('exists'=>$e,'rows'=>$e?(int)$wpdb->get_var("SELECT COUNT(*) FROM `$n`"):null);}
+          echo wp_json_encode($out,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
+          PHP
+          wp --path="$wp_path" eval-file "$remote_root/health.php" > "$safe_dir/directory-health-after.json"
+
+          buster="corev2-$(date +%s)"
+          home_code="$(curl -L --max-time 45 -sS -o "$remote_root/home.html" -w '%{http_code}' "https://www.sttheklachurch.org/?$buster")"
+          login_code="$(curl -L --max-time 45 -sS -o "$remote_root/login.html" -w '%{http_code}' "https://www.sttheklachurch.org/community/login/?$buster")"
+          test "$home_code" -lt 500
+          test "$login_code" -lt 500
+          if grep -Fqi '[ninja_tables' "$remote_root/home.html"; then echo 'Raw Ninja Tables shortcode remains.' >&2; exit 1; fi
+          if ! grep -Eqi 'community directory|sign in with google|member login|log in' "$remote_root/login.html"; then echo 'Directory login UI not detected.' >&2; exit 1; fi
+
+          wp --path="$wp_path" plugin list --fields=name,status,version,update,update_version --format=csv > "$safe_dir/plugins-after.csv"
+          {
+            echo "run_token=$run_token"
+            echo "completed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "backup_directory=$backup_dir"
+            echo "old_plugin_archive=$old_plugin_archive"
+            echo "community_directory_version=$version"
+            echo "members_preserved=$post_members"
+            echo "profiles_preserved=$post_profiles"
+            echo 'ninja_tables=active'
+            echo 'homepage_raw_ninja_shortcode=no'
+            echo "homepage_http=$home_code"
+            echo "community_login_http=$login_code"
+            echo 'public_registration=disabled'
+            echo 'default_comments=closed'
+          } > "$safe_dir/repair-summary.txt"
+
+          rm -f "$remote_root/home.html" "$remote_root/login.html" "$remote_root/health.php"
+          rollback=0
+          trap - EXIT
+          tar -czf "$remote_root/safe-results.tar.gz" -C "$safe_dir" .
+          chmod -R go-rwx "$remote_root" "$backup_dir" "$plugin_backup_dir"
+          REMOTE
+
+          scp "${scp_opts[@]}" "$SSH_USER@$SSH_HOST:$remote_root/safe-results.tar.gz" "$RUNNER_TEMP/results.tar.gz"
+          rm -rf "$RESULTS_DIR"
+          mkdir -p "$RESULTS_DIR"
+          tar -xzf "$RUNNER_TEMP/results.tar.gz" -C "$RESULTS_DIR"
+
+      - name: Publish results
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$RESULTS_DIR"
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record corrected St. Thekla core repair results'
+            git push origin HEAD:ops/stthekla-production-execution
+          fi
+
+      - name: Comment recovery tracker
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '## Core production repair completed'
+            echo
+            echo '```text'
+            cat "$RESULTS_DIR/repair-summary.txt"
+            echo '```'
+          } > "$RUNNER_TEMP/comment.md"
+          gh issue comment 4 --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-core-repair-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ops/wordpress-recovery/results/core-repair-v2
+          if-no-files-found: warn
+          retention-days: 14
