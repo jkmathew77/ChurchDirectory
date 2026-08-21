@@ -10,8 +10,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 class CD_Deactivator {
 
     public static function deactivate() {
-        // Unschedule all plugin cron jobs
-        // Must match the hook names in class-activator.php
+        // Unschedule every occurrence of each plugin cron hook. This is more
+        // reliable than removing only the next timestamp after repeated
+        // activation/deactivation cycles.
         $hooks = array(
             'cd_expire_invites',
             'cd_audit_log_cleanup',
@@ -23,10 +24,7 @@ class CD_Deactivator {
         );
 
         foreach ( $hooks as $hook ) {
-            $timestamp = wp_next_scheduled( $hook );
-            if ( $timestamp ) {
-                wp_unschedule_event( $timestamp, $hook );
-            }
+            wp_clear_scheduled_hook( $hook );
         }
 
         // Flush rewrite rules
