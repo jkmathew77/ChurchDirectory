@@ -1,0 +1,206 @@
+name: St. Thekla production recovery
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - ops/wordpress-recovery/.production-recovery-trigger
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stthekla-production-recovery
+  cancel-in-progress: false
+
+jobs:
+  recovery:
+    name: Read-only production recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      TRIGGER_FILE: ops/wordpress-recovery/.production-recovery-trigger
+    steps:
+      - name: Check out recovery branch
+        uses: actions/checkout@v4
+
+      - name: Read and validate recovery mode
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(tr -d '[:space:]' < "$TRIGGER_FILE")"
+          case "$mode" in
+            connectivity|backup-audit) ;;
+            *)
+              echo "Unsupported recovery mode: $mode" >&2
+              exit 1
+              ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Recovery mode: $mode"
+
+      - name: Configure SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "${SSH_PRIVATE_KEY:-}" ]]; then
+            echo "Repository secret STTHEKLA_SSH_PRIVATE_KEY is not configured." >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+
+      - name: Record Bluehost host keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh" "$GITHUB_WORKSPACE/recovery-results"
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -lf "$HOME/.ssh/known_hosts" > "$GITHUB_WORKSPACE/recovery-results/host-key-fingerprints.txt"
+          cat "$GITHUB_WORKSPACE/recovery-results/host-key-fingerprints.txt"
+
+      - name: Verify SSH and WordPress access
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/id_rsa_stthekla" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "set -e; printf 'ssh=ok\\n'; printf 'user=%s\\n' \"\$(id -un)\"; printf 'host=%s\\n' \"\$(hostname)\"; test -f '$WP_PATH/wp-config.php'; command -v wp >/dev/null; printf 'wp_cli=%s\\n' \"\$(command -v wp)\"; printf 'wordpress=%s\\n' \"\$(wp --path='$WP_PATH' core version)\"; printf 'php=%s\\n' \"\$(php -r 'echo PHP_VERSION;')\"" \
+            | tee "$GITHUB_WORKSPACE/recovery-results/connectivity.txt"
+
+      - name: Package recovery toolkit
+        if: steps.mode.outputs.mode == 'backup-audit'
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar -czf "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" ops/wordpress-recovery
+
+      - name: Upload toolkit and create private backup and audit
+        if: steps.mode.outputs.mode == 'backup-audit'
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_root="stthekla-recovery-runs/$run_token"
+          ssh_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root'"
+          scp "${ssh_base[@]}" \
+            "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" \
+            "$SSH_USER@$SSH_HOST:$remote_root/toolkit.tar.gz"
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" \
+            bash -s -- "$run_token" "$WP_PATH" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          umask 077
+
+          run_token="$1"
+          wp_path="$2"
+          remote_root="$HOME/stthekla-recovery-runs/$run_token"
+          toolkit_dir="$remote_root/toolkit"
+          backup_log="$remote_root/backup.log"
+          audit_log="$remote_root/audit.log"
+          audit_dir="$HOME/stthekla-audits/github-$run_token"
+          safe_dir="$remote_root/safe-results"
+
+          mkdir -p "$toolkit_dir" "$safe_dir"
+          tar -xzf "$remote_root/toolkit.tar.gz" -C "$toolkit_dir"
+          chmod 700 "$toolkit_dir/ops/wordpress-recovery/backup-before-recovery.sh"
+          chmod 700 "$toolkit_dir/ops/wordpress-recovery/site-audit.sh"
+
+          bash "$toolkit_dir/ops/wordpress-recovery/backup-before-recovery.sh" "$wp_path" | tee "$backup_log"
+          backup_dir="$(sed -n 's/^Location: //p' "$backup_log" | tail -n 1)"
+          if [[ -z "$backup_dir" || ! -d "$backup_dir" ]]; then
+            echo "Unable to determine completed backup directory." >&2
+            exit 1
+          fi
+
+          bash "$toolkit_dir/ops/wordpress-recovery/site-audit.sh" "$wp_path" "$audit_dir" | tee "$audit_log"
+
+          safe_files=(
+            core-version.txt
+            core-checksums.txt
+            plugins.csv
+            themes.csv
+            user-count.txt
+            roles.csv
+            cron-events.csv
+            public-registration.txt
+            default-comment-status.txt
+            permalink-structure.txt
+            database-table-sizes.csv
+            shortcode-usage.csv
+            community-directory-health.json
+            community-directory-filesystem.txt
+            plugin-directory-sizes.csv
+          )
+
+          for filename in "${safe_files[@]}"; do
+            if [[ -f "$audit_dir/$filename" ]]; then
+              cp "$audit_dir/$filename" "$safe_dir/$filename"
+            fi
+          done
+
+          cp "$backup_dir/SHA256SUMS" "$safe_dir/backup-SHA256SUMS.txt"
+          cp "$backup_dir/wordpress-version.txt" "$safe_dir/backup-wordpress-version.txt"
+          cp "$backup_dir/plugins.csv" "$safe_dir/backup-plugins.csv"
+          cp "$backup_dir/themes.csv" "$safe_dir/backup-themes.csv"
+          du -h "$backup_dir/database.sql" "$backup_dir/site-files.tar.gz" > "$safe_dir/backup-file-sizes.txt"
+
+          {
+            printf 'run_token=%s\n' "$run_token"
+            printf 'backup_directory=%s\n' "$backup_dir"
+            printf 'audit_directory=%s\n' "$audit_dir"
+            printf 'wordpress_path=%s\n' "$wp_path"
+            printf 'completed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            printf 'user_reconciliation_retained_privately=%s\n' "$audit_dir/users-directory-reconciliation.csv"
+          } > "$safe_dir/execution-summary.txt"
+
+          tar -czf "$remote_root/safe-results.tar.gz" -C "$safe_dir" .
+          chmod -R go-rwx "$remote_root" "$backup_dir" "$audit_dir"
+          rm -f "$remote_root/toolkit.tar.gz"
+          REMOTE_SCRIPT
+
+          scp "${ssh_base[@]}" \
+            "$SSH_USER@$SSH_HOST:$remote_root/safe-results.tar.gz" \
+            "$RUNNER_TEMP/stthekla-safe-results.tar.gz"
+
+          mkdir -p "$GITHUB_WORKSPACE/recovery-results/production-audit"
+          tar -xzf "$RUNNER_TEMP/stthekla-safe-results.tar.gz" \
+            -C "$GITHUB_WORKSPACE/recovery-results/production-audit"
+
+      - name: Upload safe recovery reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-production-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: recovery-results
+          if-no-files-found: error
+          retention-days: 14
