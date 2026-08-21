@@ -33,9 +33,12 @@ class CD_Encryption {
         }
 
         if ( ! function_exists( 'openssl_encrypt' ) ) {
-            return $plaintext; // Fallback: Return raw (INSECURE but prevents crash) or empty? Better to return empty or log error. For now, let's return base64 of plain to avoid data loss but indicate issue? No, standard is valid return.
-            // Actually, if OpenSSL is missing, we shouldn't crash.
-            return 'PLAIN:' . base64_encode( $plaintext ); 
+            // Fail closed rather than silently storing an OAuth secret or other
+            // sensitive setting as plaintext after a PHP/hosting change.
+            if ( class_exists( 'CD_Logger' ) ) {
+                CD_Logger::error( 'OpenSSL is unavailable; sensitive value was not saved.' );
+            }
+            return '';
         }
 
         $key = self::get_key();
@@ -63,26 +66,28 @@ class CD_Encryption {
             return '';
         }
 
+        // Backward compatibility for any legacy values saved by an older build.
         if ( strpos( $encrypted, 'PLAIN:' ) === 0 ) {
-            return base64_decode( substr( $encrypted, 6 ) );
+            $decoded = base64_decode( substr( $encrypted, 6 ), true );
+            return false === $decoded ? '' : $decoded;
         }
 
         if ( ! function_exists( 'openssl_decrypt' ) ) {
-            return ''; 
+            return '';
         }
 
         $key = self::get_key();
-        $data = base64_decode( $encrypted );
+        $data = base64_decode( $encrypted, true );
 
         if ( false === $data ) {
             return '';
         }
 
         $iv_length = openssl_cipher_iv_length( self::$cipher );
-        
-        // Safety check for IV length vs Data length
+
+        // Safety check for IV length vs data length
         if ( strlen( $data ) < $iv_length ) {
-             return '';
+            return '';
         }
 
         $iv = substr( $data, 0, $iv_length );
