@@ -1,0 +1,219 @@
+name: St. Thekla directory functional test
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - ops/wordpress-recovery/.execute-directory-functional-test-20260821
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      RESULTS_DIR: ops/wordpress-recovery/results/directory-functional-test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/stthekla-production-execution
+          fetch-depth: 0
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Run non-mutating server-side tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_root="stthekla-directory-tests/$run_token"
+          ssh_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root'"
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "cat > '$remote_root/test.php'" <<'PHP'
+          <?php
+          if ( PHP_SAPI !== 'cli' ) { exit(1); }
+          global $wpdb;
+          if ( ! function_exists('is_plugin_active') ) require_once ABSPATH . 'wp-admin/includes/plugin.php';
+          $out = array(
+              'generated_at_utc' => gmdate('c'),
+              'plugin_active' => is_plugin_active('community-directory/community-directory.php'),
+              'plugin_version' => null,
+              'db_version' => get_option('cd_db_version'),
+              'base_slug' => get_option('cd_base_slug'),
+              'oauth' => array(
+                  'enabled' => (string) get_option('cd_google_oauth_enabled','0') === '1',
+                  'client_id_configured' => (bool) get_option('cd_google_client_id',''),
+                  'encrypted_secret_configured' => (bool) get_option('cd_google_client_secret_enc',''),
+              ),
+              'counts' => array(),
+              'integrity' => array(),
+              'routes' => array(),
+              'rest_tests' => array(),
+              'encryption_round_trip' => false,
+              'scheduled_hooks' => array(),
+              'rewrite_rules_present' => false,
+          );
+          $file=WP_PLUGIN_DIR.'/community-directory/community-directory.php';
+          if (file_exists($file)) {
+              $d=get_plugin_data($file,false,false);
+              $out['plugin_version']=$d['Version']??null;
+          }
+          $members=$wpdb->prefix.'cd_members';
+          $profiles=$wpdb->prefix.'cd_directory_profiles';
+          $households=$wpdb->prefix.'cd_households';
+          $hm=$wpdb->prefix.'cd_household_members';
+          $users=$wpdb->users;
+          $exists=function($table) use ($wpdb){ return $wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s',$table))===$table; };
+          foreach (array('members'=>$members,'profiles'=>$profiles,'households'=>$households,'household_members'=>$hm) as $key=>$table) {
+              $out['counts'][$key]=$exists($table)?(int)$wpdb->get_var("SELECT COUNT(*) FROM `$table`"):null;
+          }
+          if ($exists($members)) {
+              $out['counts']['active_members']=(int)$wpdb->get_var("SELECT COUNT(*) FROM `$members` WHERE status='active'");
+              $out['counts']['linked_members']=(int)$wpdb->get_var("SELECT COUNT(*) FROM `$members` WHERE wp_user_id IS NOT NULL");
+              $out['integrity']['orphaned_wp_user_links']=(int)$wpdb->get_var("SELECT COUNT(*) FROM `$members` m LEFT JOIN `$users` u ON u.ID=m.wp_user_id WHERE m.wp_user_id IS NOT NULL AND u.ID IS NULL");
+          }
+          if ($exists($profiles) && $exists($members)) {
+              $out['integrity']['profiles_without_member']=(int)$wpdb->get_var("SELECT COUNT(*) FROM `$profiles` p LEFT JOIN `$members` m ON m.id=p.member_id WHERE m.id IS NULL");
+              $out['integrity']['members_without_profile']=(int)$wpdb->get_var("SELECT COUNT(*) FROM `$members` m LEFT JOIN `$profiles` p ON p.member_id=m.id WHERE m.status='active' AND p.id IS NULL");
+          }
+          do_action('rest_api_init');
+          $all_routes=rest_get_server()->get_routes();
+          foreach(array_keys($all_routes) as $route){ if(strpos($route,'/community-directory/v1/')===0){ $out['routes'][]=$route; } }
+          sort($out['routes']);
+          $out['routes_registered']=count($out['routes']);
+
+          $linked_id=$exists($members)?(int)$wpdb->get_var("SELECT wp_user_id FROM `$members` WHERE status='active' AND wp_user_id IS NOT NULL ORDER BY id ASC LIMIT 1"):0;
+          if ($linked_id>0) {
+              wp_set_current_user($linked_id);
+              foreach(array('/community-directory/v1/auth/session-check','/community-directory/v1/members/me') as $route){
+                  $req=new WP_REST_Request('GET',$route);
+                  $res=rest_do_request($req);
+                  $data=$res->get_data();
+                  $out['rest_tests'][$route]=array(
+                      'status'=>$res->get_status(),
+                      'is_error'=>is_wp_error($data),
+                      'top_level_keys'=>is_array($data)?array_slice(array_keys($data),0,20):array(),
+                  );
+              }
+          } else {
+              $out['rest_tests']['linked_member_available']=false;
+          }
+
+          if (class_exists('CD_Encryption')) {
+              $sample='stthekla-functional-test-'.wp_generate_password(16,false,false);
+              $encrypted=CD_Encryption::encrypt($sample);
+              $out['encryption_round_trip']=!empty($encrypted) && hash_equals($sample,CD_Encryption::decrypt($encrypted));
+          }
+          foreach(array('cd_expire_invites','cd_audit_log_cleanup','cd_expire_reset_tokens','cd_data_retention_check','cd_archive_unverified','cd_transient_cleanup','cd_google_contact_retry') as $hook){
+              $out['scheduled_hooks'][$hook]=(bool)wp_next_scheduled($hook);
+          }
+          $rules=get_option('rewrite_rules',array());
+          foreach(array_keys((array)$rules) as $rule){ if(strpos($rule,'community')!==false){$out['rewrite_rules_present']=true;break;} }
+          echo wp_json_encode($out,JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES).PHP_EOL;
+          PHP
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" \
+            "wp --path='$WP_PATH' eval-file '$remote_root/test.php' > '$remote_root/results.json' && rm -f '$remote_root/test.php'"
+          scp "${scp_opts[@]}" "$SSH_USER@$SSH_HOST:$remote_root/results.json" "$RUNNER_TEMP/results.json"
+          mkdir -p "$RESULTS_DIR"
+          cp "$RUNNER_TEMP/results.json" "$RESULTS_DIR/results.json"
+
+      - name: Enforce functional gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          php -r '
+            $r=json_decode(file_get_contents($argv[1]),true);
+            if(!is_array($r)) exit(1);
+            $fail=[];
+            if(empty($r["plugin_active"])) $fail[]="plugin inactive";
+            if(($r["plugin_version"]??null)!=="0.5.2") $fail[]="wrong plugin version";
+            if(($r["routes_registered"]??0)<10) $fail[]="too few REST routes";
+            if(empty($r["rewrite_rules_present"])) $fail[]="community rewrite rules missing";
+            if(empty($r["encryption_round_trip"])) $fail[]="encryption round trip failed";
+            if(($r["integrity"]["orphaned_wp_user_links"]??1)!==0) $fail[]="orphaned WP user links";
+            foreach(["/community-directory/v1/auth/session-check","/community-directory/v1/members/me"] as $route){
+              if(($r["rest_tests"][$route]["status"]??0)!==200) $fail[]="$route did not return 200";
+            }
+            foreach(($r["scheduled_hooks"]??[]) as $hook=>$scheduled){ if(!$scheduled)$fail[]="cron hook missing: $hook"; }
+            if($fail){fwrite(STDERR,implode("\n",$fail)."\n");exit(1);} 
+            echo "All functional gates passed.\n";
+          ' "$RESULTS_DIR/results.json"
+
+      - name: Publish results
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$RESULTS_DIR/results.json"
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record Community Directory functional test results'
+            git push origin HEAD:ops/stthekla-production-execution
+          fi
+
+      - name: Comment recovery tracker
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '## Community Directory functional tests passed'
+            echo
+            php -r '
+              $r=json_decode(file_get_contents($argv[1]),true);
+              echo "- Version: `".$r["plugin_version"]."`\n";
+              echo "- Registered REST routes: `".$r["routes_registered"]."`\n";
+              echo "- Active members: `".($r["counts"]["active_members"]??"n/a")."`\n";
+              echo "- Linked members: `".($r["counts"]["linked_members"]??"n/a")."`\n";
+              echo "- Orphaned WordPress links: `".($r["integrity"]["orphaned_wp_user_links"]??"n/a")."`\n";
+              echo "- Encryption round trip: `passed`\n";
+              echo "- Member session endpoint: `200`\n";
+              echo "- Member profile endpoint: `200`\n";
+            ' "$RESULTS_DIR/results.json"
+          } > "$RUNNER_TEMP/comment.md"
+          gh issue comment 4 --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stthekla-directory-functional-test-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ops/wordpress-recovery/results/directory-functional-test/results.json
+          if-no-files-found: warn
+          retention-days: 14
