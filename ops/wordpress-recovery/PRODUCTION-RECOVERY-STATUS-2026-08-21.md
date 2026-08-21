@@ -7,7 +7,7 @@ This report records the non-sensitive production results of the controlled Blueh
 - SSH access to the Bluehost account was verified against the recorded server host keys.
 - WordPress 7.1 and WP-CLI were verified at `/home3/stthekla/public_html`.
 - Multiple complete database and site-file backups were created outside `public_html`, with SHA-256 checksums and private permissions.
-- The production execution workflow is paused in `connectivity` mode. No write operation is currently scheduled.
+- The production execution trigger is set to `connectivity`, and execution PR #5 is closed. No write operation is currently scheduled.
 
 ## Security and configuration changes
 
@@ -100,6 +100,6 @@ Bluehost’s Endurance cache and SSO must-use plugins remain in place.
 
 ## Repository controls
 
-- The production execution work remains in draft PR #5 and is not intended to be merged into `main`.
+- Production execution PR #5 is closed and was not merged into `main`.
 - Community Directory repair work remains in draft PR #1.
 - Site Core development remains in draft PR #2.
