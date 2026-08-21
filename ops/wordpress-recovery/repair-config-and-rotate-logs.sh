@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Remove ineffective duplicate constant definitions from wp-config.php and
-# rotate oversized/private PHP logs after a verified recovery backup.
+# Guard custom wp-config constants against repeated loading and rotate oversized
+# PHP logs after a verified recovery backup.
 # Usage: bash repair-config-and-rotate-logs.sh /home3/stthekla/public_html /private/output/directory
 set -euo pipefail
 umask 077
@@ -37,6 +37,10 @@ fi
 mkdir -p "$OUTPUT_DIR/archive"
 cp -p "$CONFIG" "$OUTPUT_DIR/archive/wp-config.php.before"
 
+restore_original_config() {
+  cp -p "$OUTPUT_DIR/archive/wp-config.php.before" "$CONFIG"
+}
+
 runtime_constants() {
   local destination="$1"
   wp --path="$WP_PATH" eval '
@@ -57,7 +61,7 @@ import sys
 from pathlib import Path
 
 config_path = Path(sys.argv[1])
-removed_path = Path(sys.argv[2])
+changes_path = Path(sys.argv[2])
 text = config_path.read_text(encoding='utf-8')
 lines = text.splitlines(keepends=True)
 expected = {
@@ -66,7 +70,9 @@ expected = {
     'WP_POST_REVISIONS': '5',
     'EMPTY_TRASH_DAYS': '7',
 }
-pattern = re.compile(r"^\s*define\s*\(\s*['\"](?P<name>[A-Z0-9_]+)['\"]\s*,\s*(?P<value>.*?)\s*\)\s*;\s*(?://.*|#.*)?(?:\r?\n)?$")
+pattern = re.compile(
+    r"^(?P<indent>\s*)define\s*\(\s*['\"](?P<name>[A-Z0-9_]+)['\"]\s*,\s*(?P<value>.*?)\s*\)\s*;\s*(?://.*|#.*)?(?P<newline>\r?\n)?$"
+)
 found = {name: [] for name in expected}
 for index, line in enumerate(lines):
     match = pattern.match(line)
@@ -75,7 +81,7 @@ for index, line in enumerate(lines):
     name = match.group('name')
     if name in expected:
         value = re.sub(r'\s+', '', match.group('value'))
-        found[name].append((index, value, line.rstrip('\r\n')))
+        found[name].append((index, value, match))
 
 errors = []
 for name, expected_value in expected.items():
@@ -87,13 +93,24 @@ for name, expected_value in expected.items():
 if errors:
     raise SystemExit('; '.join(errors))
 
-remove_indices = {entries[0][0] for entries in found.values()}
-removed_lines = [f'{index + 1}: {lines[index].rstrip()}' for index in sorted(remove_indices)]
-new_lines = [line for index, line in enumerate(lines) if index not in remove_indices]
+replacements = {}
+changes = []
+for name, entries in found.items():
+    index, value, match = entries[0]
+    indent = match.group('indent')
+    newline = match.group('newline') or '\n'
+    replacement = (
+        f"{indent}if ( ! defined( '{name}' ) ) {{{newline}"
+        f"{indent}    define( '{name}', {expected[name]} );{newline}"
+        f"{indent}}}{newline}"
+    )
+    replacements[index] = replacement
+    changes.append(f'{index + 1}: guarded {name}={expected[name]}')
 
-replacement = config_path.with_suffix('.php.recovery-new')
-replacement.write_text(''.join(new_lines), encoding='utf-8')
-removed_path.write_text('\n'.join(removed_lines) + '\n', encoding='utf-8')
+new_lines = [replacements.get(index, line) for index, line in enumerate(lines)]
+replacement_path = config_path.with_suffix('.php.recovery-new')
+replacement_path.write_text(''.join(new_lines), encoding='utf-8')
+changes_path.write_text('\n'.join(changes) + '\n', encoding='utf-8')
 PY
 
 php -l "$CONFIG.recovery-new" > "$OUTPUT_DIR/wp-config-new-lint.txt" 2>&1
@@ -102,13 +119,13 @@ chown --reference="$CONFIG" "$CONFIG.recovery-new" 2>/dev/null || true
 mv "$CONFIG.recovery-new" "$CONFIG"
 
 if ! wp --path="$WP_PATH" core version > "$OUTPUT_DIR/wordpress-after-config.txt" 2>&1; then
-  cp -p "$OUTPUT_DIR/archive/wp-config.php.before" "$CONFIG"
+  restore_original_config
   echo "ERROR: WordPress failed after wp-config update; original restored." >&2
   exit 1
 fi
 runtime_constants "$OUTPUT_DIR/runtime-after.json"
 
-python3 - "$OUTPUT_DIR/runtime-before.json" "$OUTPUT_DIR/runtime-after.json" <<'PY'
+if ! python3 - "$OUTPUT_DIR/runtime-before.json" "$OUTPUT_DIR/runtime-after.json" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -117,6 +134,11 @@ after = json.loads(Path(sys.argv[2]).read_text(encoding='utf-8'))
 if before != after:
     raise SystemExit(f'Effective constant values changed: before={before!r} after={after!r}')
 PY
+then
+  restore_original_config
+  echo "ERROR: Effective constants changed; original wp-config restored." >&2
+  exit 1
+fi
 
 # Archive logs privately, then start a clean debug log while recovery testing continues.
 printf 'source,archive,size_bytes,sha256\n' > "$OUTPUT_DIR/log-archive-manifest.csv"
@@ -140,7 +162,7 @@ done
 : > "$WP_PATH/wp-content/debug.log"
 chmod 600 "$WP_PATH/wp-content/debug.log"
 
-# Exercise WordPress repeatedly and ensure the duplicate-constant warning does not return.
+# Exercise WordPress repeatedly and ensure the repeated-load warnings do not return.
 for _ in 1 2 3; do
   wp --path="$WP_PATH" core version >/dev/null
   wp --path="$WP_PATH" option get home >/dev/null
@@ -148,7 +170,7 @@ for _ in 1 2 3; do
 done
 
 if grep -Eqi 'Constant (WP_CRON_LOCK_TIMEOUT|AUTOSAVE_INTERVAL|WP_POST_REVISIONS|EMPTY_TRASH_DAYS) already defined' "$WP_PATH/wp-content/debug.log"; then
-  cp -p "$OUTPUT_DIR/archive/wp-config.php.before" "$CONFIG"
+  restore_original_config
   echo "ERROR: Duplicate constant warnings persisted; original wp-config restored." >&2
   exit 1
 fi
@@ -157,7 +179,7 @@ sha256sum "$OUTPUT_DIR/archive/wp-config.php.before" > "$OUTPUT_DIR/archive-SHA2
 find "$OUTPUT_DIR/archive" -type f ! -name 'wp-config.php.before' -print0 | sort -z | xargs -0 -r sha256sum >> "$OUTPUT_DIR/archive-SHA256SUMS.txt"
 
 {
-  printf 'action=repair-config-and-rotate-logs\n'
+  printf 'action=guard-config-constants-and-rotate-logs\n'
   printf 'backup_verified=%s\n' "$LATEST_BACKUP"
   printf 'wordpress_path=%s\n' "$WP_PATH"
   printf 'completed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -168,4 +190,4 @@ find "$OUTPUT_DIR/archive" -type f ! -name 'wp-config.php.before' -print0 | sort
 } > "$OUTPUT_DIR/summary.txt"
 
 chmod -R go-rwx "$OUTPUT_DIR"
-printf 'Config repair and log rotation complete: %s\n' "$OUTPUT_DIR"
+printf 'Config guard and log rotation complete: %s\n' "$OUTPUT_DIR"
