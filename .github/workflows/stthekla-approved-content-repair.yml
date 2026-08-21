@@ -1,0 +1,377 @@
+name: St. Thekla approved content repair
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - ops/wordpress-recovery/.execute-approved-content-repair-20260821
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: stthekla-production-repair
+  cancel-in-progress: false
+
+jobs:
+  content-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      RESULTS_DIR: ops/wordpress-recovery/results/content-repair
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/stthekla-production-execution
+          fetch-depth: 0
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Package recovery toolkit
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude='ops/wordpress-recovery/results' \
+            -czf "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" \
+            ops/wordpress-recovery
+
+      - name: Repair Contact Us and used shortcode dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_root="stthekla-content-repair-runs/$run_token"
+          ssh_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root'"
+          scp "${scp_opts[@]}" "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" \
+            "$SSH_USER@$SSH_HOST:$remote_root/toolkit.tar.gz"
+
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" bash -s -- "$run_token" "$WP_PATH" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          umask 077
+          run_token="$1"
+          wp_path="$2"
+          remote_root="$HOME/stthekla-content-repair-runs/$run_token"
+          toolkit_dir="$remote_root/toolkit"
+          safe_dir="$remote_root/safe-results"
+          audit_dir="$HOME/stthekla-audits/content-repair-$run_token"
+          private_dir="$HOME/stthekla-content-backups/$run_token"
+          mkdir -p "$toolkit_dir" "$safe_dir" "$private_dir"
+          exec > >(tee -a "$remote_root/content-repair.log") 2>&1
+
+          test -f "$wp_path/wp-config.php"
+          command -v wp >/dev/null
+          tar -xzf "$remote_root/toolkit.tar.gz" -C "$toolkit_dir"
+          chmod 700 "$toolkit_dir/ops/wordpress-recovery/backup-before-recovery.sh"
+          chmod 700 "$toolkit_dir/ops/wordpress-recovery/site-audit.sh"
+
+          echo 'Creating a fresh full backup before content/plugin changes.'
+          bash "$toolkit_dir/ops/wordpress-recovery/backup-before-recovery.sh" "$wp_path" | tee "$remote_root/backup.log"
+          backup_dir="$(sed -n 's/^Location: //p' "$remote_root/backup.log" | tail -n1)"
+          test -n "$backup_dir"
+          test -s "$backup_dir/database.sql"
+          test -s "$backup_dir/site-files.tar.gz"
+          ( cd "$backup_dir" && sha256sum -c SHA256SUMS )
+
+          bash "$toolkit_dir/ops/wordpress-recovery/site-audit.sh" "$wp_path" "$audit_dir"
+          cp "$audit_dir/shortcode-usage.csv" "$safe_dir/shortcode-usage-before.csv"
+          cp "$audit_dir/plugins.csv" "$safe_dir/plugins-before.csv"
+          cp "$backup_dir/SHA256SUMS" "$safe_dir/backup-SHA256SUMS.txt"
+
+          contact_id="$(wp --path="$wp_path" post list --post_type=page --post_status=any --name=contact-us --field=ID | head -n1)"
+          test -n "$contact_id"
+          wp --path="$wp_path" post get "$contact_id" --field=post_content > "$private_dir/contact-us-before.txt"
+          wp --path="$wp_path" post get "$contact_id" --format=json > "$private_dir/contact-us-before.json"
+
+          echo 'Updating and activating WPForms Lite.'
+          wp --path="$wp_path" plugin is-installed wpforms-lite
+          wp --path="$wp_path" plugin update wpforms-lite || true
+          wpforms_dir="$wp_path/wp-content/plugins/wpforms-lite"
+          test -d "$wpforms_dir"
+          find "$wpforms_dir" -type f -name '*.php' -print0 \
+            | sort -z | xargs -0 -n1 php -l > "$safe_dir/wpforms-php-lint.txt"
+          wp --path="$wp_path" plugin activate wpforms-lite
+
+          cat > "$remote_root/create-contact-form.php" <<'PHP'
+          <?php
+          if ( PHP_SAPI !== 'cli' ) { exit(1); }
+          $contact = get_page_by_path( 'contact-us', OBJECT, 'page' );
+          if ( ! $contact ) { fwrite( STDERR, "Contact Us page not found.\n" ); exit(1); }
+
+          $existing = get_posts( array(
+              'post_type'      => 'wpforms',
+              'post_status'    => array( 'publish', 'draft' ),
+              'title'          => 'St. Thekla Contact Us',
+              'posts_per_page' => 1,
+          ) );
+          if ( $existing ) {
+              $form_id = (int) $existing[0]->ID;
+          } else {
+              $form_id = wp_insert_post( array(
+                  'post_type'    => 'wpforms',
+                  'post_status'  => 'publish',
+                  'post_title'   => 'St. Thekla Contact Us',
+                  'post_content' => '',
+              ), true );
+              if ( is_wp_error( $form_id ) ) { fwrite( STDERR, $form_id->get_error_message() . "\n" ); exit(1); }
+          }
+
+          $data = array(
+              'id'       => (string) $form_id,
+              'field_id' => 4,
+              'fields'   => array(
+                  1 => array( 'id' => '1', 'type' => 'name', 'label' => 'Name', 'format' => 'simple', 'required' => '1', 'size' => 'medium' ),
+                  2 => array( 'id' => '2', 'type' => 'email', 'label' => 'Email', 'required' => '1', 'size' => 'medium' ),
+                  3 => array( 'id' => '3', 'type' => 'text', 'label' => 'Subject', 'required' => '0', 'size' => 'medium' ),
+                  4 => array( 'id' => '4', 'type' => 'textarea', 'label' => 'Message', 'required' => '1', 'size' => 'medium' ),
+              ),
+              'settings' => array(
+                  'form_title'             => 'St. Thekla Contact Us',
+                  'form_desc'              => '',
+                  'submit_text'            => 'Send Message',
+                  'submit_text_processing' => 'Sending…',
+                  'antispam'               => '1',
+                  'notification_enable'    => '1',
+                  'notifications'          => array(
+                      1 => array(
+                          'notification_name' => 'Church Contact Notification',
+                          'email'             => '{admin_email}',
+                          'subject'           => 'New website message: {field_id="3"}',
+                          'sender_name'       => 'St. Thekla Church Website',
+                          'sender_address'    => '{admin_email}',
+                          'replyto'           => '{field_id="2"}',
+                          'message'           => '{all_fields}',
+                      ),
+                  ),
+                  'confirmations'          => array(
+                      1 => array(
+                          'name'           => 'Confirmation',
+                          'type'           => 'message',
+                          'message'        => '<p>Thank you for contacting St. Thekla Church. Your message has been sent.</p>',
+                          'message_scroll' => '1',
+                      ),
+                  ),
+              ),
+              'meta'     => array( 'template' => 'blank' ),
+          );
+          $updated = wp_update_post( array(
+              'ID'           => $form_id,
+              'post_status'  => 'publish',
+              'post_content' => wp_json_encode( $data ),
+          ), true );
+          if ( is_wp_error( $updated ) ) { fwrite( STDERR, $updated->get_error_message() . "\n" ); exit(1); }
+
+          $shortcode = '[wpforms id="' . $form_id . '" title="false" description="false"]';
+          $content = (string) $contact->post_content;
+          add_post_meta( $contact->ID, '_stthekla_contact_content_backup_' . gmdate('Ymd_His'), $content );
+
+          $replaced = preg_replace( '/\[contact-form\b[^\]]*\].*?\[\/contact-form\]/is', $shortcode, $content, 1, $count );
+          if ( ! is_string( $replaced ) ) { fwrite( STDERR, "Unable to process Contact page content.\n" ); exit(1); }
+          if ( 0 === $count ) {
+              $replaced = preg_replace( '/(?:\[contact-field\b[^\]]*\]\s*)+/is', '', $replaced );
+              $replaced .= "\n\n" . $shortcode;
+          }
+
+          $replaced = preg_replace(
+              '/107\s+Strawtown\s+Road(?:[^\r\n<]*)(?:West\s+Nyack|Nyack)(?:[^\r\n<]*)/i',
+              '2 Old Ox Road, Nyack, NY',
+              $replaced
+          );
+
+          $page_updated = wp_update_post( array( 'ID' => $contact->ID, 'post_content' => $replaced ), true );
+          if ( is_wp_error( $page_updated ) ) { fwrite( STDERR, $page_updated->get_error_message() . "\n" ); exit(1); }
+
+          $rendered = do_shortcode( $shortcode );
+          if ( false === stripos( $rendered, 'wpforms' ) ) {
+              fwrite( STDERR, "WPForms shortcode did not render expected markup.\n" );
+              exit(2);
+          }
+          echo wp_json_encode( array( 'contact_page_id' => $contact->ID, 'form_id' => $form_id, 'shortcode' => $shortcode ) );
+          PHP
+
+          set +e
+          wp --path="$wp_path" eval-file "$remote_root/create-contact-form.php" > "$safe_dir/contact-form-result.json"
+          wpforms_rc=$?
+          set -e
+
+          contact_mode='wpforms'
+          if [[ $wpforms_rc -ne 0 ]]; then
+            echo 'WPForms conversion failed. Restoring original content and attempting the existing Jetpack form as a temporary fallback.'
+            original_content="$private_dir/contact-us-before.txt"
+            wp --path="$wp_path" post update "$contact_id" --post_content="$(cat "$original_content")"
+            wp --path="$wp_path" plugin deactivate wpforms-lite || true
+            wp --path="$wp_path" plugin is-installed jetpack
+            jetpack_dir="$wp_path/wp-content/plugins/jetpack"
+            find "$jetpack_dir" -type f -name '*.php' -print0 \
+              | sort -z | xargs -0 -n1 php -l > "$safe_dir/jetpack-php-lint.txt"
+            wp --path="$wp_path" plugin activate jetpack
+            contact_mode='jetpack-fallback'
+          fi
+
+          wp --path="$wp_path" rewrite flush --hard
+          wp --path="$wp_path" cache flush || true
+          wp --path="$wp_path" transient delete --all || true
+
+          echo 'Restoring only shortcode-dependent, non-administrative plugins one at a time.'
+          content_dump="$private_dir/published-content.txt"
+          wp --path="$wp_path" eval '
+            $posts=get_posts(["post_type"=>["page","post"],"post_status"=>"publish","numberposts"=>-1]);
+            foreach($posts as $p){ echo "\n---POST {$p->ID} {$p->post_name}---\n{$p->post_content}\n"; }
+          ' > "$content_dump"
+
+          declare -a candidates=(
+            'iframe|\\[iframe\\b'
+            'shortcodes-ultimate|\\[su_[a-z0-9_-]+'
+            'team-members|\\[(tmm|team-members?)\\b'
+            'pdf-embedder|\\[pdf-embedder\\b'
+            'simple-tournament-brackets|\\[(simple[-_ ]?tournament|tournament[-_ ]?bracket|bracket)\\b'
+            'the-events-calendar|\\[(tribe_events|tribe_mini_calendar|tribe_event_inline)\\b'
+          )
+          : > "$safe_dir/dependency-actions.txt"
+          for item in "${candidates[@]}"; do
+            slug="${item%%|*}"
+            pattern="${item#*|}"
+            if grep -Eqi "$pattern" "$content_dump"; then
+              echo "$slug: shortcode dependency detected" | tee -a "$safe_dir/dependency-actions.txt"
+              if wp --path="$wp_path" plugin is-installed "$slug"; then
+                plugin_dir="$wp_path/wp-content/plugins/$slug"
+                if [[ -d "$plugin_dir" ]]; then
+                  find "$plugin_dir" -type f -name '*.php' -print0 \
+                    | sort -z | xargs -0 -n1 php -l > "$safe_dir/${slug}-php-lint.txt"
+                fi
+                set +e
+                wp --path="$wp_path" plugin activate "$slug"
+                activate_rc=$?
+                home_code="$(curl -L --max-time 45 -sS -o "$remote_root/${slug}-home.html" -w '%{http_code}' "https://www.sttheklachurch.org/?dependency=$slug-$(date +%s)")"
+                set -e
+                if [[ $activate_rc -ne 0 || "$home_code" -ge 500 ]] || grep -Eqi 'critical error|fatal error' "$remote_root/${slug}-home.html"; then
+                  echo "$slug: activation failed smoke test; deactivated" | tee -a "$safe_dir/dependency-actions.txt"
+                  wp --path="$wp_path" plugin deactivate "$slug" --skip-plugins --skip-themes || true
+                else
+                  echo "$slug: activated and smoke-tested (HTTP $home_code)" | tee -a "$safe_dir/dependency-actions.txt"
+                fi
+                rm -f "$remote_root/${slug}-home.html"
+              else
+                echo "$slug: required but not installed" | tee -a "$safe_dir/dependency-actions.txt"
+              fi
+            else
+              echo "$slug: no published shortcode dependency detected; left inactive" >> "$safe_dir/dependency-actions.txt"
+            fi
+          done
+
+          contact_url="$(wp --path="$wp_path" post url "$contact_id")"
+          contact_code="$(curl -L --max-time 45 -sS -o "$remote_root/contact-after.html" -w '%{http_code}' "${contact_url}?repair=$(date +%s)")"
+          test "$contact_code" -lt 500
+          if grep -Eqi '\[contact-form|\[contact-field' "$remote_root/contact-after.html"; then
+            echo 'Contact page still exposes raw Jetpack form shortcodes.' >&2
+            exit 1
+          fi
+          if [[ "$contact_mode" == 'wpforms' ]] && grep -Fqi '[wpforms' "$remote_root/contact-after.html"; then
+            echo 'Contact page still exposes a raw WPForms shortcode.' >&2
+            exit 1
+          fi
+          if ! grep -Fqi '2 Old Ox Road' "$remote_root/contact-after.html"; then
+            echo 'Current church address was not detected on Contact Us page.' >&2
+            exit 1
+          fi
+
+          wp --path="$wp_path" plugin list \
+            --fields=name,status,version,update,update_version --format=csv \
+            > "$safe_dir/plugins-after.csv"
+          bash "$toolkit_dir/ops/wordpress-recovery/site-audit.sh" "$wp_path" "$audit_dir-after"
+          cp "$audit_dir-after/shortcode-usage.csv" "$safe_dir/shortcode-usage-after.csv"
+          {
+            echo "run_token=$run_token"
+            echo "completed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "backup_directory=$backup_dir"
+            echo "private_content_backup=$private_dir"
+            echo "contact_page_id=$contact_id"
+            echo "contact_mode=$contact_mode"
+            echo "contact_http=$contact_code"
+            echo 'contact_address=2 Old Ox Road, Nyack, NY'
+          } > "$safe_dir/content-repair-summary.txt"
+          rm -f "$remote_root/contact-after.html" "$remote_root/create-contact-form.php"
+          tar -czf "$remote_root/safe-results.tar.gz" -C "$safe_dir" .
+          chmod -R go-rwx "$remote_root" "$backup_dir" "$audit_dir" "$audit_dir-after" "$private_dir"
+          REMOTE_SCRIPT
+
+          scp "${scp_opts[@]}" "$SSH_USER@$SSH_HOST:$remote_root/safe-results.tar.gz" \
+            "$RUNNER_TEMP/stthekla-content-repair-results.tar.gz"
+          rm -rf "$RESULTS_DIR"
+          mkdir -p "$RESULTS_DIR"
+          tar -xzf "$RUNNER_TEMP/stthekla-content-repair-results.tar.gz" -C "$RESULTS_DIR"
+
+      - name: Publish safe results
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$RESULTS_DIR"
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record approved St. Thekla content repair results'
+            git push origin HEAD:ops/stthekla-production-execution
+          fi
+
+      - name: Comment recovery tracker
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '## Approved content repair completed'
+            echo
+            echo '```text'
+            cat "$RESULTS_DIR/content-repair-summary.txt"
+            echo '```'
+            echo
+            echo '### Shortcode-dependent plugin actions'
+            echo '```text'
+            cat "$RESULTS_DIR/dependency-actions.txt"
+            echo '```'
+          } > "$RUNNER_TEMP/comment.md"
+          gh issue comment 4 --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-approved-content-repair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ops/wordpress-recovery/results/content-repair
+          if-no-files-found: warn
+          retention-days: 14
