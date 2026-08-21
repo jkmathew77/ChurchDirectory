@@ -34,6 +34,18 @@ wp --path="$WP_PATH" db size --tables --format=csv > "$OUTPUT_DIR/database-table
 
 wp --path="$WP_PATH" eval-file "$SCRIPT_DIR/user-audit.php" > "$OUTPUT_DIR/users-directory-reconciliation.csv"
 wp --path="$WP_PATH" eval-file "$SCRIPT_DIR/shortcode-audit.php" > "$OUTPUT_DIR/shortcode-usage.csv"
+wp --path="$WP_PATH" eval-file "$SCRIPT_DIR/directory-health.php" > "$OUTPUT_DIR/community-directory-health.json"
+
+{
+  plugin_dir="$WP_PATH/wp-content/plugins/community-directory"
+  printf 'configured_path=%s\n' "$plugin_dir"
+  if [[ -e "$plugin_dir" || -L "$plugin_dir" ]]; then
+    ls -ld "$plugin_dir"
+    printf 'resolved_path=%s\n' "$(readlink -f "$plugin_dir" || true)"
+  else
+    printf 'status=missing\n'
+  fi
+} > "$OUTPUT_DIR/community-directory-filesystem.txt"
 
 {
   printf 'bytes,plugin_directory\n'
