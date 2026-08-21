@@ -1,11 +1,6 @@
 name: St. Thekla production recovery
 
 on:
-  push:
-    branches:
-      - ops/stthekla-production-execution
-    paths:
-      - ops/wordpress-recovery/.production-recovery-trigger
   pull_request:
     branches:
       - main
