@@ -17,7 +17,11 @@ fi
 mkdir -p "$OUTPUT_DIR"
 cp "$LATEST_DIR/authenticated-rest-smoke.json" "$OUTPUT_DIR/authenticated-rest-smoke.json"
 [[ -f "$LATEST_DIR/plugin-state.json" ]] && cp "$LATEST_DIR/plugin-state.json" "$OUTPUT_DIR/plugin-state.json"
-[[ -f "$LATEST_DIR/authenticated-rest-smoke-stderr.txt" ]] && cp "$LATEST_DIR/authenticated-rest-smoke-stderr.txt" "$OUTPUT_DIR/authenticated-rest-smoke-stderr.txt"
+if [[ -f "$LATEST_DIR/authenticated-rest-smoke-stderr.txt" ]]; then
+  cp "$LATEST_DIR/authenticated-rest-smoke-stderr.txt" "$OUTPUT_DIR/authenticated-rest-smoke-stderr.txt"
+else
+  : > "$OUTPUT_DIR/authenticated-rest-smoke-stderr.txt"
+fi
 
 python3 - "$OUTPUT_DIR/authenticated-rest-smoke.json" > "$OUTPUT_DIR/diagnostic-summary.json" <<'PY'
 import json
