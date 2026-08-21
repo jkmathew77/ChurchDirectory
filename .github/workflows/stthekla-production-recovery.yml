@@ -6,6 +6,12 @@ on:
       - ops/stthekla-production-execution
     paths:
       - ops/wordpress-recovery/.production-recovery-trigger
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/stthekla-production-recovery.yml
+      - ops/wordpress-recovery/.production-recovery-trigger
 
 permissions:
   contents: read
