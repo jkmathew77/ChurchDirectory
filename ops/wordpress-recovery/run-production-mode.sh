@@ -143,6 +143,13 @@ case "$MODE" in
     cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  disable-debug)
+    change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-disable-debug"
+    bash "$SCRIPT_DIR/disable-production-debug.sh" "$WP_PATH" "$change_dir"
+    copy_if_present "$change_dir" runtime-before.json runtime-after.json config-changes.txt wp-config-new-lint.txt wordpress-after.txt cache-flush.txt public-verification.json debug-log-before.txt debug-log-after.txt wp-config-after-SHA256SUMS.txt homepage-http-status.txt contact-http-status.txt donation-http-status.txt directory-login-http-status.txt directory-session-http-status.txt site-core-api-http-status.txt
+    cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   *)
     echo "Unsupported production mode: $MODE" >&2
     exit 1
