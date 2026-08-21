@@ -110,9 +110,17 @@ jobs:
             -o IdentitiesOnly=yes
             -o StrictHostKeyChecking=yes
           )
+          scp_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
 
           ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root'"
-          scp "${ssh_base[@]}" \
+          scp "${scp_base[@]}" \
             "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" \
             "$SSH_USER@$SSH_HOST:$remote_root/toolkit.tar.gz"
 
@@ -188,7 +196,7 @@ jobs:
           rm -f "$remote_root/toolkit.tar.gz"
           REMOTE_SCRIPT
 
-          scp "${ssh_base[@]}" \
+          scp "${scp_base[@]}" \
             "$SSH_USER@$SSH_HOST:$remote_root/safe-results.tar.gz" \
             "$RUNNER_TEMP/stthekla-safe-results.tar.gz"
 
