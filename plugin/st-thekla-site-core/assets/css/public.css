@@ -1,0 +1,119 @@
+.stc-schedule-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.stc-service-card {
+    display: grid;
+    grid-template-columns: 4.5rem minmax(0, 1fr);
+    gap: 1rem;
+    padding: 1rem;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    border-radius: 0.5rem;
+    background: #fff;
+}
+
+.stc-service-card.is-cancelled {
+    opacity: 0.72;
+}
+
+.stc-service-date {
+    text-align: center;
+    line-height: 1;
+}
+
+.stc-service-month {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.stc-service-day {
+    display: block;
+    margin-top: 0.25rem;
+    font-size: 2rem;
+    font-weight: 700;
+}
+
+.stc-service-title,
+.stc-leader-card h3,
+.stc-announcement h3 {
+    margin-top: 0;
+}
+
+.stc-service-content p {
+    margin: 0.25rem 0;
+}
+
+.stc-status-cancelled {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    font-weight: 700;
+}
+
+.stc-leadership-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.25rem;
+}
+
+.stc-leader-card {
+    padding: 1rem;
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    border-radius: 0.5rem;
+    background: #fff;
+}
+
+.stc-leader-photo {
+    width: 100%;
+    height: auto;
+    border-radius: 0.35rem;
+}
+
+.stc-leader-role {
+    font-weight: 700;
+}
+
+.stc-announcements {
+    display: grid;
+    gap: 1rem;
+}
+
+.stc-announcement {
+    padding: 1rem;
+    border-inline-start: 0.35rem solid currentColor;
+    background: rgba(0, 0, 0, 0.035);
+}
+
+.stc-priority-urgent {
+    font-weight: 600;
+}
+
+.stc-location {
+    font-style: normal;
+    line-height: 1.6;
+}
+
+.stc-button {
+    display: inline-block;
+    margin-top: 0.75rem;
+    padding: 0.55rem 0.9rem;
+    border: 1px solid currentColor;
+    border-radius: 0.25rem;
+    text-decoration: none;
+}
+
+.stc-admin-warning {
+    padding: 0.75rem;
+    border: 1px solid #dba617;
+    background: #fff8e5;
+}
+
+@media (max-width: 520px) {
+    .stc-service-card {
+        grid-template-columns: 3.75rem minmax(0, 1fr);
+    }
+}

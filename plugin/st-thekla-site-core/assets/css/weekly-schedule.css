@@ -1,0 +1,52 @@
+.stc-weekly-schedule {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.stc-weekly-schedule-table {
+    width: 100%;
+    min-width: 320px;
+    border-collapse: collapse;
+    background: #fff;
+}
+
+.stc-weekly-schedule-table caption {
+    padding: 0 0 0.75rem;
+    font-size: 1.2rem;
+    font-weight: 700;
+    text-align: left;
+}
+
+.stc-weekly-schedule-table th,
+.stc-weekly-schedule-table td {
+    padding: 0.7rem 0.85rem;
+    border: 1px solid rgba(0, 0, 0, 0.16);
+    text-align: left;
+    vertical-align: middle;
+}
+
+.stc-weekly-schedule-table thead th {
+    background: rgba(0, 0, 0, 0.055);
+    font-weight: 700;
+}
+
+.stc-weekly-schedule-table tbody th {
+    width: 9rem;
+    white-space: nowrap;
+    font-weight: 700;
+}
+
+.stc-weekly-schedule-table tbody tr:nth-child(even) {
+    background: rgba(0, 0, 0, 0.025);
+}
+
+@media (max-width: 520px) {
+    .stc-weekly-schedule-table th,
+    .stc-weekly-schedule-table td {
+        padding: 0.6rem;
+    }
+
+    .stc-weekly-schedule-table tbody th {
+        width: 7.25rem;
+    }
+}

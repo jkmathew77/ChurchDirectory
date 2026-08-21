@@ -55,3 +55,24 @@ jobs:
           path: plugin/community-directory-0.5.2.zip
           if-no-files-found: error
           retention-days: 14
+
+  package-site-core:
+    name: Package St. Thekla Site Core
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build plugin ZIP
+        run: |
+          cd plugin
+          zip -qr st-thekla-site-core-0.2.0.zip st-thekla-site-core
+
+      - name: Upload plugin ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: st-thekla-site-core-0.2.0
+          path: plugin/st-thekla-site-core-0.2.0.zip
+          if-no-files-found: error
+          retention-days: 14
