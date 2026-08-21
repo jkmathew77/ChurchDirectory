@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           mode="$(tr -d '[:space:]' < "$TRIGGER_FILE")"
           case "$mode" in
-            connectivity|backup-audit|deep-audit|config-audit|inspect-wpforms|repair-config-logs|restore-config|harden-settings|quarantine-risky|restore-mail) ;;
+            connectivity|backup-audit|deep-audit|config-audit|inspect-wpforms|repair-config-logs|restore-config|harden-settings|quarantine-risky|restore-mail|restore-contact) ;;
             *)
               echo "Unsupported recovery mode: $mode" >&2
               exit 1
