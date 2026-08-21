@@ -18,17 +18,30 @@ if ! command -v wp >/dev/null 2>&1; then
   exit 1
 fi
 
-ARCHIVED_CONFIG="$(find "$CHANGE_ROOT" -path '*/archive/wp-config.php.before' -type f -printf '%T@ %p\n' 2>/dev/null | sort -nr | awk 'NR==1 {$1=""; sub(/^ /, ""); print}')"
+# cp -p intentionally preserves the original wp-config timestamp, so select the
+# newest recovery run by its directory name rather than the archived file mtime.
+ARCHIVED_CONFIG="$(find "$CHANGE_ROOT" -path '*-config-logs/archive/wp-config.php.before' -type f -print 2>/dev/null | sort | tail -n 1)"
 if [[ -z "$ARCHIVED_CONFIG" || ! -f "$ARCHIVED_CONFIG" ]]; then
   echo "ERROR: No guarded wp-config archive was found." >&2
   exit 1
 fi
-
-archive_age=$(( $(date +%s) - $(stat -c %Y "$ARCHIVED_CONFIG") ))
+ARCHIVE_RUN_DIR="$(dirname "$(dirname "$ARCHIVED_CONFIG")")"
+archive_age=$(( $(date +%s) - $(stat -c %Y "$ARCHIVE_RUN_DIR") ))
 if (( archive_age > 7200 )); then
-  echo "ERROR: Latest guarded wp-config archive is older than two hours: $ARCHIVED_CONFIG" >&2
+  echo "ERROR: Latest guarded config-repair run is older than two hours: $ARCHIVE_RUN_DIR" >&2
   exit 1
 fi
+
+for expected_line in \
+  "WP_CRON_LOCK_TIMEOUT.*120" \
+  "AUTOSAVE_INTERVAL.*300" \
+  "WP_POST_REVISIONS.*5" \
+  "EMPTY_TRASH_DAYS.*7"; do
+  if ! grep -Eq "$expected_line" "$ARCHIVED_CONFIG"; then
+    echo "ERROR: Guarded archive does not contain expected setting: $expected_line" >&2
+    exit 1
+  fi
+done
 
 mkdir -p "$OUTPUT_DIR/archive"
 php -l "$ARCHIVED_CONFIG" > "$OUTPUT_DIR/archived-config-lint.txt" 2>&1
