@@ -1,11 +1,76 @@
 <?php
 /**
- * Included by public-content-audit.php. Returns a sanitized inventory of public
- * content owned by inactive legacy plugins and references to that content.
+ * WP-CLI eval-file audit: return a sanitized inventory of public content owned
+ * by inactive legacy plugins and references to that content.
  */
 
-if ( ! defined( 'ABSPATH' ) ) {
-    return array( 'error' => 'WordPress is not loaded.' );
+if ( PHP_SAPI !== 'cli' ) {
+    fwrite( STDERR, "This script must be run with WP-CLI.\n" );
+    exit( 1 );
+}
+
+if ( ! function_exists( 'stpc_sensitive_key' ) ) {
+    function stpc_sensitive_key( $key ) {
+        return (bool) preg_match( '/(?:pass|password|secret|token|api[_-]?key|license|nonce|recipient|to_email|admin_email)/i', (string) $key );
+    }
+}
+
+if ( ! function_exists( 'stpc_sanitize_value' ) ) {
+    function stpc_sanitize_value( $value, $key = '' ) {
+        if ( stpc_sensitive_key( $key ) ) {
+            return '[redacted]';
+        }
+        if ( is_array( $value ) ) {
+            $clean = array();
+            foreach ( $value as $child_key => $child_value ) {
+                $clean[ $child_key ] = stpc_sanitize_value( $child_value, (string) $child_key );
+            }
+            return $clean;
+        }
+        if ( is_object( $value ) ) {
+            return stpc_sanitize_value( get_object_vars( $value ), $key );
+        }
+        if ( is_string( $value ) ) {
+            $decoded = json_decode( $value, true );
+            if ( JSON_ERROR_NONE === json_last_error() && is_array( $decoded ) ) {
+                return stpc_sanitize_value( $decoded, $key );
+            }
+            $value = preg_replace( '/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i', '[email]', $value );
+            $value = preg_replace( '/\b[A-Za-z0-9_\-]{40,}\b/', '[token]', $value );
+            if ( strlen( $value ) > 5000 ) {
+                $value = substr( $value, 0, 5000 ) . '…[truncated]';
+            }
+        }
+        return $value;
+    }
+}
+
+if ( ! function_exists( 'stpc_extract_shortcodes' ) ) {
+    function stpc_extract_shortcodes( $content ) {
+        $shortcodes = array();
+        $pattern = get_shortcode_regex();
+        if ( ! preg_match_all( '/' . $pattern . '/s', (string) $content, $matches, PREG_SET_ORDER ) ) {
+            return $shortcodes;
+        }
+        foreach ( $matches as $match ) {
+            $attributes = shortcode_parse_atts( isset( $match[3] ) ? $match[3] : '' );
+            if ( ! is_array( $attributes ) ) {
+                $attributes = array();
+            }
+            $safe_attributes = array();
+            foreach ( $attributes as $key => $value ) {
+                $safe_attributes[ $key ] = stpc_sanitize_value( $value, (string) $key );
+            }
+            $enclosed = isset( $match[5] ) ? wp_strip_all_tags( $match[5] ) : '';
+            $enclosed = preg_replace( '/\s+/', ' ', $enclosed );
+            $shortcodes[] = array(
+                'tag'        => isset( $match[2] ) ? $match[2] : '',
+                'attributes' => $safe_attributes,
+                'content'    => stpc_sanitize_value( substr( trim( $enclosed ), 0, 1000 ), 'content' ),
+            );
+        }
+        return $shortcodes;
+    }
 }
 
 global $wpdb;
@@ -36,7 +101,7 @@ foreach ( $legacy_types as $post_type ) {
     foreach ( $posts as $post ) {
         $meta = array();
         foreach ( get_post_meta( $post->ID ) as $meta_key => $values ) {
-            if ( function_exists( 'stpc_sensitive_key' ) && stpc_sensitive_key( $meta_key ) ) {
+            if ( stpc_sensitive_key( $meta_key ) ) {
                 continue;
             }
 
@@ -53,19 +118,11 @@ foreach ( $legacy_types as $post_type ) {
             }
 
             $value = maybe_unserialize( 1 === count( $values ) ? $values[0] : $values );
-            $meta[ $meta_key ] = function_exists( 'stpc_sanitize_value' )
-                ? stpc_sanitize_value( $value, $meta_key )
-                : $value;
+            $meta[ $meta_key ] = stpc_sanitize_value( $value, $meta_key );
         }
 
-        $content = function_exists( 'stpc_sanitize_value' )
-            ? stpc_sanitize_value( $post->post_content, 'content' )
-            : $post->post_content;
         $excerpt = preg_replace( '/\s+/', ' ', wp_strip_all_tags( strip_shortcodes( $post->post_content ) ) );
-        $excerpt = substr( trim( $excerpt ), 0, 2000 );
-        if ( function_exists( 'stpc_sanitize_value' ) ) {
-            $excerpt = stpc_sanitize_value( $excerpt, 'content' );
-        }
+        $excerpt = stpc_sanitize_value( substr( trim( $excerpt ), 0, 2000 ), 'content' );
 
         $summary = array(
             'id'                => (int) $post->ID,
@@ -76,8 +133,8 @@ foreach ( $legacy_types as $post_type ) {
             'published_gmt'     => $post->post_date_gmt,
             'modified_gmt'      => $post->post_modified_gmt,
             'permalink'         => get_permalink( $post->ID ),
-            'shortcodes'        => function_exists( 'stpc_extract_shortcodes' ) ? stpc_extract_shortcodes( $post->post_content ) : array(),
-            'sanitized_content' => $content,
+            'shortcodes'        => stpc_extract_shortcodes( $post->post_content ),
+            'sanitized_content' => stpc_sanitize_value( $post->post_content, 'content' ),
             'text_excerpt'      => $excerpt,
             'meta'              => $meta,
         );
@@ -89,6 +146,13 @@ foreach ( $legacy_types as $post_type ) {
 }
 
 $references = array();
+$candidate_rows = $wpdb->get_results(
+    "SELECT ID, post_type, post_status, post_title, post_content
+     FROM {$wpdb->posts}
+     WHERE post_status NOT IN ('auto-draft', 'inherit', 'trash')
+     ORDER BY ID ASC"
+);
+
 foreach ( $all_targets as $target_id => $target ) {
     $needles = array_filter(
         array(
@@ -102,14 +166,10 @@ foreach ( $all_targets as $target_id => $target ) {
     );
 
     $ref_posts = array();
-    $candidate_rows = $wpdb->get_results(
-        "SELECT ID, post_type, post_status, post_title, post_content
-         FROM {$wpdb->posts}
-         WHERE ID <> " . (int) $target_id . "
-           AND post_status NOT IN ('auto-draft', 'inherit', 'trash')
-         ORDER BY ID ASC"
-    );
     foreach ( $candidate_rows as $candidate ) {
+        if ( (int) $candidate->ID === (int) $target_id ) {
+            continue;
+        }
         foreach ( $needles as $needle ) {
             if ( false !== stripos( (string) $candidate->post_content, (string) $needle ) ) {
                 $ref_posts[ $candidate->ID ] = array(
@@ -145,11 +205,11 @@ foreach ( $all_targets as $target_id => $target ) {
     }
 
     $references[] = array(
-        'target_id'        => (int) $target_id,
-        'target_type'      => $target['post_type'],
-        'target_title'     => $target['title'],
-        'content_references'=> array_values( $ref_posts ),
-        'menu_references'  => $menu_items,
+        'target_id'          => (int) $target_id,
+        'target_type'        => $target['post_type'],
+        'target_title'       => $target['title'],
+        'content_references' => array_values( $ref_posts ),
+        'menu_references'    => $menu_items,
     );
 }
 
@@ -157,8 +217,11 @@ $feedback_count = (int) $wpdb->get_var(
     "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'feedback' AND post_status <> 'trash'"
 );
 
-return array(
-    'posts_by_type' => $posts_by_type,
-    'references'    => $references,
-    'feedback_count'=> $feedback_count,
+$report = array(
+    'generated_at_utc' => gmdate( 'c' ),
+    'posts_by_type'    => $posts_by_type,
+    'references'       => $references,
+    'feedback_count'   => $feedback_count,
 );
+
+echo wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES ) . PHP_EOL;
