@@ -123,6 +123,15 @@ case "$MODE" in
     cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  restore-contact)
+    change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-contact-form"
+    bash "$SCRIPT_DIR/restore-contact-form.sh" "$WP_PATH" "$change_dir"
+    for filename in plugin-active-before.txt activation.txt contact-form-result.json contact-form-stderr.txt cache-flush.txt curl-stderr.txt public-verification.json plugins-after.csv contact-page-state.json; do
+      [[ -f "$change_dir/$filename" ]] && cp "$change_dir/$filename" "$SAFE_DIR/$filename"
+    done
+    cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   *)
     echo "Unsupported production mode: $MODE" >&2
     exit 1
