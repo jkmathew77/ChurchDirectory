@@ -1,0 +1,84 @@
+name: St. Thekla public smoke test
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/stthekla-public-smoke.yml
+      - ops/wordpress-recovery/.public-smoke-trigger
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify public site from an external runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p public-smoke
+          common=(
+            -fsSL
+            --max-time 45
+            -H 'Cache-Control: no-cache, no-store, must-revalidate'
+            -H 'Pragma: no-cache'
+            -H 'User-Agent: StThekla-External-Smoke/1.0'
+          )
+
+          curl "${common[@]}" 'https://www.sttheklachurch.org/' > public-smoke/home.html
+          curl "${common[@]}" 'https://www.sttheklachurch.org/contact-us/' > public-smoke/contact.html
+          curl "${common[@]}" 'https://www.sttheklachurch.org/get-the-most-out-of-your-donations/' > public-smoke/donation.html
+          curl "${common[@]}" 'https://www.sttheklachurch.org/community/login/' > public-smoke/directory.html
+          curl "${common[@]}" 'https://www.sttheklachurch.org/wp-json/community-directory/v1/auth/session-check' > public-smoke/session.json
+          curl "${common[@]}" 'https://www.sttheklachurch.org/wp-json/st-thekla/v1/weekly-schedule' > public-smoke/schedule.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          home = Path('public-smoke/home.html').read_text(encoding='utf-8', errors='replace')
+          contact = Path('public-smoke/contact.html').read_text(encoding='utf-8', errors='replace')
+          donation = Path('public-smoke/donation.html').read_text(encoding='utf-8', errors='replace')
+          directory = Path('public-smoke/directory.html').read_text(encoding='utf-8', errors='replace')
+          session = json.loads(Path('public-smoke/session.json').read_text(encoding='utf-8'))
+          schedule = json.loads(Path('public-smoke/schedule.json').read_text(encoding='utf-8'))
+          items = schedule.get('items', []) if isinstance(schedule, dict) else []
+          labels = {str(item.get('description', '')) for item in items if isinstance(item, dict)}
+          expected = {'Morning Prayers', 'Holy Liturgy', 'Dismissal', 'Refreshments', 'Tree of Life', 'End of Tree of Life'}
+
+          checks = {
+              'homepage_site_core_schedule': 'stc-weekly-schedule-table' in home,
+              'homepage_no_raw_ninja': '[ninja_tables' not in home,
+              'contact_wpforms': 'wpforms-form-' in contact,
+              'contact_current_address': '2 Old Ox Road' in contact and 'Nyack, NY 10960' in contact,
+              'contact_no_legacy_content': '[contact-form' not in contact and '107 strawtown road' not in contact.lower() and 'west nyack' not in contact.lower(),
+              'donation_content': 'quickpay' in donation.lower() and 'paypal' in donation.lower(),
+              'donation_no_raw_shortcodes': '[su_lightbox' not in donation,
+              'directory_login': 'cd-wrap cd-login' in directory and 'Member Login' in directory,
+              'session_json': isinstance(session, dict),
+              'schedule_six_rows': len(items) == 6,
+              'schedule_labels': expected.issubset(labels),
+          }
+          report = {'all_checks_passed': all(checks.values()), 'checks': checks}
+          Path('public-smoke/report.json').write_text(json.dumps(report, indent=2, sort_keys=True), encoding='utf-8')
+          print(json.dumps(report, indent=2, sort_keys=True))
+          if not report['all_checks_passed']:
+              raise SystemExit('External public smoke test failed')
+          PY
+
+          rm -f public-smoke/home.html public-smoke/contact.html public-smoke/donation.html public-smoke/directory.html public-smoke/session.json public-smoke/schedule.json
+
+      - name: Upload external verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-public-smoke-${{ github.run_id }}
+          path: public-smoke/report.json
+          if-no-files-found: warn
+          retention-days: 14
