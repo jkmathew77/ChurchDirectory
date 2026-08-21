@@ -28,3 +28,4 @@ jobs:
         run: |
           php -l ops/wordpress-recovery/user-audit.php
           php -l ops/wordpress-recovery/shortcode-audit.php
+          php -l ops/wordpress-recovery/directory-health.php
