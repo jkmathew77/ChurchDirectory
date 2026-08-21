@@ -86,14 +86,15 @@ foreach ( array( 5, 7, 196, 2932 ) as $post_id ) {
     }
 
     $public_posts[] = array(
-        'id'         => (int) $post->ID,
-        'exists'     => true,
-        'post_type'  => $post->post_type,
-        'status'     => $post->post_status,
-        'title'      => $post->post_title,
-        'permalink'  => get_permalink( $post->ID ),
-        'shortcodes' => stpc_extract_shortcodes( $post->post_content ),
-        'text_excerpt' => stpc_sanitize_value(
+        'id'                => (int) $post->ID,
+        'exists'            => true,
+        'post_type'         => $post->post_type,
+        'status'            => $post->post_status,
+        'title'             => $post->post_title,
+        'permalink'         => get_permalink( $post->ID ),
+        'shortcodes'        => stpc_extract_shortcodes( $post->post_content ),
+        'sanitized_content' => stpc_sanitize_value( $post->post_content, 'content' ),
+        'text_excerpt'      => stpc_sanitize_value(
             substr( preg_replace( '/\s+/', ' ', wp_strip_all_tags( strip_shortcodes( $post->post_content ) ) ), 0, 1500 ),
             'content'
         ),
