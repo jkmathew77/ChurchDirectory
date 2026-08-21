@@ -76,8 +76,8 @@ if [[ "$activation_result" == "success" ]] && wp --path="$WP_PATH" plugin is-act
     }
     $report = array(
         "mailer" => $mailer,
-        "from_email_configured" => is_email($from),
-        "recipient_configured" => is_email($to),
+        "from_email_configured" => (bool) is_email($from),
+        "recipient_configured" => (bool) is_email($to),
         "sent" => (bool) $sent,
         "tested_at_utc" => gmdate("c"),
     );
