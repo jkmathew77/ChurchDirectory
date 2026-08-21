@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
-# Compatibility wrapper for the production deployment script. The member list
-# endpoint is /directory; there is no bare /members route.
+# Run the reviewed Community Directory deployment script from its exact commit,
+# correcting the REST smoke-test route from /members to /directory.
 set -euo pipefail
 umask 077
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PATCHED_SCRIPT="$(mktemp "${TMPDIR:-/tmp}/deploy-community-directory.XXXXXX.sh")"
+SOURCE_URL="https://raw.githubusercontent.com/jkmathew77/ChurchDirectory/81da0bf07f947b7c52bcbd042f67c80350562b3c/ops/wordpress-recovery/deploy-community-directory.sh"
+EXPECTED_GIT_BLOB="71525f2532eed43c88d9fd7c032948c66f94df11"
+ORIGINAL="$(mktemp "${TMPDIR:-/tmp}/deploy-community-directory.original.XXXXXX.sh")"
+PATCHED="$(mktemp "${TMPDIR:-/tmp}/deploy-community-directory.patched.XXXXXX.sh")"
 cleanup() {
-  rm -f "$PATCHED_SCRIPT"
+  rm -f "$ORIGINAL" "$PATCHED"
 }
 trap cleanup EXIT
 
-sed 's#"/community-directory/v1/members",#"/community-directory/v1/directory",#' \
-  "$SCRIPT_DIR/deploy-community-directory.sh" > "$PATCHED_SCRIPT"
-chmod 700 "$PATCHED_SCRIPT"
+curl -fsSL --max-time 45 "$SOURCE_URL" -o "$ORIGINAL"
+actual_blob="$(git hash-object "$ORIGINAL")"
+if [[ "$actual_blob" != "$EXPECTED_GIT_BLOB" ]]; then
+  echo "ERROR: Pinned Community Directory deployment script failed integrity verification." >&2
+  exit 1
+fi
 
-bash "$PATCHED_SCRIPT" "$@"
+sed 's#"/community-directory/v1/members",#"/community-directory/v1/directory",#' \
+  "$ORIGINAL" > "$PATCHED"
+chmod 700 "$PATCHED"
+
+bash "$PATCHED" "$@"
