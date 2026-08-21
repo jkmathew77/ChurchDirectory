@@ -29,101 +29,57 @@ case "$MODE" in
 
     bash "$SCRIPT_DIR/site-audit.sh" "$WP_PATH" "$audit_dir" | tee "$audit_log"
 
-    safe_files=(
-      core-version.txt
-      core-checksums.txt
-      plugins.csv
-      themes.csv
-      user-count.txt
-      roles.csv
-      cron-events.csv
-      public-registration.txt
-      default-comment-status.txt
-      permalink-structure.txt
-      database-table-sizes.csv
-      shortcode-usage.csv
-      community-directory-health.json
-      community-directory-filesystem.txt
-      plugin-directory-sizes.csv
-    )
+    safe_files=(core-version.txt core-checksums.txt plugins.csv themes.csv user-count.txt roles.csv cron-events.csv public-registration.txt default-comment-status.txt permalink-structure.txt database-table-sizes.csv shortcode-usage.csv community-directory-health.json community-directory-filesystem.txt plugin-directory-sizes.csv)
     for filename in "${safe_files[@]}"; do
       [[ -f "$audit_dir/$filename" ]] && cp "$audit_dir/$filename" "$SAFE_DIR/$filename"
     done
-
     cp "$backup_dir/SHA256SUMS" "$SAFE_DIR/backup-SHA256SUMS.txt"
     cp "$backup_dir/wordpress-version.txt" "$SAFE_DIR/backup-wordpress-version.txt"
     cp "$backup_dir/plugins.csv" "$SAFE_DIR/backup-plugins.csv"
     cp "$backup_dir/themes.csv" "$SAFE_DIR/backup-themes.csv"
     du -h "$backup_dir/database.sql" "$backup_dir/site-files.tar.gz" > "$SAFE_DIR/backup-file-sizes.txt"
-
     {
-      printf 'mode=backup-audit\n'
-      printf 'run_token=%s\n' "$RUN_TOKEN"
-      printf 'backup_directory=%s\n' "$backup_dir"
-      printf 'audit_directory=%s\n' "$audit_dir"
-      printf 'wordpress_path=%s\n' "$WP_PATH"
-      printf 'completed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'user_reconciliation_retained_privately=%s\n' "$audit_dir/users-directory-reconciliation.csv"
+      printf 'mode=backup-audit\nrun_token=%s\nbackup_directory=%s\naudit_directory=%s\nwordpress_path=%s\ncompleted_utc=%s\nuser_reconciliation_retained_privately=%s\n' \
+        "$RUN_TOKEN" "$backup_dir" "$audit_dir" "$WP_PATH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$audit_dir/users-directory-reconciliation.csv"
     } > "$SAFE_DIR/execution-summary.txt"
     ;;
 
   deep-audit)
     audit_dir="${HOME}/stthekla-audits/deep-${RUN_TOKEN}"
     mkdir -p "$audit_dir"
-
     wp --path="$WP_PATH" eval-file "$SCRIPT_DIR/deep-audit.php" > "$audit_dir/deep-audit.json"
     wp --path="$WP_PATH" eval-file "$SCRIPT_DIR/public-content-audit.php" > "$audit_dir/public-content-audit.json"
-
     cp "$audit_dir/deep-audit.json" "$SAFE_DIR/deep-audit.json"
     cp "$audit_dir/public-content-audit.json" "$SAFE_DIR/public-content-audit.json"
-
-    {
-      printf 'mode=deep-audit\n'
-      printf 'run_token=%s\n' "$RUN_TOKEN"
-      printf 'audit_directory=%s\n' "$audit_dir"
-      printf 'wordpress_path=%s\n' "$WP_PATH"
-      printf 'completed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'contains_personally_identifiable_information=no\n'
-    } > "$SAFE_DIR/execution-summary.txt"
+    printf 'mode=deep-audit\nrun_token=%s\naudit_directory=%s\nwordpress_path=%s\ncompleted_utc=%s\ncontains_personally_identifiable_information=no\n' \
+      "$RUN_TOKEN" "$audit_dir" "$WP_PATH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SAFE_DIR/execution-summary.txt"
     ;;
 
   config-audit)
     audit_dir="${HOME}/stthekla-audits/config-${RUN_TOKEN}"
     bash "$SCRIPT_DIR/config-log-audit.sh" "$WP_PATH" "$audit_dir"
-    cp "$audit_dir/selected-constants.json" "$SAFE_DIR/selected-constants.json"
-    cp "$audit_dir/selected-constant-occurrences.txt" "$SAFE_DIR/selected-constant-occurrences.txt"
-    cp "$audit_dir/runtime-constants.json" "$SAFE_DIR/runtime-constants.json"
-    cp "$audit_dir/wp-config-php-lint.txt" "$SAFE_DIR/wp-config-php-lint.txt"
-    cp "$audit_dir/log-files.csv" "$SAFE_DIR/log-files.csv"
-    {
-      printf 'mode=config-audit\n'
-      printf 'run_token=%s\n' "$RUN_TOKEN"
-      printf 'audit_directory=%s\n' "$audit_dir"
-      printf 'wordpress_path=%s\n' "$WP_PATH"
-      printf 'completed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-      printf 'contains_secrets=no\n'
-    } > "$SAFE_DIR/execution-summary.txt"
+    for filename in selected-constants.json selected-constant-occurrences.txt runtime-constants.json wp-config-php-lint.txt log-files.csv; do
+      cp "$audit_dir/$filename" "$SAFE_DIR/$filename"
+    done
+    printf 'mode=config-audit\nrun_token=%s\naudit_directory=%s\nwordpress_path=%s\ncompleted_utc=%s\ncontains_secrets=no\n' \
+      "$RUN_TOKEN" "$audit_dir" "$WP_PATH" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SAFE_DIR/execution-summary.txt"
     ;;
 
   repair-config-logs)
     change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-config-logs"
     bash "$SCRIPT_DIR/repair-config-and-rotate-logs.sh" "$WP_PATH" "$change_dir"
-    cp "$change_dir/runtime-before.json" "$SAFE_DIR/runtime-before.json"
-    cp "$change_dir/runtime-after.json" "$SAFE_DIR/runtime-after.json"
-    cp "$change_dir/removed-lines.txt" "$SAFE_DIR/removed-lines.txt"
-    cp "$change_dir/wp-config-new-lint.txt" "$SAFE_DIR/wp-config-new-lint.txt"
-    cp "$change_dir/log-archive-manifest.csv" "$SAFE_DIR/log-archive-manifest.csv"
-    cp "$change_dir/archive-SHA256SUMS.txt" "$SAFE_DIR/archive-SHA256SUMS.txt"
+    for filename in runtime-before.json runtime-after.json removed-lines.txt wp-config-new-lint.txt log-archive-manifest.csv archive-SHA256SUMS.txt; do
+      cp "$change_dir/$filename" "$SAFE_DIR/$filename"
+    done
     cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
   restore-config)
     change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-config-restore"
     bash "$SCRIPT_DIR/restore-config-after-safeguard.sh" "$WP_PATH" "$change_dir"
-    cp "$change_dir/runtime-after-restore.json" "$SAFE_DIR/runtime-after-restore.json"
-    cp "$change_dir/archived-config-lint.txt" "$SAFE_DIR/archived-config-lint.txt"
-    cp "$change_dir/restored-config-lint.txt" "$SAFE_DIR/restored-config-lint.txt"
-    cp "$change_dir/config-SHA256SUMS.txt" "$SAFE_DIR/config-SHA256SUMS.txt"
+    for filename in runtime-after-restore.json archived-config-lint.txt restored-config-lint.txt config-SHA256SUMS.txt; do
+      cp "$change_dir/$filename" "$SAFE_DIR/$filename"
+    done
     cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
@@ -138,9 +94,22 @@ case "$MODE" in
   quarantine-risky)
     change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-plugin-quarantine"
     bash "$SCRIPT_DIR/quarantine-risky-plugins.sh" "$WP_PATH" "$change_dir"
-    cp "$change_dir/manifest.csv" "$SAFE_DIR/quarantine-manifest.csv"
-    cp "$change_dir/quarantined-files-SHA256SUMS.txt" "$SAFE_DIR/quarantined-files-SHA256SUMS.txt"
-    cp "$change_dir/plugins-after.csv" "$SAFE_DIR/plugins-after.csv"
+    for filename in manifest.csv quarantined-files-SHA256SUMS.txt plugins-after.csv; do
+      source_name="$filename"
+      target_name="$filename"
+      [[ "$filename" == "manifest.csv" ]] && target_name="quarantine-manifest.csv"
+      cp "$change_dir/$source_name" "$SAFE_DIR/$target_name"
+    done
+    cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
+    ;;
+
+  restore-mail)
+    change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-mail-service"
+    bash "$SCRIPT_DIR/restore-mail-service.sh" "$WP_PATH" "$change_dir"
+    for filename in plugin-active-before.txt activation.txt mail-test.json mail-test-stderr.txt debug-delta.txt plugins-after.csv; do
+      [[ -f "$change_dir/$filename" ]] && cp "$change_dir/$filename" "$SAFE_DIR/$filename"
+    done
+    [[ -f "$change_dir/rollback.txt" ]] && cp "$change_dir/rollback.txt" "$SAFE_DIR/rollback.txt"
     cp "$change_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
