@@ -1,0 +1,91 @@
+name: St. Thekla inactive plugin content audit
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - .github/workflows/stthekla-legacy-plugin-audit.yml
+      - ops/wordpress-recovery/legacy-plugin-content-audit.php
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stthekla-legacy-plugin-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Read-only inactive plugin content inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+
+      - name: Validate audit script
+        shell: bash
+        run: php -l ops/wordpress-recovery/legacy-plugin-content-audit.php
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Run read-only audit through WP-CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          ssh_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          remote_dir="stthekla-recovery-runs/legacy-plugin-audit-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_dir'"
+          scp "${scp_base[@]}" \
+            ops/wordpress-recovery/legacy-plugin-content-audit.php \
+            "$SSH_USER@$SSH_HOST:$remote_dir/legacy-plugin-content-audit.php"
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" \
+            "set -euo pipefail; umask 077; wp --path='$WP_PATH' eval-file '$remote_dir/legacy-plugin-content-audit.php' > '$remote_dir/legacy-plugin-content.json'; chmod 600 '$remote_dir/legacy-plugin-content.json'"
+          mkdir -p audit-results
+          scp "${scp_base[@]}" \
+            "$SSH_USER@$SSH_HOST:$remote_dir/legacy-plugin-content.json" \
+            audit-results/legacy-plugin-content.json
+
+      - name: Upload sanitized audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-inactive-plugin-content-${{ github.run_id }}
+          path: audit-results/legacy-plugin-content.json
+          if-no-files-found: error
+          retention-days: 14
