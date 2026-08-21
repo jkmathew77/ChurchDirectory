@@ -36,3 +36,24 @@ jobs:
         run: |
           set -euo pipefail
           find plugin -type f -name '*.php' -print0 | sort -z | xargs -0 -n1 php -l
+
+  package-site-core:
+    name: Package St. Thekla Site Core
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build plugin ZIP
+        run: |
+          cd plugin
+          zip -qr st-thekla-site-core-0.1.0.zip st-thekla-site-core
+
+      - name: Upload plugin ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: st-thekla-site-core-0.1.0
+          path: plugin/st-thekla-site-core-0.1.0.zip
+          if-no-files-found: error
+          retention-days: 14
