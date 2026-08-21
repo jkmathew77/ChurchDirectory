@@ -157,6 +157,13 @@ case "$MODE" in
     cp "$audit_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  collect-directory-smoke)
+    audit_dir="${HOME}/stthekla-audits/${RUN_TOKEN}-directory-smoke-diagnostic"
+    bash "$SCRIPT_DIR/collect-directory-smoke-diagnostic.sh" "$audit_dir"
+    copy_if_present "$audit_dir" authenticated-rest-smoke.json diagnostic-summary.json plugin-state.json authenticated-rest-smoke-stderr.txt
+    cp "$audit_dir/summary.txt" "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   *)
     echo "Unsupported production mode: $MODE" >&2
     exit 1
