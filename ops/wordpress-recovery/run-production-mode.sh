@@ -87,6 +87,22 @@ case "$MODE" in
     } > "$SAFE_DIR/execution-summary.txt"
     ;;
 
+  config-audit)
+    audit_dir="${HOME}/stthekla-audits/config-${RUN_TOKEN}"
+    bash "$SCRIPT_DIR/config-log-audit.sh" "$WP_PATH" "$audit_dir"
+    cp "$audit_dir/selected-constants.json" "$SAFE_DIR/selected-constants.json"
+    cp "$audit_dir/wp-config-php-lint.txt" "$SAFE_DIR/wp-config-php-lint.txt"
+    cp "$audit_dir/log-files.csv" "$SAFE_DIR/log-files.csv"
+    {
+      printf 'mode=config-audit\n'
+      printf 'run_token=%s\n' "$RUN_TOKEN"
+      printf 'audit_directory=%s\n' "$audit_dir"
+      printf 'wordpress_path=%s\n' "$WP_PATH"
+      printf 'completed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      printf 'contains_secrets=no\n'
+    } > "$SAFE_DIR/execution-summary.txt"
+    ;;
+
   harden-settings)
     change_dir="${HOME}/stthekla-change-logs/${RUN_TOKEN}-settings"
     bash "$SCRIPT_DIR/harden-settings.sh" "$WP_PATH" "$change_dir"
