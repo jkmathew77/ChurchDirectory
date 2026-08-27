@@ -1,0 +1,36 @@
+name: Bootstrap static SSH client
+
+on:
+  push:
+    branches:
+      - feature/move-to-sacred-heart-chapel
+    paths:
+      - .github/workflows/stthekla-bootstrap-ssh-client.yml
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download and verify static Dropbear client
+        shell: bash
+        run: |
+          set -euo pipefail
+          url='https://github.com/sagemathinc/dropbear/releases/download/main/dropbear-x86_64-linux-musl.tar.xz'
+          curl -fsSL --retry 3 --max-time 120 "$url" -o dropbear.tar.xz
+          printf '%s  %s\n' '52b2bbe0027ac12200a84ffd1308e638f20fd8dfe503a5e19e1d275bf4b647b3' 'dropbear.tar.xz' | sha256sum -c -
+          mkdir -p ssh-client
+          tar -xJf dropbear.tar.xz -C ssh-client --strip-components=1
+          test -x ssh-client/dbclient
+          test -x ssh-client/scp
+          sha256sum ssh-client/dbclient ssh-client/scp > ssh-client/SHA256SUMS
+
+      - name: Upload static SSH client
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-dropbear-ssh-client
+          path: ssh-client
+          if-no-files-found: error
+          retention-days: 1
