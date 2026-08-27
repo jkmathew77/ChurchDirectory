@@ -76,3 +76,5 @@ jobs:
           path: ${{ runner.temp }}/feature-commit.txt
           if-no-files-found: warn
           retention-days: 7
+
+# One-time release source application; this operational workflow is not merged to main.
