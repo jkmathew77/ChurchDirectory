@@ -1,0 +1,168 @@
+name: St. Thekla location move audit
+
+on:
+  push:
+    branches:
+      - feature/move-to-sacred-heart-chapel
+    paths:
+      - .github/workflows/stthekla-location-move-audit.yml
+      - ops/location-move/site-inventory.php
+      - ops/location-move/audit-trigger.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stthekla-location-move-audit
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    name: Read-only WordPress location inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+
+      - name: Validate inventory script
+        shell: bash
+        run: php -l ops/location-move/site-inventory.php
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Run WordPress inventory over SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p audit-results
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_dir="stthekla-location-move-runs/$run_token"
+          ssh_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "set -e; umask 077; mkdir -p '$remote_dir'; test -f '$WP_PATH/wp-config.php'; command -v wp >/dev/null"
+          scp "${scp_base[@]}" ops/location-move/site-inventory.php "$SSH_USER@$SSH_HOST:$remote_dir/site-inventory.php"
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" \
+            "set -e; umask 077; wp --path='$WP_PATH' eval-file '$remote_dir/site-inventory.php' > '$remote_dir/site-inventory.json'; chmod 600 '$remote_dir/site-inventory.json'"
+          scp "${scp_base[@]}" "$SSH_USER@$SSH_HOST:$remote_dir/site-inventory.json" audit-results/site-inventory.json
+
+      - name: Capture cache-busted public surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          common=(
+            -fsSL
+            --max-time 45
+            -H 'Cache-Control: no-cache, no-store, must-revalidate'
+            -H 'Pragma: no-cache'
+            -H 'User-Agent: StThekla-Location-Audit/1.0'
+          )
+          stamp="$(date +%s%N)"
+          curl "${common[@]}" "https://www.sttheklachurch.org/?location_audit=$stamp" > audit-results/home.html
+          curl "${common[@]}" "https://www.sttheklachurch.org/contact-us/?location_audit=$stamp" > audit-results/contact.html
+          curl "${common[@]}" "https://www.sttheklachurch.org/community/login/?location_audit=$stamp" > audit-results/directory-login.html
+          curl "${common[@]}" "https://www.sttheklachurch.org/wp-json/st-thekla/v1/public?location_audit=$stamp" > audit-results/site-core-public.json || true
+          curl "${common[@]}" "https://www.sttheklachurch.org/wp-json/st-thekla/v1/weekly-schedule?location_audit=$stamp" > audit-results/site-core-weekly.json || true
+
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          root = Path('audit-results')
+          home = (root / 'home.html').read_text(encoding='utf-8', errors='replace')
+          contact = (root / 'contact.html').read_text(encoding='utf-8', errors='replace')
+          login = (root / 'directory-login.html').read_text(encoding='utf-8', errors='replace')
+
+          def markers(html):
+              terms = [
+                  '2 Old Ox Road', 'Old Ox Road', 'Nyack, NY 10960',
+                  'St Thomas Lutheran Church', '107 Strawtown Road', 'West Nyack',
+                  'Sacred Heart Chapel', '175 Route 340', 'Sparkill, NY 10976',
+                  '[ninja_tables', '[contact-form', 'wpforms-form-',
+                  'Morning Prayers', 'Morning Prayer', 'Holy Liturgy', 'Holy Qurbana',
+                  'Lilyo', 'Lilyu', 'Dismissal', 'Refreshments', 'Tree of Life',
+              ]
+              return {term: html.lower().count(term.lower()) for term in terms if term.lower() in html.lower()}
+
+          def image_sources(html):
+              return re.findall(r'<img\b[^>]*\bsrc=["\']([^"\']+)["\']', html, flags=re.I)
+
+          def iframe_sources(html):
+              return re.findall(r'<iframe\b[^>]*\bsrc=["\']([^"\']+)["\']', html, flags=re.I)
+
+          report = {
+              'homepage': {
+                  'bytes': len(home.encode('utf-8')),
+                  'markers': markers(home),
+                  'images': image_sources(home),
+                  'iframes': iframe_sources(home),
+              },
+              'contact': {
+                  'bytes': len(contact.encode('utf-8')),
+                  'markers': markers(contact),
+                  'images': image_sources(contact),
+                  'iframes': iframe_sources(contact),
+              },
+              'directory_login': {
+                  'bytes': len(login.encode('utf-8')),
+                  'component_present': 'cd-wrap cd-login' in login,
+                  'member_login_present': 'Member Login' in login,
+              },
+          }
+
+          for filename, key in [('site-core-public.json', 'site_core_public'), ('site-core-weekly.json', 'site_core_weekly')]:
+              text = (root / filename).read_text(encoding='utf-8', errors='replace') if (root / filename).exists() else ''
+              try:
+                  report[key] = {'valid_json': True, 'data': json.loads(text)}
+              except Exception:
+                  report[key] = {'valid_json': False, 'text_excerpt': text[:500]}
+
+          (root / 'public-surface.json').write_text(json.dumps(report, indent=2, sort_keys=True), encoding='utf-8')
+          PY
+
+          rm -f audit-results/home.html audit-results/contact.html audit-results/directory-login.html audit-results/site-core-public.json audit-results/site-core-weekly.json
+
+      - name: Upload sanitized inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-location-move-audit-${{ github.run_id }}
+          path: audit-results
+          if-no-files-found: error
+          retention-days: 14
