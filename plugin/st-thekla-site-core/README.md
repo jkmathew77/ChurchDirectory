@@ -1,4 +1,4 @@
-# St. Thekla Site Core
+# St. Thekla Site Core 0.3.0
 
 A focused WordPress plugin for stable, church-owned public-site features. It is intentionally separate from Community Directory so public content changes cannot destabilize the private membership application.
 
@@ -14,7 +14,7 @@ A focused WordPress plugin for stable, church-owned public-site features. It is 
   - `[st_leadership]`
   - `[st_church_location]`
   - `[st_announcements]`
-- Compatibility bridge for the former `[ninja_tables id="142"]` schedule shortcode when Ninja Tables is inactive
+- Native recurring Sunday worship schedule with a compatibility bridge for the former `[ninja_tables id="142"]` shortcode
 - Admin warnings for public user registration and production debugging
 
 ## Deployment safety
@@ -28,5 +28,10 @@ Activation creates no custom database tables and does not modify existing pages.
 3. Open **Settings → St. Thekla Site Core** and enter the current public contact details.
 4. Add upcoming services under **Service Schedule**.
 5. Add leaders and announcements if those modules will be used.
-6. Confirm the homepage's legacy Ninja Tables shortcode now renders the new schedule.
-7. Replace the legacy shortcode with `[st_liturgy_schedule]` after validation.
+6. Add `[st_weekly_schedule]` to the homepage.
+7. Verify the public API and church location settings after deployment.
+
+## 0.3.0 location baseline
+
+- Sacred Heart Chapel, 175 Route 340, Sparkill, NY 10976
+- Sunday schedule: Lilyo at 8:00 AM, Morning Prayer at 8:30 AM, and Holy Qurbana at 9:00 AM

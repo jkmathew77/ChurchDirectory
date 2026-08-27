@@ -3,7 +3,7 @@
  * Plugin Name: St. Thekla Site Core
  * Plugin URI:  https://www.sttheklachurch.org/
  * Description: Stable, church-owned public-site features for service schedules, leadership, announcements, contact details, and app integrations.
- * Version:     0.2.0
+ * Version:     0.3.0
  * Author:      St. Thekla Church
  * Author URI:  https://www.sttheklachurch.org/
  * Text Domain: st-thekla-site-core
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
     exit;
 }
 
-define( 'STC_VERSION', '0.2.0' );
+define( 'STC_VERSION', '0.3.0' );
 define( 'STC_PLUGIN_FILE', __FILE__ );
 define( 'STC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'STC_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
