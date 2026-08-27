@@ -6,7 +6,7 @@ on:
       - ops/stthekla-production-execution
     paths:
       - .github/workflows/apply-site-core-move-source.yml
-      - ops/wordpress-recovery/site-core-0.3.0-payload.tar.gz.b64
+      - ops/wordpress-recovery/site-core-0.3.0-payload.part*
 
 permissions:
   contents: write
@@ -38,8 +38,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          payload_b64="$GITHUB_WORKSPACE/ops-source/ops/wordpress-recovery/site-core-0.3.0-payload.tar.gz.b64"
+          payload_b64="$RUNNER_TEMP/site-core-0.3.0-payload.b64"
           payload="$RUNNER_TEMP/site-core-0.3.0-payload.tar.gz"
+          cat "$GITHUB_WORKSPACE"/ops-source/ops/wordpress-recovery/site-core-0.3.0-payload.part* > "$payload_b64"
+          test "$(wc -c < "$payload_b64")" -eq 14844
           base64 --decode "$payload_b64" > "$payload"
           echo 'f9fa05efeb9d82cf2f455db5739b52e597ef93addf4e58cf7df136252c8ee250  '"$payload" | sha256sum -c -
           tar -xzf "$payload" -C "$GITHUB_WORKSPACE/work"
@@ -62,6 +64,7 @@ jobs:
             plugin/st-thekla-site-core
           if git diff --cached --quiet; then
             echo 'Feature branch already contains this source.'
+            git rev-parse HEAD | tee "$RUNNER_TEMP/feature-commit.txt"
             exit 0
           fi
           git commit -m 'Add Sacred Heart Chapel move support in Site Core 0.3.0'
