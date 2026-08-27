@@ -1,0 +1,34 @@
+name: St. Thekla location asset preview
+
+on:
+  push:
+    branches:
+      - feature/move-to-sacred-heart-chapel
+    paths:
+      - .github/workflows/stthekla-location-assets-preview.yml
+      - assets/location/**
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Inspect image assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          file assets/location/*
+          sha256sum assets/location/* > assets/location/SHA256SUMS.txt
+
+      - name: Upload image previews
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-location-assets-${{ github.run_id }}
+          path: assets/location
+          if-no-files-found: error
+          retention-days: 14
