@@ -1,0 +1,246 @@
+name: Deploy St. Thekla Sparkill move
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - .github/workflows/stthekla-sparkill-move-production.yml
+      - ops/wordpress-recovery/.sparkill-move-trigger
+      - ops/wordpress-recovery/deploy-sparkill-move.sh
+      - ops/wordpress-recovery/apply-sparkill-move.php
+      - ops/wordpress-recovery/move-images-deploy-small.part*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stthekla-sparkill-move-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Backup-gated Sparkill move release
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      TRIGGER_FILE: ops/wordpress-recovery/.sparkill-move-trigger
+    steps:
+      - name: Check out operational release branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/stthekla-production-execution
+
+      - name: Validate release trigger
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(tr -d '[:space:]' < "$TRIGGER_FILE")"
+          case "$mode" in
+            idle|deploy) ;;
+            *) echo "Unsupported Sparkill move trigger: $mode" >&2; exit 1 ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          mkdir -p release-results
+          printf 'mode=%s\n' "$mode" > release-results/trigger.txt
+
+      - name: Validate release scripts and image payload
+        if: steps.mode.outputs.mode == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n ops/wordpress-recovery/deploy-sparkill-move.sh
+          php -l ops/wordpress-recovery/apply-sparkill-move.php
+          cat ops/wordpress-recovery/move-images-deploy-small.part* > "$RUNNER_TEMP/move-images.b64"
+          test "$(wc -c < "$RUNNER_TEMP/move-images.b64")" -eq 168336
+          base64 --decode "$RUNNER_TEMP/move-images.b64" > "$RUNNER_TEMP/move-images.tar.gz"
+          echo '4e8c49e67bc6785701c26c6bfa6b9f2edc1aeb3a7a90579a4714ccf546b8443c  '"$RUNNER_TEMP/move-images.tar.gz" | sha256sum -c -
+          tar -tzf "$RUNNER_TEMP/move-images.tar.gz" | sort | tee release-results/image-archive-files.txt
+
+      - name: Configure SSH
+        if: steps.mode.outputs.mode == 'deploy'
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -lf "$HOME/.ssh/known_hosts" > release-results/host-key-fingerprints.txt
+
+      - name: Verify Bluehost and WordPress access
+        if: steps.mode.outputs.mode == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/id_rsa_stthekla" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "set -e; test -f '$WP_PATH/wp-config.php'; command -v wp >/dev/null; command -v git >/dev/null; command -v php >/dev/null; command -v curl >/dev/null; printf 'ssh=ok\\nwordpress=%s\\nphp=%s\\n' \"\$(wp --path='$WP_PATH' core version)\" \"\$(php -r 'echo PHP_VERSION;')\"" \
+            | tee release-results/connectivity.txt
+
+      - name: Execute exact production release
+        if: steps.mode.outputs.mode == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_root_rel="stthekla-sparkill-move-runs/$run_token"
+          toolkit="$RUNNER_TEMP/stthekla-sparkill-move.tar.gz"
+          ssh_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+
+          tar -czf "$toolkit" \
+            ops/wordpress-recovery/deploy-sparkill-move.sh \
+            ops/wordpress-recovery/apply-sparkill-move.php \
+            ops/wordpress-recovery/purge-bluehost-cache.php \
+            ops/wordpress-recovery/move-images-deploy-small.part00 \
+            ops/wordpress-recovery/move-images-deploy-small.part01 \
+            ops/wordpress-recovery/move-images-deploy-small.part02 \
+            ops/wordpress-recovery/move-images-deploy-small.part03-04 \
+            ops/wordpress-recovery/move-images-deploy-small.part05-06 \
+            ops/wordpress-recovery/move-images-deploy-small.part07-08
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root_rel'"
+          scp "${scp_base[@]}" "$toolkit" "$SSH_USER@$SSH_HOST:$remote_root_rel/toolkit.tar.gz"
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" \
+            bash -s -- "$run_token" "$WP_PATH" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          umask 077
+          run_token="$1"
+          wp_path="$2"
+          remote_root="$HOME/stthekla-sparkill-move-runs/$run_token"
+          toolkit_dir="$remote_root/toolkit"
+          output_dir="$HOME/stthekla-change-logs/$run_token-sparkill-move"
+          safe_dir="$remote_root/safe-results"
+
+          mkdir -p "$toolkit_dir" "$safe_dir"
+          tar -xzf "$remote_root/toolkit.tar.gz" -C "$toolkit_dir"
+          script_dir="$toolkit_dir/ops/wordpress-recovery"
+          chmod 700 "$script_dir/deploy-sparkill-move.sh"
+          bash "$script_dir/deploy-sparkill-move.sh" "$wp_path" "$output_dir"
+
+          find "$output_dir" -maxdepth 1 -type f ! -name '*.body' -print0 \
+            | while IFS= read -r -d '' file; do cp "$file" "$safe_dir/"; done
+          tar -czf "$remote_root/safe-results.tar.gz" -C "$safe_dir" .
+          chmod -R go-rwx "$remote_root" "$output_dir"
+          rm -f "$remote_root/toolkit.tar.gz"
+          REMOTE_SCRIPT
+
+          scp "${scp_base[@]}" \
+            "$SSH_USER@$SSH_HOST:$remote_root_rel/safe-results.tar.gz" \
+            "$RUNNER_TEMP/stthekla-sparkill-move-results.tar.gz"
+          mkdir -p release-results/production-results
+          tar -xzf "$RUNNER_TEMP/stthekla-sparkill-move-results.tar.gz" \
+            -C release-results/production-results
+
+      - name: Independently verify public URLs
+        if: steps.mode.outputs.mode == 'deploy'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p external-smoke
+          common=(
+            -fsSL
+            --max-time 60
+            -H 'Cache-Control: no-cache, no-store, must-revalidate'
+            -H 'Pragma: no-cache'
+            -H 'User-Agent: StThekla-Sparkill-External-Smoke/1.0'
+          )
+          stamp="${GITHUB_RUN_ID}-$(date +%s%N)"
+          curl "${common[@]}" "https://www.sttheklachurch.org/?sparkill_external=$stamp" > external-smoke/home.html
+          curl "${common[@]}" "https://www.sttheklachurch.org/contact-us/?sparkill_external=$stamp" > external-smoke/contact.html
+          curl "${common[@]}" "https://www.sttheklachurch.org/visit-us/?sparkill_external=$stamp" > external-smoke/visit.html
+          curl "${common[@]}" "https://www.sttheklachurch.org/community/login/?sparkill_external=$stamp" > external-smoke/directory.html
+          curl "${common[@]}" "https://www.sttheklachurch.org/wp-json/st-thekla/v1/public?sparkill_external=$stamp" > external-smoke/public.json
+          curl "${common[@]}" "https://www.sttheklachurch.org/wp-json/st-thekla/v1/weekly-schedule?sparkill_external=$stamp" > external-smoke/schedule.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          home = Path('external-smoke/home.html').read_text(encoding='utf-8', errors='replace')
+          contact = Path('external-smoke/contact.html').read_text(encoding='utf-8', errors='replace')
+          visit = Path('external-smoke/visit.html').read_text(encoding='utf-8', errors='replace')
+          directory = Path('external-smoke/directory.html').read_text(encoding='utf-8', errors='replace')
+          public = json.loads(Path('external-smoke/public.json').read_text(encoding='utf-8'))
+          schedule = json.loads(Path('external-smoke/schedule.json').read_text(encoding='utf-8'))
+          old = ['107 strawtown road', 'west nyack', '2 old ox road', 'st. thomas lutheran church', 'st thomas lutheran church', 'nyack, ny 10960', 'nyack, new york 10960']
+          expected = [
+              ('8:00 AM', 'Lilyo'), ('8:30 AM', 'Morning Prayer'),
+              ('9:00 AM', 'Holy Qurbana'), ('10:10 AM', 'Dismissal'),
+              ('10:30 AM', 'Refreshments / Fellowship'),
+              ('10:45 AM', 'Tree of Life'), ('11:30 AM', 'End of Tree of Life')
+          ]
+          actual = [(str(i.get('time', '')), str(i.get('description', ''))) for i in schedule.get('items', [])]
+          checks = {
+              'home_component': 'stc-visit-us-compact' in home and 'stc-visit-image' in home,
+              'home_location': 'Sacred Heart Chapel' in home and '175 Route 340' in home and 'Sparkill' in home,
+              'home_schedule': all(t in home and d in home for t, d in expected),
+              'home_no_old': not any(v in home.lower() for v in old),
+              'contact_form': 'wpforms-form-' in contact,
+              'contact_location': 'Sacred Heart Chapel' in contact and '175 Route 340' in contact,
+              'contact_no_old': not any(v in contact.lower() for v in old),
+              'visit_component': 'stc-visit-us-full' in visit and 'stc-parking-map' in visit,
+              'visit_no_old': not any(v in visit.lower() for v in old),
+              'directory_login': 'cd-wrap cd-login' in directory and 'Member Login' in directory,
+              'api_location': 'Sacred Heart Chapel' in str(public.get('contact', {}).get('address', '')),
+              'api_move_date': str(public.get('visit', {}).get('move_effective_date', '')) == '2026-08-23',
+              'api_images': bool(public.get('visit', {}).get('exterior_image_url')) and bool(public.get('visit', {}).get('parking_map_image_url')),
+              'schedule_exact': actual == expected,
+          }
+          failed = [k for k, v in checks.items() if not v]
+          report = {'checks': checks, 'failed': failed, 'schedule': actual}
+          Path('external-smoke/report.json').write_text(json.dumps(report, indent=2, sort_keys=True), encoding='utf-8')
+          print(json.dumps(report, indent=2, sort_keys=True))
+          if failed:
+              raise SystemExit('External Sparkill move verification failed: ' + ', '.join(failed))
+          PY
+
+          cp external-smoke/report.json release-results/external-public-verification.json
+          rm -f external-smoke/*.html external-smoke/public.json external-smoke/schedule.json
+
+      - name: Record idle result
+        if: steps.mode.outputs.mode == 'idle'
+        shell: bash
+        run: echo 'Sparkill move deployment is idle.'
+
+      - name: Upload release report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-sparkill-move-${{ github.run_id }}-${{ github.run_attempt }}
+          path: release-results
+          if-no-files-found: error
+          retention-days: 14
