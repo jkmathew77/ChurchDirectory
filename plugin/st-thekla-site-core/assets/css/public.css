@@ -117,3 +117,107 @@
         grid-template-columns: 3.75rem minmax(0, 1fr);
     }
 }
+
+.stc-announcement-image {
+    display: block;
+    width: 100%;
+    height: auto;
+    margin: 0 0 1rem;
+    border-radius: 0.45rem;
+}
+
+.stc-visit-us {
+    display: grid;
+    gap: 2rem;
+    margin: 1.5rem 0;
+}
+
+.stc-visit-primary {
+    display: grid;
+    grid-template-columns: minmax(240px, 0.85fr) minmax(280px, 1.15fr);
+    gap: clamp(1.25rem, 4vw, 3rem);
+    align-items: center;
+}
+
+.stc-visit-image-wrap,
+.stc-parking-arrival {
+    min-width: 0;
+}
+
+.stc-visit-image,
+.stc-parking-map {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 0.6rem;
+}
+
+.stc-visit-image {
+    max-height: 760px;
+    object-fit: contain;
+    background: #f5f5f5;
+}
+
+.stc-visit-copy h2,
+.stc-parking-arrival h2,
+.stc-visit-schedule h3 {
+    margin-top: 0;
+}
+
+.stc-eyebrow {
+    margin: 0 0 0.45rem;
+    font-size: 0.84rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.stc-visit-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.stc-visit-actions .stc-button {
+    margin-top: 0;
+}
+
+.stc-button-primary {
+    border-color: #1d4b6e;
+    background: #1d4b6e;
+    color: #fff;
+}
+
+.stc-button-primary:hover,
+.stc-button-primary:focus {
+    background: #15374f;
+    color: #fff;
+}
+
+.stc-parking-arrival {
+    scroll-margin-top: 2rem;
+}
+
+.stc-parking-map-link {
+    display: block;
+    margin-top: 1rem;
+}
+
+.stc-visit-us-compact {
+    padding: clamp(1rem, 3vw, 2rem);
+    border: 1px solid rgba(0, 0, 0, 0.14);
+    border-radius: 0.75rem;
+    background: rgba(0, 0, 0, 0.025);
+}
+
+@media (max-width: 760px) {
+    .stc-visit-primary {
+        grid-template-columns: 1fr;
+    }
+
+    .stc-visit-image-wrap {
+        max-width: 34rem;
+        margin-inline: auto;
+    }
+}

@@ -46,10 +46,11 @@ final class STC_Weekly_Schedule {
 
     public static function default_rows() {
         return array(
-            array( 'time' => '8:20 AM', 'description' => 'Morning Prayers' ),
-            array( 'time' => '9:00 AM', 'description' => 'Holy Liturgy' ),
+            array( 'time' => '8:00 AM', 'description' => 'Lilyo' ),
+            array( 'time' => '8:30 AM', 'description' => 'Morning Prayer' ),
+            array( 'time' => '9:00 AM', 'description' => 'Holy Qurbana' ),
             array( 'time' => '10:10 AM', 'description' => 'Dismissal' ),
-            array( 'time' => '10:30 AM', 'description' => 'Refreshments' ),
+            array( 'time' => '10:30 AM', 'description' => 'Refreshments / Fellowship' ),
             array( 'time' => '10:45 AM', 'description' => 'Tree of Life' ),
             array( 'time' => '11:30 AM', 'description' => 'End of Tree of Life' ),
         );
@@ -61,12 +62,12 @@ final class STC_Weekly_Schedule {
 
         $defaults = array(
             'church_name'    => 'St. Thekla Malankara Orthodox Church',
-            'address_line_1' => 'St. Thomas Lutheran Church',
-            'address_line_2' => '2 Old Ox Road',
-            'city'           => 'Nyack',
+            'address_line_1' => 'Sacred Heart Chapel',
+            'address_line_2' => '175 Route 340',
+            'city'           => 'Sparkill',
             'state'          => 'NY',
-            'zip'            => '10960',
-            'map_url'        => 'https://www.google.com/maps/search/?api=1&query=2+Old+Ox+Road+Nyack+NY+10960',
+            'zip'            => '10976',
+            'map_url'        => 'https://www.google.com/maps/search/?api=1&query=175+Route+340+Sparkill+NY+10976',
         );
 
         $changed = false;
@@ -182,7 +183,7 @@ final class STC_Weekly_Schedule {
                         <?php foreach ( $rows as $row ) : ?>
                             <tr>
                                 <td><input type="text" class="regular-text" name="schedule_time[]" value="<?php echo esc_attr( $row['time'] ); ?>" placeholder="9:00 AM"></td>
-                                <td><input type="text" class="regular-text" name="schedule_description[]" value="<?php echo esc_attr( $row['description'] ); ?>" placeholder="Holy Liturgy"></td>
+                                <td><input type="text" class="regular-text" name="schedule_description[]" value="<?php echo esc_attr( $row['description'] ); ?>" placeholder="Holy Qurbana"></td>
                             </tr>
                         <?php endforeach; ?>
                     </tbody>
