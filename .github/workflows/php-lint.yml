@@ -64,15 +64,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Validate Site Core 0.3.0 release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'Version:     0.3.0' plugin/st-thekla-site-core/st-thekla-site-core.php
+          grep -q "define( 'STC_VERSION', '0.3.0' )" plugin/st-thekla-site-core/st-thekla-site-core.php
+          grep -q "define( 'STC_DATA_VERSION', '003' )" plugin/st-thekla-site-core/st-thekla-site-core.php
+          test -f plugin/st-thekla-site-core/includes/class-stc-migrations.php
+          test -f plugin/st-thekla-site-core/includes/class-stc-visit-us.php
+
       - name: Build plugin ZIP
         run: |
           cd plugin
-          zip -qr st-thekla-site-core-0.2.0.zip st-thekla-site-core
+          zip -qr st-thekla-site-core-0.3.0.zip st-thekla-site-core
 
       - name: Upload plugin ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: st-thekla-site-core-0.2.0
-          path: plugin/st-thekla-site-core-0.2.0.zip
+          name: st-thekla-site-core-0.3.0
+          path: plugin/st-thekla-site-core-0.3.0.zip
           if-no-files-found: error
           retention-days: 14
