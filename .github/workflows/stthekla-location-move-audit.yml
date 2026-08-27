@@ -79,8 +79,16 @@ jobs:
           ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "set -e; umask 077; mkdir -p '$remote_dir'; test -f '$WP_PATH/wp-config.php'; command -v wp >/dev/null"
           scp "${scp_base[@]}" ops/location-move/site-inventory.php "$SSH_USER@$SSH_HOST:$remote_dir/site-inventory.php"
           ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" \
-            "set -e; umask 077; wp --path='$WP_PATH' eval-file '$remote_dir/site-inventory.php' > '$remote_dir/site-inventory.json'; chmod 600 '$remote_dir/site-inventory.json'"
+            "set -e; umask 077; \
+             wp --path='$WP_PATH' eval-file '$remote_dir/site-inventory.php' > '$remote_dir/site-inventory.json'; \
+             wp --path='$WP_PATH' post get 5 --field=post_content > '$remote_dir/front-page-content.txt'; \
+             wp --path='$WP_PATH' post get 7 --field=post_content > '$remote_dir/contact-page-content.txt'; \
+             tar -czf '$remote_dir/st-thekla-site-core-live.tar.gz' -C '$WP_PATH/wp-content/plugins' st-thekla-site-core; \
+             chmod 600 '$remote_dir/site-inventory.json' '$remote_dir/front-page-content.txt' '$remote_dir/contact-page-content.txt' '$remote_dir/st-thekla-site-core-live.tar.gz'"
           scp "${scp_base[@]}" "$SSH_USER@$SSH_HOST:$remote_dir/site-inventory.json" audit-results/site-inventory.json
+          scp "${scp_base[@]}" "$SSH_USER@$SSH_HOST:$remote_dir/front-page-content.txt" audit-results/front-page-content.txt
+          scp "${scp_base[@]}" "$SSH_USER@$SSH_HOST:$remote_dir/contact-page-content.txt" audit-results/contact-page-content.txt
+          scp "${scp_base[@]}" "$SSH_USER@$SSH_HOST:$remote_dir/st-thekla-site-core-live.tar.gz" audit-results/st-thekla-site-core-live.tar.gz
 
       - name: Capture cache-busted public surfaces
         shell: bash
