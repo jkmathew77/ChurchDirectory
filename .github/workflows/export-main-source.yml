@@ -1,0 +1,39 @@
+name: Export main source for move release
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - .github/workflows/export-main-source.yml
+      - ops/wordpress-recovery/.export-main-trigger
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Package repository source
+        shell: bash
+        run: |
+          set -euo pipefail
+          tar --exclude='.git' -czf "$RUNNER_TEMP/church-directory-main-source.tar.gz" .
+          sha256sum "$RUNNER_TEMP/church-directory-main-source.tar.gz" > "$RUNNER_TEMP/church-directory-main-source.sha256"
+
+      - name: Upload source archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: church-directory-main-source-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/church-directory-main-source.tar.gz
+            ${{ runner.temp }}/church-directory-main-source.sha256
+          if-no-files-found: error
+          retention-days: 2
