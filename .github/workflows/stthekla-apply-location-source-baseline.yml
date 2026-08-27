@@ -1,0 +1,152 @@
+name: Apply Sacred Heart source baseline
+
+on:
+  push:
+    branches:
+      - feature/move-to-sacred-heart-chapel
+    paths:
+      - .github/workflows/stthekla-apply-location-source-baseline.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/move-to-sacred-heart-chapel
+          fetch-depth: 0
+
+      - name: Update Site Core defaults and release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path('plugin/st-thekla-site-core')
+
+          def replace_required(path, old, new):
+              text = path.read_text(encoding='utf-8')
+              if old not in text:
+                  raise SystemExit(f'Expected source block was not found in {path}')
+              path.write_text(text.replace(old, new), encoding='utf-8')
+
+          replace_required(
+              root / 'st-thekla-site-core.php',
+              ' * Version:     0.2.0',
+              ' * Version:     0.3.0',
+          )
+          replace_required(
+              root / 'st-thekla-site-core.php',
+              "define( 'STC_VERSION', '0.2.0' );",
+              "define( 'STC_VERSION', '0.3.0' );",
+          )
+
+          weekly = root / 'includes/class-stc-weekly-schedule.php'
+          replace_required(
+              weekly,
+              """        return array(
+                      array( 'time' => '8:20 AM', 'description' => 'Morning Prayers' ),
+                      array( 'time' => '9:00 AM', 'description' => 'Holy Liturgy' ),
+                      array( 'time' => '10:10 AM', 'description' => 'Dismissal' ),
+                      array( 'time' => '10:30 AM', 'description' => 'Refreshments' ),
+                      array( 'time' => '10:45 AM', 'description' => 'Tree of Life' ),
+                      array( 'time' => '11:30 AM', 'description' => 'End of Tree of Life' ),
+                  );""",
+              """        return array(
+                      array( 'time' => '8:00 AM', 'description' => 'Lilyo' ),
+                      array( 'time' => '8:30 AM', 'description' => 'Morning Prayer' ),
+                      array( 'time' => '9:00 AM', 'description' => 'Holy Qurbana' ),
+                  );""",
+          )
+          replace_required(
+              weekly,
+              """            'church_name'    => 'St. Thekla Malankara Orthodox Church',
+                      'address_line_1' => 'St. Thomas Lutheran Church',
+                      'address_line_2' => '2 Old Ox Road',
+                      'city'           => 'Nyack',
+                      'state'          => 'NY',
+                      'zip'            => '10960',
+                      'map_url'        => 'https://www.google.com/maps/search/?api=1&query=2+Old+Ox+Road+Nyack+NY+10960',""",
+              """            'church_name'    => 'St. Thekla Malankara Orthodox Church',
+                      'address_line_1' => 'Sacred Heart Chapel',
+                      'address_line_2' => '175 Route 340',
+                      'city'           => 'Sparkill',
+                      'state'          => 'NY',
+                      'zip'            => '10976',
+                      'map_url'        => 'https://www.google.com/maps/search/?api=1&query=Sacred+Heart+Chapel+175+Route+340+Sparkill+NY+10976',""",
+          )
+          replace_required(
+              weekly,
+              "esc_html_e( 'Sunday Schedule', 'st-thekla-site-core' )",
+              "esc_html_e( 'Sunday Worship Schedule', 'st-thekla-site-core' )",
+          )
+          replace_required(weekly, 'placeholder="Holy Liturgy"', 'placeholder="Holy Qurbana"')
+
+          core = root / 'includes/class-stc-plugin.php'
+          replace_required(
+              core,
+              """                    'church_name'    => 'St. Thekla Malankara Orthodox Church',
+                          'address_line_1' => '',
+                          'address_line_2' => '',
+                          'city'           => '',
+                          'state'          => 'NY',
+                          'zip'            => '',
+                          'phone'          => '',
+                          'email'          => '',
+                          'map_url'        => '',""",
+              """                    'church_name'    => 'St. Thekla Malankara Orthodox Church',
+                          'address_line_1' => 'Sacred Heart Chapel',
+                          'address_line_2' => '175 Route 340',
+                          'city'           => 'Sparkill',
+                          'state'          => 'NY',
+                          'zip'            => '10976',
+                          'phone'          => '',
+                          'email'          => '',
+                          'map_url'        => 'https://www.google.com/maps/search/?api=1&query=Sacred+Heart+Chapel+175+Route+340+Sparkill+NY+10976',""",
+          )
+
+          readme = root / 'README.md'
+          text = readme.read_text(encoding='utf-8')
+          if text.startswith('# St. Thekla Site Core\n'):
+              text = text.replace('# St. Thekla Site Core\n', '# St. Thekla Site Core 0.3.0\n', 1)
+          text = text.replace(
+              '- Compatibility bridge for the former `[ninja_tables id="142"]` schedule shortcode when Ninja Tables is inactive',
+              '- Native recurring Sunday worship schedule with a compatibility bridge for the former `[ninja_tables id="142"]` shortcode',
+          )
+          text = text.replace(
+              "6. Confirm the homepage's legacy Ninja Tables shortcode now renders the new schedule.\n7. Replace the legacy shortcode with `[st_liturgy_schedule]` after validation.",
+              '6. Add `[st_weekly_schedule]` to the homepage.\n7. Verify the public API and church location settings after deployment.',
+          )
+          if '## 0.3.0 location baseline' not in text:
+              text += (
+                  '\n## 0.3.0 location baseline\n\n'
+                  '- Sacred Heart Chapel, 175 Route 340, Sparkill, NY 10976\n'
+                  '- Sunday schedule: Lilyo at 8:00 AM, Morning Prayer at 8:30 AM, and Holy Qurbana at 9:00 AM\n'
+              )
+          readme.write_text(text, encoding='utf-8')
+
+          workflow = Path('.github/workflows/php-lint.yml')
+          text = workflow.read_text(encoding='utf-8')
+          if 'st-thekla-site-core-0.2.0' not in text:
+              raise SystemExit('Expected Site Core 0.2.0 package name was not found')
+          workflow.write_text(text.replace('st-thekla-site-core-0.2.0', 'st-thekla-site-core-0.3.0'), encoding='utf-8')
+          PY
+
+          find plugin/st-thekla-site-core -type f -name '*.php' -print0 | sort -z | xargs -0 -n1 php -l
+          grep -R "Sacred Heart Chapel\|175 Route 340\|Lilyo\|Holy Qurbana\|0.3.0" -n plugin/st-thekla-site-core .github/workflows/php-lint.yml
+          ! grep -R "St. Thomas Lutheran Church\|2 Old Ox Road" -n plugin/st-thekla-site-core
+
+      - name: Commit source baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add plugin/st-thekla-site-core .github/workflows/php-lint.yml
+          git commit -m 'Update Site Core for Sacred Heart Chapel move'
+          git push origin HEAD:feature/move-to-sacred-heart-chapel
