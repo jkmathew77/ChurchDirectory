@@ -18,12 +18,24 @@ jobs:
       - name: Check out branch
         uses: actions/checkout@v4
 
-      - name: Inspect image assets
+      - name: Inspect and verify image assets
         shell: bash
         run: |
           set -euo pipefail
-          file assets/location/*
-          sha256sum assets/location/* > assets/location/SHA256SUMS.txt
+          file assets/location/sacred-heart-chapel.webp | tee /tmp/chapel-file.txt
+          file assets/location/sacred-heart-parking-map.webp | tee /tmp/parking-file.txt
+          grep -q 'Web/P image' /tmp/chapel-file.txt
+          grep -q '480x749' /tmp/chapel-file.txt
+          grep -q 'Web/P image' /tmp/parking-file.txt
+          grep -q '600x510' /tmp/parking-file.txt
+          cat > assets/location/SHA256SUMS.txt <<'SUMS'
+          24b057bd676dd392023318f4a231fe937fe7de59949a910f2b0d6197254b1106  sacred-heart-chapel.webp
+          be7a3622ada853a715f5cf59c5f6c6f6ab0a8c0605953aa22cd32dfa535a0e9b  sacred-heart-parking-map.webp
+          SUMS
+          (
+            cd assets/location
+            sha256sum --check SHA256SUMS.txt
+          )
 
       - name: Upload image previews
         uses: actions/upload-artifact@v4
