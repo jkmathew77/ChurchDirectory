@@ -36,8 +36,8 @@ jobs:
             exit 0
           fi
 
-          cat assets/location/encoded/chapel.part*.b64 > "$RUNNER_TEMP/chapel.b64"
-          cat assets/location/encoded/parking.part*.b64 > "$RUNNER_TEMP/parking.b64"
+          cat assets/location/encoded/chapel18.part*.b64 > "$RUNNER_TEMP/chapel.b64"
+          cat assets/location/encoded/parking18.part*.b64 > "$RUNNER_TEMP/parking.b64"
           base64 --decode "$RUNNER_TEMP/chapel.b64" > assets/location/sacred-heart-chapel.webp
           base64 --decode "$RUNNER_TEMP/parking.b64" > assets/location/sacred-heart-parking-map.webp
 
