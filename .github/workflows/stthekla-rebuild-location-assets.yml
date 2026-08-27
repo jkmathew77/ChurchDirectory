@@ -30,8 +30,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [[ ! -f assets/location/encoded/chapel.part01.b64 ]]; then
-            echo 'Location image chunks have already been consumed.'
+          if [[ ! -f assets/location/encoded/complete.txt ]]; then
+            echo 'Image staging is not complete yet.'
             echo 'changed=no' >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -41,16 +41,18 @@ jobs:
           base64 --decode "$RUNNER_TEMP/chapel.b64" > assets/location/sacred-heart-chapel.webp
           base64 --decode "$RUNNER_TEMP/parking.b64" > assets/location/sacred-heart-parking-map.webp
 
-          echo '24b057bd676dd392023318f4a231fe937fe7de59949a910f2b0d6197254b1106  assets/location/sacred-heart-chapel.webp' > "$RUNNER_TEMP/expected.sha256"
-          echo 'be7a3622ada853a715f5cf59c5f6c6f6ab0a8c0605953aa22cd32dfa535a0e9b  assets/location/sacred-heart-parking-map.webp' >> "$RUNNER_TEMP/expected.sha256"
+          cat > "$RUNNER_TEMP/expected.sha256" <<'SUMS'
+          ef4a331a5e5f242be168deea7416500fe23d692c8203dc9e5b16aa4b0320bf19  assets/location/sacred-heart-chapel.webp
+          8431b375c01bf8be97e56ce63f74325a013db2a3c2983e6781bcc15bfb5495cd  assets/location/sacred-heart-parking-map.webp
+          SUMS
           sha256sum --check "$RUNNER_TEMP/expected.sha256"
 
           file assets/location/sacred-heart-chapel.webp | tee "$RUNNER_TEMP/chapel-file.txt"
           file assets/location/sacred-heart-parking-map.webp | tee "$RUNNER_TEMP/parking-file.txt"
           grep -q 'Web/P image' "$RUNNER_TEMP/chapel-file.txt"
-          grep -q '480x749' "$RUNNER_TEMP/chapel-file.txt"
+          grep -q '560x873' "$RUNNER_TEMP/chapel-file.txt"
           grep -q 'Web/P image' "$RUNNER_TEMP/parking-file.txt"
-          grep -q '600x510' "$RUNNER_TEMP/parking-file.txt"
+          grep -q '800x685' "$RUNNER_TEMP/parking-file.txt"
 
           rm -rf assets/location/encoded
           echo 'changed=yes' >> "$GITHUB_OUTPUT"
