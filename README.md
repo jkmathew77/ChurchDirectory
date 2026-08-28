@@ -7,9 +7,9 @@ This repository is the source of truth for the custom WordPress code used by the
 | Plugin | Repository path | Production version |
 | --- | --- | --- |
 | Community Directory | `plugin/community-directory/` | `0.5.2` |
-| St. Thekla Site Core | `plugin/st-thekla-site-core/` | `0.2.0` |
+| St. Thekla Site Core | `plugin/st-thekla-site-core/` | `0.3.0` |
 
-`main` was synchronized with both production builds on August 21, 2026.
+`main` contains the custom-plugin builds deployed to production. The Sacred Heart Chapel location release was deployed and externally verified on August 28, 2026.
 
 ### Community Directory
 
@@ -17,7 +17,17 @@ The private member application provides authentication, applications, member and
 
 ### St. Thekla Site Core
 
-The public-site plugin owns stable church content and integrations that should remain isolated from the private directory application. It currently provides the church-managed Sunday schedule, contact settings, leadership and announcement content types, public APIs, and the compatibility renderer that replaced the live Ninja Tables dependency.
+The public-site plugin owns stable church content and integrations that should remain isolated from the private directory application. It provides:
+
+- centralized church contact and location settings;
+- the recurring Sunday schedule and public schedule API;
+- the Sacred Heart Chapel move announcement and visitor information;
+- the `/visit-us/` page, exterior image, parking map and arrival guidance;
+- leadership and announcement content types;
+- public app data at `/wp-json/st-thekla/v1/public`; and
+- compatibility rendering that replaced the live Ninja Tables dependency.
+
+The approved public location is Sacred Heart Chapel, 175 Route 340, Sparkill, NY 10976. See `Docs/LOCATION-MOVE-2026.md` for the release record.
 
 ## Repository layout
 
