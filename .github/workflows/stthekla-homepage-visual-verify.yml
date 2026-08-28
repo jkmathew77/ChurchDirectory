@@ -42,13 +42,17 @@ jobs:
           const results = {};
 
           async function inspect(browser, name, viewport) {
-            const page = await browser.newPage({ viewportSize: viewport, deviceScaleFactor: 1 });
+            const page = await browser.newPage({ viewport, deviceScaleFactor: 1 });
             await page.goto(`${baseUrl}?homepage_visual=${cacheBust}-${name}`, {
               waitUntil: 'domcontentloaded',
               timeout: 60000,
             });
             await page.waitForSelector('.stc-visit-us-compact .stc-visit-image-wrap', { timeout: 30000 });
             await page.waitForSelector('.stc-visit-us-compact .stc-visit-image', { timeout: 30000 });
+            await page.waitForFunction(() => {
+              const image = document.querySelector('.stc-visit-us-compact .stc-visit-image');
+              return Boolean(image && image.complete && image.naturalWidth > 0);
+            }, { timeout: 30000 });
             await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
 
             const report = await page.evaluate(() => {
@@ -71,6 +75,7 @@ jobs:
               const imageBox = image.getBoundingClientRect();
               const primaryStyle = getComputedStyle(primary);
               const wrapStyle = getComputedStyle(imageWrap);
+              const imageStyle = getComputedStyle(image);
 
               const compactCenter = compactBox.left + compactBox.width / 2;
               const wrapCenter = wrapBox.left + wrapBox.width / 2;
@@ -79,9 +84,14 @@ jobs:
               return {
                 url: location.href,
                 title: document.title,
+                viewportWidth: document.documentElement.clientWidth,
+                viewportHeight: window.innerHeight,
                 stylesheet,
-                siteCore031Stylesheet: /[?&]ver=0\.3\.1(?:&|$)/.test(stylesheet),
+                siteCore032Stylesheet: /[?&]ver=0\.3\.2(?:&|$)/.test(stylesheet),
                 emptyTelephoneLinkPresent: Boolean(telEmpty),
+                imageLoaded: image.complete && image.naturalWidth > 0,
+                imageNaturalWidth: image.naturalWidth,
+                imageNaturalHeight: image.naturalHeight,
                 compactBox: {
                   left: compactBox.left,
                   width: compactBox.width,
@@ -103,19 +113,25 @@ jobs:
                 },
                 imageWrapCenterDeltaFromCompact: Math.abs(wrapCenter - compactCenter),
                 imageCenterDeltaFromCompact: Math.abs(imageCenter - compactCenter),
+                primaryDisplay: primaryStyle.display,
                 primaryGridTemplateColumns: primaryStyle.gridTemplateColumns,
                 imageWrapJustifySelf: wrapStyle.justifySelf,
                 imageWrapMarginLeft: wrapStyle.marginLeft,
                 imageWrapMarginRight: wrapStyle.marginRight,
+                imageDisplay: imageStyle.display,
+                imageMarginLeft: imageStyle.marginLeft,
+                imageMarginRight: imageStyle.marginRight,
               };
             });
 
             report.checks = {
-              siteCore031Stylesheet: report.siteCore031Stylesheet,
+              siteCore032Stylesheet: report.siteCore032Stylesheet,
               noEmptyTelephoneLink: !report.emptyTelephoneLinkPresent,
-              compactUsesSingleColumn: !report.primaryGridTemplateColumns.includes(' ') || viewport.width <= 760,
+              viewportApplied: Math.abs(report.viewportWidth - viewport.width) <= 2,
+              imageLoaded: report.imageLoaded,
               imageWrapCenteredWithinCompact: report.imageWrapCenterDeltaFromCompact <= 3,
               imageCenteredWithinCompact: report.imageCenterDeltaFromCompact <= 3,
+              imageFitsWithinCompact: report.imageBox.width <= report.compactBox.width + 1,
             };
             report.allChecksPassed = Object.values(report.checks).every(Boolean);
 
