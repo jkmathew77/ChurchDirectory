@@ -1,0 +1,102 @@
+name: St. Thekla fresh pre-deployment backup
+
+on:
+  push:
+    branches:
+      - ops/live-status-20260828
+    paths:
+      - .github/workflows/stthekla-fresh-backup-20260828.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    name: Create and verify private production backup
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+    steps:
+      - name: Check out approved recovery scripts
+        uses: actions/checkout@v4
+        with:
+          ref: ops/stthekla-production-execution
+
+      - name: Validate backup script
+        shell: bash
+        run: bash -n ops/wordpress-recovery/backup-before-recovery.sh
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Create and verify private Bluehost backup
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backup-results
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_dir="stthekla-backup-runs/$run_token"
+          ssh_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_dir'"
+          scp "${scp_base[@]}" ops/wordpress-recovery/backup-before-recovery.sh "$SSH_USER@$SSH_HOST:$remote_dir/backup-before-recovery.sh"
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" bash -s -- "$remote_dir" "$WP_PATH" > backup-results/execution.txt <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          remote_dir="$1"
+          wp_path="$2"
+          chmod 700 "$remote_dir/backup-before-recovery.sh"
+          output="$(bash "$remote_dir/backup-before-recovery.sh" "$wp_path")"
+          printf '%s\n' "$output"
+          backup_dir="$(printf '%s\n' "$output" | sed -n 's/^Location: //p' | tail -n 1)"
+          test -n "$backup_dir"
+          test -d "$backup_dir"
+          test -s "$backup_dir/database.sql"
+          test -s "$backup_dir/site-files.tar.gz"
+          test -s "$backup_dir/SHA256SUMS"
+          (cd "$backup_dir" && sha256sum -c SHA256SUMS) >/dev/null
+          printf 'verified_backup=%s\n' "$backup_dir"
+          printf 'completed_utc=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          du -h "$backup_dir/database.sql" "$backup_dir/site-files.tar.gz"
+          REMOTE
+
+      - name: Upload safe backup summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-fresh-backup-${{ github.run_id }}
+          path: backup-results
+          if-no-files-found: error
+          retention-days: 7
