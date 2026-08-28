@@ -44,6 +44,8 @@ jobs:
           grep -Fq 'id="stc-critical-inline-css"' "$patched"
           grep -Fq 'margin-left: auto !important;' "$patched"
           grep -Fq 'margin-right: auto !important;' "$patched"
+          grep -Fq "re.search(r'<a\\b" "$patched"
+          ! grep -Fq "'href=\"tel:\"' not in home" "$patched"
           ! grep -Fq '$OUTPUT_DIR/public.css' "$patched"
           ! grep -Fq 'public-css-curl-stderr' "$patched"
 
