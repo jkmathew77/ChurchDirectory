@@ -47,6 +47,7 @@ jobs:
               waitUntil: 'domcontentloaded',
               timeout: 60000,
             });
+            await page.waitForSelector('#stc-critical-inline-css', { timeout: 30000 });
             await page.waitForSelector('.stc-visit-us-compact .stc-visit-image-wrap', { timeout: 30000 });
             await page.waitForSelector('.stc-visit-us-compact .stc-visit-image', { timeout: 30000 });
             await page.waitForFunction(() => {
@@ -60,13 +61,14 @@ jobs:
               const primary = document.querySelector('.stc-visit-us-compact .stc-visit-primary');
               const imageWrap = document.querySelector('.stc-visit-us-compact .stc-visit-image-wrap');
               const image = document.querySelector('.stc-visit-us-compact .stc-visit-image');
+              const criticalStyle = document.querySelector('#stc-critical-inline-css');
               const telEmpty = document.querySelector('a[href="tel:"], a[href="tel:+"]');
               const stylesheet = [...document.querySelectorAll('link[rel="stylesheet"]')]
                 .map((link) => link.href)
                 .find((href) => href.includes('/st-thekla-site-core/assets/css/public.css')) || '';
 
-              if (!compact || !primary || !imageWrap || !image) {
-                throw new Error('Required compact Visit Us elements were not found.');
+              if (!compact || !primary || !imageWrap || !image || !criticalStyle) {
+                throw new Error('Required compact Visit Us elements or critical styles were not found.');
               }
 
               const compactBox = compact.getBoundingClientRect();
@@ -76,6 +78,7 @@ jobs:
               const primaryStyle = getComputedStyle(primary);
               const wrapStyle = getComputedStyle(imageWrap);
               const imageStyle = getComputedStyle(image);
+              const criticalCss = criticalStyle.textContent || '';
 
               const compactCenter = compactBox.left + compactBox.width / 2;
               const wrapCenter = wrapBox.left + wrapBox.width / 2;
@@ -87,7 +90,12 @@ jobs:
                 viewportWidth: document.documentElement.clientWidth,
                 viewportHeight: window.innerHeight,
                 stylesheet,
-                siteCore032Stylesheet: /[?&]ver=0\.3\.2(?:&|$)/.test(stylesheet),
+                siteCore033Stylesheet: /[?&]ver=0\.3\.3(?:&|$)/.test(stylesheet),
+                criticalInlineStylePresent: Boolean(criticalStyle),
+                criticalInlineImageRulePresent:
+                  criticalCss.includes('.stc-visit-us-compact .stc-visit-image') &&
+                  criticalCss.includes('margin-left: auto !important') &&
+                  criticalCss.includes('margin-right: auto !important'),
                 emptyTelephoneLinkPresent: Boolean(telEmpty),
                 imageLoaded: image.complete && image.naturalWidth > 0,
                 imageNaturalWidth: image.naturalWidth,
@@ -119,16 +127,21 @@ jobs:
                 imageWrapMarginLeft: wrapStyle.marginLeft,
                 imageWrapMarginRight: wrapStyle.marginRight,
                 imageDisplay: imageStyle.display,
+                imageWidth: imageStyle.width,
+                imageMaxWidth: imageStyle.maxWidth,
                 imageMarginLeft: imageStyle.marginLeft,
                 imageMarginRight: imageStyle.marginRight,
               };
             });
 
             report.checks = {
-              siteCore032Stylesheet: report.siteCore032Stylesheet,
+              siteCore033Stylesheet: report.siteCore033Stylesheet,
+              criticalInlineStylePresent: report.criticalInlineStylePresent,
+              criticalInlineImageRulePresent: report.criticalInlineImageRulePresent,
               noEmptyTelephoneLink: !report.emptyTelephoneLinkPresent,
               viewportApplied: Math.abs(report.viewportWidth - viewport.width) <= 2,
               imageLoaded: report.imageLoaded,
+              imageUsesBlockLayout: report.imageDisplay === 'block',
               imageWrapCenteredWithinCompact: report.imageWrapCenterDeltaFromCompact <= 3,
               imageCenteredWithinCompact: report.imageCenterDeltaFromCompact <= 3,
               imageFitsWithinCompact: report.imageBox.width <= report.compactBox.width + 1,
