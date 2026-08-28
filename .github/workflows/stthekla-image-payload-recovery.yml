@@ -1,0 +1,88 @@
+name: Recover Sparkill image payload boundary
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - .github/workflows/stthekla-image-payload-recovery.yml
+      - ops/wordpress-recovery/.image-payload-recovery-trigger
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    name: Recover missing Base64 character by checksum
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out operational branch
+        uses: actions/checkout@v4
+        with:
+          ref: ops/stthekla-production-execution
+
+      - name: Recover and verify payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p recovery-results
+          python3 - <<'PY'
+          import base64
+          import hashlib
+          import json
+          from pathlib import Path
+
+          root = Path('ops/wordpress-recovery')
+          parts = sorted(root.glob('move-images-v4.part*.b64'))
+          if len(parts) != 14:
+              raise SystemExit(f'Expected 14 parts, found {len(parts)}')
+
+          chunks = [''.join(path.read_text(encoding='ascii').split()) for path in parts]
+          payload = ''.join(chunks)
+          boundary = len(chunks[0])
+          expected = '812bfc8273c3fe7b7406edd5025f57bfeacade1762afa7d6f8ccdc368624ce87'
+          alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
+          matches = []
+
+          for char in alphabet:
+              candidate = payload[:boundary] + char + payload[boundary:]
+              try:
+                  archive = base64.b64decode(candidate, validate=True)
+              except Exception:
+                  continue
+              digest = hashlib.sha256(archive).hexdigest()
+              if digest == expected:
+                  matches.append((char, candidate, archive))
+
+          if len(matches) != 1:
+              raise SystemExit(f'Expected one checksum match, found {len(matches)}')
+
+          char, candidate, archive = matches[0]
+          Path('recovery-results/recovered-character.txt').write_text(char + '\n', encoding='ascii')
+          Path('recovery-results/recovered-payload.b64').write_text(candidate + '\n', encoding='ascii')
+          Path('recovery-results/recovered-images.tar.gz').write_bytes(archive)
+          report = {
+              'missing_character': char,
+              'insertion_offset': boundary,
+              'input_non_whitespace_length': len(payload),
+              'recovered_non_whitespace_length': len(candidate),
+              'archive_sha256': hashlib.sha256(archive).hexdigest(),
+              'part_count': len(parts),
+          }
+          Path('recovery-results/report.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          tar -tzf recovery-results/recovered-images.tar.gz | sort | tee recovery-results/archive-files.txt
+          grep -qx 'st-thekla-sacred-heart-chapel-new-home.webp' recovery-results/archive-files.txt
+          grep -qx 'st-thekla-sacred-heart-chapel-parking-map.webp' recovery-results/archive-files.txt
+
+      - name: Upload verified recovery evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-image-payload-recovery-${{ github.run_id }}
+          path: recovery-results
+          if-no-files-found: error
+          retention-days: 14
