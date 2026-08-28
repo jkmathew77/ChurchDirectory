@@ -47,7 +47,7 @@ jobs:
               waitUntil: 'domcontentloaded',
               timeout: 60000,
             });
-            await page.waitForSelector('#stc-critical-inline-css', { timeout: 30000 });
+            await page.waitForSelector('#stc-critical-inline-css', { state: 'attached', timeout: 30000 });
             await page.waitForSelector('.stc-visit-us-compact .stc-visit-image-wrap', { timeout: 30000 });
             await page.waitForSelector('.stc-visit-us-compact .stc-visit-image', { timeout: 30000 });
             await page.waitForFunction(() => {
