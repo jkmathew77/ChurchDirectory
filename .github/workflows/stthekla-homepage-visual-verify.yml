@@ -33,7 +33,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p visual-results
-          cat > "$RUNNER_TEMP/verify-homepage.cjs" <<'JS'
+          cat > verify-homepage.cjs <<'JS'
           const { chromium } = require('playwright');
           const fs = require('fs');
 
@@ -151,7 +151,7 @@ jobs:
             process.exit(1);
           });
           JS
-          node "$RUNNER_TEMP/verify-homepage.cjs"
+          node verify-homepage.cjs
 
       - name: Upload browser evidence
         if: always()
