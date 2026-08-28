@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
-# Operational launcher for the reviewed Site Core 0.3.2 deployment. It reuses
-# the backup-gated 0.3.1 deployment harness, pins the exact merged 0.3.2 source,
-# adds the direct-image centering assertion, and removes only Bluehost's
-# bot-blocked direct CSS curl probe. Browser verification runs after deployment.
+# Operational launcher for the reviewed Site Core 0.3.3 deployment. It reuses
+# the backup-gated 0.3.1 deployment harness, pins the exact merged 0.3.3 source,
+# verifies the cache-independent inline centering safeguard, and removes only
+# Bluehost's bot-blocked direct CSS curl probe.
 set -euo pipefail
 umask 077
 
 WP_PATH="${1:-/home3/stthekla/public_html}"
-OUTPUT_DIR="${2:-${HOME}/stthekla-change-logs/$(date +%Y%m%d-%H%M%S)-site-core-0.3.2}"
+OUTPUT_DIR="${2:-${HOME}/stthekla-change-logs/$(date +%Y%m%d-%H%M%S)-site-core-0.3.3}"
 REPOSITORY="https://github.com/jkmathew77/ChurchDirectory.git"
 BASE_COMMIT="d8a2abf275e95232add6649b11717e9bf3588457"
-SOURCE_COMMIT="5bb59c041e24bd0b28a47afa18bf576ff3734f36"
+SOURCE_COMMIT="3e2692c9df6744a3f176483e9fe87c83659d71be"
+PATCH_ONLY="${STC_PATCH_ONLY:-0}"
 WORK_DIR="$OUTPUT_DIR/private/site-core-deployment-runner"
 BASE_SCRIPT="$WORK_DIR/ops/wordpress-recovery/deploy-site-core.sh"
 PATCHED_SCRIPT="$OUTPUT_DIR/private/deploy-site-core-patched.sh"
 
-if [[ ! -f "$WP_PATH/wp-config.php" ]]; then
+if [[ "$PATCH_ONLY" != "1" && ! -f "$WP_PATH/wp-config.php" ]]; then
   echo "ERROR: WordPress was not found at $WP_PATH" >&2
   exit 1
 fi
@@ -51,17 +52,37 @@ source = source.replace(old_source_commit, release_commit)
 
 if '0.3.1' not in source:
     raise SystemExit('Expected Site Core 0.3.1 release markers in base deployment script.')
-source = source.replace('0.3.1', '0.3.2')
+source = source.replace('0.3.1', '0.3.3')
 
 old_margin_check = "grep -Fq 'margin-inline: auto;' \"$NEW_DIR/assets/css/public.css\"\n"
 new_margin_check = (
     old_margin_check
-    + "grep -Fq '.stc-visit-us-compact .stc-visit-image' \"$NEW_DIR/assets/css/public.css\"\n"
-    + "grep -Fq 'width: auto;' \"$NEW_DIR/assets/css/public.css\"\n"
+    + "test -f \"$NEW_DIR/includes/class-stc-critical-styles.php\"\n"
+    + "grep -Fq \"require_once STC_PLUGIN_DIR . 'includes/class-stc-critical-styles.php'\" \"$NEW_DIR/st-thekla-site-core.php\"\n"
+    + "grep -Fq 'STC_Critical_Styles::init();' \"$NEW_DIR/st-thekla-site-core.php\"\n"
+    + "grep -Fq 'stc-critical-inline-css' \"$NEW_DIR/includes/class-stc-critical-styles.php\"\n"
+    + "grep -Fq '.stc-visit-us-compact .stc-visit-image' \"$NEW_DIR/includes/class-stc-critical-styles.php\"\n"
+    + "grep -Fq 'margin-left: auto !important;' \"$NEW_DIR/includes/class-stc-critical-styles.php\"\n"
+    + "grep -Fq 'margin-right: auto !important;' \"$NEW_DIR/includes/class-stc-critical-styles.php\"\n"
 )
 if source.count(old_margin_check) != 1:
     raise SystemExit('Expected one existing centering margin assertion.')
 source = source.replace(old_margin_check, new_margin_check)
+
+homepage_curl = (
+    'curl "${curl_common[@]}" "${HOME_URL}?site_core_patch=${stamp}" '
+    '> "$OUTPUT_DIR/homepage.html" 2> "$OUTPUT_DIR/homepage-curl-stderr.txt"\n'
+)
+homepage_inline_checks = (
+    homepage_curl
+    + "grep -Fq 'id=\"stc-critical-inline-css\"' \"$OUTPUT_DIR/homepage.html\"\n"
+    + "grep -Fq '.stc-visit-us-compact .stc-visit-image' \"$OUTPUT_DIR/homepage.html\"\n"
+    + "grep -Fq 'margin-left: auto !important;' \"$OUTPUT_DIR/homepage.html\"\n"
+    + "grep -Fq 'margin-right: auto !important;' \"$OUTPUT_DIR/homepage.html\"\n"
+)
+if source.count(homepage_curl) != 1:
+    raise SystemExit('Expected one public homepage curl verification step.')
+source = source.replace(homepage_curl, homepage_inline_checks)
 
 replacements = [
     (
@@ -110,20 +131,30 @@ for forbidden in (
 
 required = (
     release_commit,
-    "EXPECTED_VERSION=\"0.3.2\"",
-    "STC_VERSION === \"0.3.2\"",
-    ".stc-visit-us-compact .stc-visit-image",
-    "grep -Fq 'width: auto;'",
+    "EXPECTED_VERSION=\"0.3.3\"",
+    "STC_VERSION === \"0.3.3\"",
+    'class-stc-critical-styles.php',
+    'STC_Critical_Styles::init();',
+    'id=\"stc-critical-inline-css\"',
+    "grep -Fq 'margin-left: auto !important;'",
+    "grep -Fq 'margin-right: auto !important;'",
     "'versioned_css_requested'",
     'compact_single_column_css',
     'compact_center_css',
 )
 for marker in required:
     if marker not in source:
-        raise SystemExit(f'Required 0.3.2 deployment safeguard missing: {marker}')
+        raise SystemExit(f'Required 0.3.3 deployment safeguard missing: {marker}')
 
 Path(sys.argv[2]).write_text(source, encoding='utf-8')
 PY
 
 chmod 700 "$PATCHED_SCRIPT"
+bash -n "$PATCHED_SCRIPT"
+
+if [[ "$PATCH_ONLY" == "1" ]]; then
+  printf 'Site Core 0.3.3 deployment patch validation complete: %s\n' "$PATCHED_SCRIPT"
+  exit 0
+fi
+
 exec bash "$PATCHED_SCRIPT" "$WP_PATH" "$OUTPUT_DIR"
