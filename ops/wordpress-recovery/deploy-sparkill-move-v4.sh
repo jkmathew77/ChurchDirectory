@@ -11,6 +11,7 @@ IMAGE_B64="$SCRIPT_DIR/.move-images-v4.tar.gz.b64"
 IMAGE_ARCHIVE="$SCRIPT_DIR/.move-images-v4.tar.gz"
 PATCHED_DEPLOY="$SCRIPT_DIR/.deploy-sparkill-move-v4-runtime.sh"
 EXPECTED_B64_LENGTH="78108"
+EXPECTED_B64_SHA256="4c152d2146301e84a624ebdfe15fbccc9a81043e57c76be35ad1828e5f601600"
 EXPECTED_ARCHIVE_SHA256="812bfc8273c3fe7b7406edd5025f57bfeacade1762afa7d6f8ccdc368624ce87"
 
 parts=(
@@ -37,15 +38,24 @@ for part in "${parts[@]}"; do
   fi
 done
 
-cat "${parts[@]}" > "$IMAGE_B64"
+# The text transport dropped the last character of part00 and appended a final
+# newline to part13. Reconstruct the reviewed byte stream explicitly, remove
+# line endings only, and verify the complete payload hash before decoding.
+{
+  cat "${parts[0]}"
+  printf 'O'
+  for part in "${parts[@]:1}"; do
+    cat "$part"
+  done
+} | tr -d '\r\n' > "$IMAGE_B64"
+
 actual_length="$(wc -c < "$IMAGE_B64" | tr -d '[:space:]')"
 if [[ "$actual_length" != "$EXPECTED_B64_LENGTH" ]]; then
   echo "ERROR: Optimized image payload length mismatch: $actual_length" >&2
   exit 1
 fi
+echo "$EXPECTED_B64_SHA256  $IMAGE_B64" | sha256sum -c - >/dev/null
 
-# Print only non-sensitive integrity metadata so a damaged text chunk can be
-# corrected without exposing the image payload itself in workflow logs.
 python3 - "$IMAGE_B64" "${parts[@]}" <<'PY'
 from pathlib import Path
 import hashlib
