@@ -230,6 +230,15 @@
     justify-self: center;
 }
 
+/* The theme preserves the generated image's intrinsic width. Center that
+ * actual image inside the compact wrapper rather than merely centering the
+ * full-width wrapper around it. */
+.stc-visit-us-compact .stc-visit-image {
+    width: auto;
+    max-width: 100%;
+    margin-inline: auto;
+}
+
 .stc-visit-us-compact .stc-visit-copy {
     min-width: 0;
 }
