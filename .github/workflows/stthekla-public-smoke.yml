@@ -1,0 +1,138 @@
+name: St. Thekla public smoke test
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/stthekla-public-smoke.yml
+      - ops/wordpress-recovery/.public-smoke-trigger
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify the Sparkill release from an external runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p public-smoke
+          common=(
+            -fsSL
+            --max-time 60
+            -H 'Cache-Control: no-cache, no-store, must-revalidate'
+            -H 'Pragma: no-cache'
+            -H 'User-Agent: StThekla-External-Smoke/2.0'
+          )
+          stamp="${GITHUB_RUN_ID}-$(date +%s%N)"
+
+          fetch() {
+            local name="$1"
+            local url="$2"
+            local separator='?'
+            [[ "$url" == *\?* ]] && separator='&'
+            curl "${common[@]}" "${url}${separator}external_smoke=${stamp}" > "public-smoke/${name}.body"
+          }
+
+          fetch home 'https://www.sttheklachurch.org/'
+          fetch contact 'https://www.sttheklachurch.org/contact-us/'
+          fetch visit 'https://www.sttheklachurch.org/visit-us/'
+          fetch donation 'https://www.sttheklachurch.org/get-the-most-out-of-your-donations/'
+          fetch directory 'https://www.sttheklachurch.org/community/login/'
+          fetch session 'https://www.sttheklachurch.org/wp-json/community-directory/v1/auth/session-check'
+          fetch public_api 'https://www.sttheklachurch.org/wp-json/st-thekla/v1/public'
+          fetch schedule 'https://www.sttheklachurch.org/wp-json/st-thekla/v1/weekly-schedule'
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          def read(name):
+              return Path(f'public-smoke/{name}.body').read_text(encoding='utf-8', errors='replace')
+
+          home = read('home')
+          contact = read('contact')
+          visit = read('visit')
+          donation = read('donation')
+          directory = read('directory')
+          session = json.loads(read('session'))
+          public = json.loads(read('public_api'))
+          schedule = json.loads(read('schedule'))
+
+          expected = [
+              ('8:00 AM', 'Lilyo'),
+              ('8:30 AM', 'Morning Prayer'),
+              ('9:00 AM', 'Holy Qurbana'),
+              ('10:10 AM', 'Dismissal'),
+              ('10:30 AM', 'Refreshments / Fellowship'),
+              ('10:45 AM', 'Tree of Life'),
+              ('11:30 AM', 'End of Tree of Life'),
+          ]
+          actual = [
+              (str(item.get('time', '')), str(item.get('description', '')))
+              for item in schedule.get('items', []) if isinstance(item, dict)
+          ]
+          old = [
+              '107 strawtown road', 'west nyack', '2 old ox road',
+              'st. thomas lutheran church', 'st thomas lutheran church',
+              'nyack, ny 10960', 'nyack, new york 10960',
+          ]
+          contact_payload = public.get('contact', {}) if isinstance(public, dict) else {}
+          visit_payload = public.get('visit', {}) if isinstance(public, dict) else {}
+          visit_image = visit_payload.get('visit_image') or {}
+          parking_image = visit_payload.get('parking_map_image') or {}
+
+          checks = {
+              'homepage_compact_visit': 'stc-visit-us-compact' in home and 'stc-visit-image' in home,
+              'homepage_sparkill_address': all(value in home for value in ('Sacred Heart Chapel', '175 Route 340', 'Sparkill', '10976')),
+              'homepage_seven_row_schedule': all(time in home and label in home for time, label in expected),
+              'homepage_no_old_location': not any(value in home.lower() for value in old),
+              'homepage_no_raw_ninja': '[ninja_tables' not in home,
+              'contact_wpforms': 'wpforms-form-' in contact,
+              'contact_sparkill_address': all(value in contact for value in ('Sacred Heart Chapel', '175 Route 340', 'Sparkill')),
+              'contact_schedule': all(label in contact for _, label in expected),
+              'contact_no_old_location': not any(value in contact.lower() for value in old),
+              'visit_full_component': 'stc-visit-us-full' in visit,
+              'visit_parking_map': 'stc-parking-map' in visit and 'designated parking areas' in visit,
+              'visit_no_old_location': not any(value in visit.lower() for value in old),
+              'donation_content_preserved': 'quickpay' in donation.lower() and 'paypal' in donation.lower(),
+              'donation_no_raw_shortcodes': '[su_lightbox' not in donation,
+              'directory_login': 'cd-wrap cd-login' in directory and 'Member Login' in directory,
+              'directory_session_json': isinstance(session, dict),
+              'public_api_sparkill_address': all(value in str(contact_payload.get('address', '')) for value in ('Sacred Heart Chapel', '175 Route 340', 'Sparkill')),
+              'public_api_move_date': str(visit_payload.get('move_effective_date', '')) == '2026-08-23',
+              'public_api_exterior_image': bool(visit_image.get('url')),
+              'public_api_parking_image': bool(parking_image.get('url')),
+              'schedule_api_exact': actual == expected,
+          }
+          report = {
+              'all_checks_passed': all(checks.values()),
+              'checks': checks,
+              'schedule': actual,
+          }
+          Path('public-smoke/report.json').write_text(
+              json.dumps(report, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          print(json.dumps(report, indent=2, sort_keys=True))
+          if not report['all_checks_passed']:
+              failed = [name for name, passed in checks.items() if not passed]
+              raise SystemExit('External public smoke test failed: ' + ', '.join(failed))
+          PY
+
+          rm -f public-smoke/*.body
+
+      - name: Upload external verification report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-public-smoke-${{ github.run_id }}
+          path: public-smoke/report.json
+          if-no-files-found: warn
+          retention-days: 14

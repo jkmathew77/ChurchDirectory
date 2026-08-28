@@ -1,0 +1,176 @@
+name: St. Thekla production recovery
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - .github/workflows/stthekla-production-recovery.yml
+      - ops/wordpress-recovery/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stthekla-production-recovery
+  cancel-in-progress: false
+
+jobs:
+  recovery:
+    name: Controlled production recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      TRIGGER_FILE: ops/wordpress-recovery/.production-recovery-trigger
+      DIRECTORY_SOURCE_REF: 65f5da89a9128c6797d96bb5b6ce39b32f6bf115
+    steps:
+      - name: Check out recovery branch
+        uses: actions/checkout@v4
+
+      - name: Read and validate recovery mode
+        id: mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="$(tr -d '[:space:]' < "$TRIGGER_FILE")"
+          case "$mode" in
+            connectivity|backup-audit|deep-audit|config-audit|inspect-wpforms|repair-config-logs|restore-config|harden-settings|quarantine-risky|restore-mail|restore-contact|restore-ninja|restore-shortcodes|deploy-directory|disable-debug|directory-smoke|collect-directory-smoke|migrate-legacy-content) ;;
+            *)
+              echo "Unsupported recovery mode: $mode" >&2
+              exit 1
+              ;;
+          esac
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "Recovery mode: $mode"
+
+      - name: Check out validated Community Directory source
+        if: steps.mode.outputs.mode == 'deploy-directory'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DIRECTORY_SOURCE_REF }}
+          path: repair-source
+
+      - name: Configure SSH key
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          if [[ -z "${SSH_PRIVATE_KEY:-}" ]]; then
+            echo "Repository secret STTHEKLA_SSH_PRIVATE_KEY is not configured." >&2
+            exit 1
+          fi
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+
+      - name: Record Bluehost host keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir -p "$HOME/.ssh" "$GITHUB_WORKSPACE/recovery-results"
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+          ssh-keygen -lf "$HOME/.ssh/known_hosts" > "$GITHUB_WORKSPACE/recovery-results/host-key-fingerprints.txt"
+          cat "$GITHUB_WORKSPACE/recovery-results/host-key-fingerprints.txt"
+
+      - name: Verify SSH and WordPress access
+        shell: bash
+        run: |
+          set -euo pipefail
+          ssh \
+            -i "$HOME/.ssh/id_rsa_stthekla" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            "set -e; printf 'ssh=ok\\n'; printf 'user=%s\\n' \"\$(id -un)\"; printf 'host=%s\\n' \"\$(hostname)\"; test -f '$WP_PATH/wp-config.php'; command -v wp >/dev/null; printf 'wp_cli=%s\\n' \"\$(command -v wp)\"; printf 'wordpress=%s\\n' \"\$(wp --path='$WP_PATH' core version)\"; printf 'php=%s\\n' \"\$(php -r 'echo PHP_VERSION;')\"" \
+            | tee "$GITHUB_WORKSPACE/recovery-results/connectivity.txt"
+
+      - name: Package recovery toolkit
+        if: steps.mode.outputs.mode != 'connectivity'
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_paths=(ops/wordpress-recovery)
+          if [[ "${{ steps.mode.outputs.mode }}" == "deploy-directory" ]]; then
+            test -f repair-source/plugin/community-directory/community-directory.php
+            package_paths+=(repair-source/plugin/community-directory)
+          fi
+          tar -czf "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" "${package_paths[@]}"
+
+      - name: Execute approved production mode
+        if: steps.mode.outputs.mode != 'connectivity'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="${{ steps.mode.outputs.mode }}"
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_root_rel="stthekla-recovery-runs/$run_token"
+          ssh_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_base=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root_rel'"
+          scp "${scp_base[@]}" \
+            "$RUNNER_TEMP/stthekla-recovery-toolkit.tar.gz" \
+            "$SSH_USER@$SSH_HOST:$remote_root_rel/toolkit.tar.gz"
+
+          ssh "${ssh_base[@]}" "$SSH_USER@$SSH_HOST" \
+            bash -s -- "$mode" "$run_token" "$WP_PATH" <<'REMOTE_SCRIPT'
+          set -euo pipefail
+          umask 077
+
+          mode="$1"
+          run_token="$2"
+          wp_path="$3"
+          remote_root="$HOME/stthekla-recovery-runs/$run_token"
+          toolkit_dir="$remote_root/toolkit"
+
+          mkdir -p "$toolkit_dir"
+          tar -xzf "$remote_root/toolkit.tar.gz" -C "$toolkit_dir"
+          chmod 700 "$toolkit_dir/ops/wordpress-recovery/"*.sh
+          bash "$toolkit_dir/ops/wordpress-recovery/run-production-mode.sh" \
+            "$mode" "$wp_path" "$run_token" "$remote_root"
+          rm -f "$remote_root/toolkit.tar.gz"
+          REMOTE_SCRIPT
+
+          scp "${scp_base[@]}" \
+            "$SSH_USER@$SSH_HOST:$remote_root_rel/safe-results.tar.gz" \
+            "$RUNNER_TEMP/stthekla-safe-results.tar.gz"
+
+          mkdir -p "$GITHUB_WORKSPACE/recovery-results/production-results"
+          tar -xzf "$RUNNER_TEMP/stthekla-safe-results.tar.gz" \
+            -C "$GITHUB_WORKSPACE/recovery-results/production-results"
+
+      - name: Upload safe recovery reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-production-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: recovery-results
+          if-no-files-found: error
+          retention-days: 14

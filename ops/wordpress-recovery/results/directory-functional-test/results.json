@@ -1,0 +1,118 @@
+{
+    "generated_at_utc": "2026-08-21T19:54:02+00:00",
+    "plugin_active": true,
+    "plugin_version": "0.5.2",
+    "db_version": "007",
+    "base_slug": "community",
+    "oauth": {
+        "enabled": false,
+        "client_id_configured": true,
+        "encrypted_secret_configured": false
+    },
+    "counts": {
+        "members": 69,
+        "profiles": 69,
+        "households": 11,
+        "household_members": 44,
+        "active_members": 69,
+        "linked_members": 33
+    },
+    "integrity": {
+        "orphaned_wp_user_links": 0,
+        "profiles_without_member": 0,
+        "members_without_profile": 0
+    },
+    "routes": [
+        "/community-directory/v1/admin/applications",
+        "/community-directory/v1/admin/applications/(?P<id>\\d+)",
+        "/community-directory/v1/admin/applications/(?P<id>\\d+)/resend-invite",
+        "/community-directory/v1/admin/database/reset",
+        "/community-directory/v1/admin/deletion-requests",
+        "/community-directory/v1/admin/deletion-requests/(?P<id>\\d+)",
+        "/community-directory/v1/admin/google-sync/confirm",
+        "/community-directory/v1/admin/google-sync/preview",
+        "/community-directory/v1/admin/google/callback",
+        "/community-directory/v1/admin/household-requests",
+        "/community-directory/v1/admin/household-requests/(?P<id>\\d+)",
+        "/community-directory/v1/admin/import/confirm",
+        "/community-directory/v1/admin/import/preview",
+        "/community-directory/v1/admin/members",
+        "/community-directory/v1/admin/members/(?P<id>\\d+)",
+        "/community-directory/v1/admin/members/(?P<id>\\d+)/resend-invite",
+        "/community-directory/v1/admin/members/duplicates",
+        "/community-directory/v1/admin/members/export",
+        "/community-directory/v1/admin/members/merge",
+        "/community-directory/v1/admin/members/search",
+        "/community-directory/v1/admin/officers",
+        "/community-directory/v1/admin/officers/(?P<id>\\d+)",
+        "/community-directory/v1/admin/officers/rotate",
+        "/community-directory/v1/admin/registrations",
+        "/community-directory/v1/admin/registrations/(?P<id>\\d+)/resend-verification",
+        "/community-directory/v1/admin/stats",
+        "/community-directory/v1/admin/whatsapp-groups",
+        "/community-directory/v1/admin/whatsapp-groups/(?P<id>\\d+)",
+        "/community-directory/v1/applications",
+        "/community-directory/v1/applications/verify/(?P<token>[a-f0-9]+)",
+        "/community-directory/v1/auth/email-lookup",
+        "/community-directory/v1/auth/google",
+        "/community-directory/v1/auth/google/callback",
+        "/community-directory/v1/auth/login",
+        "/community-directory/v1/auth/logout",
+        "/community-directory/v1/auth/password-reset",
+        "/community-directory/v1/auth/password-reset/confirm",
+        "/community-directory/v1/auth/session-check",
+        "/community-directory/v1/directory",
+        "/community-directory/v1/households",
+        "/community-directory/v1/households/(?P<id>\\d+)",
+        "/community-directory/v1/households/(?P<id>\\d+)/members",
+        "/community-directory/v1/households/(?P<id>\\d+)/members/(?P<member_id>\\d+)",
+        "/community-directory/v1/households/search",
+        "/community-directory/v1/invites/accept",
+        "/community-directory/v1/invites/validate",
+        "/community-directory/v1/members/(?P<uuid>[a-f0-9-]+)",
+        "/community-directory/v1/members/avatar",
+        "/community-directory/v1/members/me",
+        "/community-directory/v1/members/me/deletion-request",
+        "/community-directory/v1/members/me/household",
+        "/community-directory/v1/members/me/household/leave",
+        "/community-directory/v1/members/me/household/members",
+        "/community-directory/v1/members/me/household/members/(?P<member_id>\\d+)",
+        "/community-directory/v1/members/me/household/members/(?P<member_id>\\d+)/avatar",
+        "/community-directory/v1/members/me/household/merge-request",
+        "/community-directory/v1/members/me/household/photo",
+        "/community-directory/v1/members/me/household/photo-position",
+        "/community-directory/v1/members/me/household/spin-off",
+        "/community-directory/v1/members/me/household/transfer-head",
+        "/community-directory/v1/whatsapp-groups"
+    ],
+    "rest_tests": {
+        "/community-directory/v1/auth/session-check": {
+            "status": 200,
+            "is_error": false,
+            "top_level_keys": [
+                "success",
+                "data"
+            ]
+        },
+        "/community-directory/v1/members/me": {
+            "status": 200,
+            "is_error": false,
+            "top_level_keys": [
+                "success",
+                "data"
+            ]
+        }
+    },
+    "encryption_round_trip": true,
+    "scheduled_hooks": {
+        "cd_expire_invites": true,
+        "cd_audit_log_cleanup": true,
+        "cd_expire_reset_tokens": true,
+        "cd_data_retention_check": true,
+        "cd_archive_unverified": true,
+        "cd_transient_cleanup": true,
+        "cd_google_contact_retry": true
+    },
+    "rewrite_rules_present": true,
+    "routes_registered": 61
+}

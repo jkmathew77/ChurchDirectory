@@ -1,0 +1,47 @@
+name: Sync validated St. Thekla recovery code
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - ops/wordpress-recovery/.execute-sync-validated-code-20260821
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge validated Community Directory and recovery toolkit PRs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for pr in 1 3; do
+            state="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state --jq .state)"
+            if [[ "$state" == 'MERGED' ]]; then
+              echo "PR #$pr is already merged."
+              continue
+            fi
+            is_draft="$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+            if [[ "$is_draft" == 'true' ]]; then
+              gh pr ready "$pr" --repo "$GITHUB_REPOSITORY"
+            fi
+            gh pr merge "$pr" --repo "$GITHUB_REPOSITORY" --squash
+          done
+
+      - name: Comment recovery tracker
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 4 --repo "$GITHUB_REPOSITORY" --body 'Validated Community Directory 0.5.2 and the production recovery toolkit have been synchronized to the main branch. The separate St. Thekla Site Core PR remains unmerged for the later migration phase.'

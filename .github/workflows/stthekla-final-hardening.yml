@@ -1,0 +1,199 @@
+name: St. Thekla final production hardening
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - ops/wordpress-recovery/.execute-final-hardening-20260821
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: stthekla-production-repair
+  cancel-in-progress: false
+
+jobs:
+  harden:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      RESULTS_DIR: ops/wordpress-recovery/results/final-hardening
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/stthekla-production-execution
+          fetch-depth: 0
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Apply hardening and test WordPress mail
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_token="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          remote_root="stthekla-hardening-runs/$run_token"
+          ssh_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          scp_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -P "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" "umask 077; mkdir -p '$remote_root'"
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" bash -s -- "$run_token" "$WP_PATH" <<'REMOTE'
+          set -euo pipefail
+          umask 077
+          run_token="$1"
+          wp_path="$2"
+          remote_root="$HOME/stthekla-hardening-runs/$run_token"
+          private_dir="$HOME/stthekla-config-backups/$run_token"
+          safe_dir="$remote_root/safe-results"
+          mkdir -p "$private_dir" "$safe_dir"
+          exec > >(tee -a "$remote_root/hardening.log") 2>&1
+
+          test -f "$wp_path/wp-config.php"
+          cp "$wp_path/wp-config.php" "$private_dir/wp-config.php.before"
+          if [[ -f "$wp_path/wp-content/debug.log" ]]; then
+            cp "$wp_path/wp-content/debug.log" "$private_dir/debug.log.before"
+            printf 'debug_log_bytes_before=%s\n' "$(stat -c '%s' "$wp_path/wp-content/debug.log")" > "$safe_dir/debug-log-summary.txt"
+          else
+            printf 'debug_log_bytes_before=0\n' > "$safe_dir/debug-log-summary.txt"
+          fi
+
+          wp --path="$wp_path" config set WP_DEBUG false --raw
+          wp --path="$wp_path" config set WP_DEBUG_LOG false --raw
+          wp --path="$wp_path" config set WP_DEBUG_DISPLAY false --raw
+          wp --path="$wp_path" option update users_can_register 0
+          wp --path="$wp_path" option update default_comment_status closed
+
+          wp --path="$wp_path" config get WP_DEBUG > "$safe_dir/wp-debug.txt"
+          wp --path="$wp_path" config get WP_DEBUG_LOG > "$safe_dir/wp-debug-log.txt"
+          wp --path="$wp_path" config get WP_DEBUG_DISPLAY > "$safe_dir/wp-debug-display.txt"
+          test "$(tr -d '[:space:]' < "$safe_dir/wp-debug.txt")" = 'false'
+          test "$(tr -d '[:space:]' < "$safe_dir/wp-debug-log.txt")" = 'false'
+          test "$(tr -d '[:space:]' < "$safe_dir/wp-debug-display.txt")" = 'false'
+
+          rm -f "$wp_path/wp-content/debug.log"
+
+          wp_file_manager='wp-file-manager'
+          wp_file_manager_action='not-installed'
+          if wp --path="$wp_path" plugin is-installed "$wp_file_manager"; then
+            plugin_dir="$wp_path/wp-content/plugins/$wp_file_manager"
+            if [[ -d "$plugin_dir" ]]; then
+              tar -czf "$private_dir/${wp_file_manager}.tar.gz" -C "$wp_path/wp-content/plugins" "$wp_file_manager"
+              sha256sum "$private_dir/${wp_file_manager}.tar.gz" > "$private_dir/${wp_file_manager}.tar.gz.sha256"
+            fi
+            wp --path="$wp_path" plugin deactivate "$wp_file_manager" || true
+            wp --path="$wp_path" plugin delete "$wp_file_manager"
+            wp_file_manager_action='archived-and-deleted'
+          fi
+
+          mail_result="$(wp --path="$wp_path" eval '
+            $ok=wp_mail(
+              get_option("admin_email"),
+              "St. Thekla website repair email test",
+              "This is a one-time delivery test sent after the WordPress and Community Directory repair. No reply is required."
+            );
+            echo $ok ? "accepted-by-wordpress" : "rejected-by-wordpress";
+          ' | tr -d '[:space:]')"
+
+          wp --path="$wp_path" cache flush || true
+          wp --path="$wp_path" transient delete --all || true
+          home_code="$(curl -L --max-time 45 -sS -o "$remote_root/home.html" -w '%{http_code}' "https://www.sttheklachurch.org/?hardening=$(date +%s)")"
+          contact_code="$(curl -L --max-time 45 -sS -o "$remote_root/contact.html" -w '%{http_code}' "https://www.sttheklachurch.org/contact-us/?hardening=$(date +%s)")"
+          login_code="$(curl -L --max-time 45 -sS -o "$remote_root/login.html" -w '%{http_code}' "https://www.sttheklachurch.org/community/login/?hardening=$(date +%s)")"
+          test "$home_code" -lt 500
+          test "$contact_code" -lt 500
+          test "$login_code" -lt 500
+          if grep -Fqi '[ninja_tables' "$remote_root/home.html"; then exit 1; fi
+          if grep -Eqi '\[contact-form|\[contact-field|\[wpforms' "$remote_root/contact.html"; then exit 1; fi
+
+          wp --path="$wp_path" plugin list --fields=name,status,version,update,update_version --format=csv > "$safe_dir/plugins-after.csv"
+          {
+            echo "run_token=$run_token"
+            echo "completed_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo 'wp_debug=false'
+            echo 'wp_debug_log=false'
+            echo 'wp_debug_display=false'
+            echo 'public_registration=disabled'
+            echo 'default_comments=closed'
+            echo "wp_file_manager=$wp_file_manager_action"
+            echo "wp_mail_result=$mail_result"
+            echo "homepage_http=$home_code"
+            echo "contact_http=$contact_code"
+            echo "community_login_http=$login_code"
+            echo "private_config_backup=$private_dir"
+          } > "$safe_dir/hardening-summary.txt"
+          rm -f "$remote_root/home.html" "$remote_root/contact.html" "$remote_root/login.html"
+          tar -czf "$remote_root/safe-results.tar.gz" -C "$safe_dir" .
+          chmod -R go-rwx "$remote_root" "$private_dir"
+          REMOTE
+
+          scp "${scp_opts[@]}" "$SSH_USER@$SSH_HOST:$remote_root/safe-results.tar.gz" "$RUNNER_TEMP/results.tar.gz"
+          rm -rf "$RESULTS_DIR"
+          mkdir -p "$RESULTS_DIR"
+          tar -xzf "$RUNNER_TEMP/results.tar.gz" -C "$RESULTS_DIR"
+
+      - name: Publish results
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$RESULTS_DIR"
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record St. Thekla final hardening results'
+            git push origin HEAD:ops/stthekla-production-execution
+          fi
+
+      - name: Comment recovery tracker
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo '## Final production hardening completed'
+            echo
+            echo '```text'
+            cat "$RESULTS_DIR/hardening-summary.txt"
+            echo '```'
+          } > "$RUNNER_TEMP/comment.md"
+          gh issue comment 4 --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/comment.md"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stthekla-final-hardening-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ops/wordpress-recovery/results/final-hardening
+          if-no-files-found: warn
+          retention-days: 14

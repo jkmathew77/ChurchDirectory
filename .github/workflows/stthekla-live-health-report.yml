@@ -1,0 +1,141 @@
+name: St. Thekla live health report
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - ops/wordpress-recovery/.execute-live-health-report-20260821
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+      REPORT_PATH: ops/wordpress-recovery/results/live-health/latest.md
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ops/stthekla-production-execution
+          fetch-depth: 0
+
+      - name: Configure SSH
+        id: ssh_config
+        continue-on-error: true
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Collect live status
+        id: live
+        if: steps.ssh_config.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p "$(dirname "$REPORT_PATH")"
+          ssh_opts=(
+            -i "$HOME/.ssh/id_rsa_stthekla"
+            -p "$SSH_PORT"
+            -o BatchMode=yes
+            -o ConnectTimeout=30
+            -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes
+          )
+          ssh "${ssh_opts[@]}" "$SSH_USER@$SSH_HOST" bash -s -- "$WP_PATH" > "$RUNNER_TEMP/live.txt" <<'REMOTE'
+          set +e
+          wp_path="$1"
+          echo "ssh_status=connected"
+          echo "server_user=$(id -un)"
+          echo "wordpress=$(wp --path="$wp_path" core version 2>&1)"
+          echo "php=$(php -r 'echo PHP_VERSION;' 2>&1)"
+          echo "public_registration=$(wp --path="$wp_path" option get users_can_register 2>&1)"
+          echo "default_comments=$(wp --path="$wp_path" option get default_comment_status 2>&1)"
+          echo "community_directory_status=$(wp --path="$wp_path" plugin status community-directory 2>&1 | tr '\n' ' ')"
+          echo "community_directory_version=$(wp --path="$wp_path" plugin get community-directory --field=version 2>&1)"
+          echo "ninja_tables_status=$(wp --path="$wp_path" plugin status ninja-tables 2>&1 | tr '\n' ' ')"
+          echo "ninja_tables_version=$(wp --path="$wp_path" plugin get ninja-tables --field=version 2>&1)"
+          echo "ninja_shortcode=$(wp --path="$wp_path" eval 'echo shortcode_exists("ninja_tables") ? "registered" : "missing";' 2>&1)"
+          echo "directory_db_version=$(wp --path="$wp_path" option get cd_db_version 2>&1)"
+          echo "directory_tables=$(wp --path="$wp_path" db query \"SHOW TABLES LIKE '%cd_%';\" --skip-column-names 2>&1 | wc -l | tr -d ' ')"
+          home_tmp=$(mktemp)
+          home_code=$(curl -L --max-time 45 -sS -o "$home_tmp" -w '%{http_code}' "https://www.sttheklachurch.org/?health_check=$(date +%s)")
+          echo "homepage_http=$home_code"
+          if grep -Fqi '[ninja_tables' "$home_tmp"; then echo 'homepage_raw_ninja_shortcode=yes'; else echo 'homepage_raw_ninja_shortcode=no'; fi
+          login_tmp=$(mktemp)
+          login_code=$(curl -L --max-time 45 -sS -o "$login_tmp" -w '%{http_code}' "https://www.sttheklachurch.org/community/login/?health_check=$(date +%s)")
+          echo "community_login_http=$login_code"
+          if grep -Eqi 'community directory|sign in with google|member login|log in' "$login_tmp"; then echo 'community_login_ui=present'; else echo 'community_login_ui=not_detected'; fi
+          rm -f "$home_tmp" "$login_tmp"
+          REMOTE
+          rc=$?
+          {
+            echo '# St. Thekla live production health'
+            echo
+            echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            if [[ $rc -eq 0 ]]; then
+              echo '```text'
+              sed -E 's/(password|secret|token)=.*/\1=[redacted]/Ig' "$RUNNER_TEMP/live.txt"
+              echo '```'
+            else
+              echo "SSH collection failed with exit code $rc."
+              echo '```text'
+              tail -n 80 "$RUNNER_TEMP/live.txt" 2>/dev/null || true
+              echo '```'
+            fi
+          } > "$REPORT_PATH"
+          exit $rc
+
+      - name: Write SSH configuration failure report
+        if: steps.ssh_config.outcome != 'success'
+        shell: bash
+        run: |
+          mkdir -p "$(dirname "$REPORT_PATH")"
+          {
+            echo '# St. Thekla live production health'
+            echo
+            echo "Generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo
+            echo 'SSH key configuration failed. Verify that the repository secret `STTHEKLA_SSH_PRIVATE_KEY` contains the complete matching private key.'
+          } > "$REPORT_PATH"
+
+      - name: Publish report to branch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- "$REPORT_PATH"
+          if ! git diff --cached --quiet; then
+            git commit -m 'Record St. Thekla live production health'
+            git push origin HEAD:ops/stthekla-production-execution
+          fi
+
+      - name: Comment recovery tracker
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment 4 --repo "$GITHUB_REPOSITORY" --body-file "$REPORT_PATH"

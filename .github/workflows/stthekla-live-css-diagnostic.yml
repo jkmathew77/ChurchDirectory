@@ -1,0 +1,158 @@
+name: St. Thekla live CSS diagnostic
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - .github/workflows/stthekla-live-css-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Inspect live Site Core stylesheet in Chromium
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out operational branch
+        uses: actions/checkout@v4
+
+      - name: Install Playwright Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm init -y >/dev/null 2>&1
+          npm install --no-save playwright@1.55.0 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+
+      - name: Inspect loaded CSS and cascade
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p css-diagnostic
+          cat > diagnose-live-css.cjs <<'JS'
+          const { chromium } = require('playwright');
+          const crypto = require('crypto');
+          const fs = require('fs');
+
+          (async () => {
+            const browser = await chromium.launch({ headless: true });
+            const page = await browser.newPage({ viewport: { width: 1280, height: 1500 } });
+            const stamp = `${Date.now()}-${process.env.GITHUB_RUN_ID || 'local'}`;
+            try {
+              await page.goto(`https://www.sttheklachurch.org/?css_diagnostic=${stamp}`, {
+                waitUntil: 'domcontentloaded',
+                timeout: 60000,
+              });
+              await page.waitForSelector('.stc-visit-us-compact .stc-visit-image', { timeout: 30000 });
+              await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+
+              const dom = await page.evaluate(() => {
+                const compact = document.querySelector('.stc-visit-us-compact');
+                const primary = document.querySelector('.stc-visit-us-compact .stc-visit-primary');
+                const wrap = document.querySelector('.stc-visit-us-compact .stc-visit-image-wrap');
+                const image = document.querySelector('.stc-visit-us-compact .stc-visit-image');
+                const stylesheet = [...document.querySelectorAll('link[rel="stylesheet"]')]
+                  .map((link) => link.href)
+                  .find((href) => href.includes('/st-thekla-site-core/assets/css/public.css')) || '';
+                const box = (element) => {
+                  const rect = element.getBoundingClientRect();
+                  return { left: rect.left, width: rect.width, center: rect.left + rect.width / 2 };
+                };
+                const flatten = (rules, output) => {
+                  for (const rule of rules || []) {
+                    if (rule.cssRules) flatten(rule.cssRules, output);
+                    if (rule.cssText && rule.cssText.includes('stc-visit')) output.push(rule.cssText);
+                  }
+                };
+                const matchingRules = [];
+                const stylesheetErrors = [];
+                for (const sheet of [...document.styleSheets]) {
+                  if (!sheet.href || !sheet.href.includes('/st-thekla-site-core/assets/css/public.css')) continue;
+                  try {
+                    flatten(sheet.cssRules, matchingRules);
+                  } catch (error) {
+                    stylesheetErrors.push(String(error));
+                  }
+                }
+                return {
+                  stylesheet,
+                  compactBox: box(compact),
+                  primaryBox: box(primary),
+                  wrapBox: box(wrap),
+                  imageBox: box(image),
+                  primaryStyle: {
+                    display: getComputedStyle(primary).display,
+                    gridTemplateColumns: getComputedStyle(primary).gridTemplateColumns,
+                  },
+                  wrapStyle: {
+                    display: getComputedStyle(wrap).display,
+                    width: getComputedStyle(wrap).width,
+                    marginLeft: getComputedStyle(wrap).marginLeft,
+                    marginRight: getComputedStyle(wrap).marginRight,
+                  },
+                  imageStyle: {
+                    display: getComputedStyle(image).display,
+                    width: getComputedStyle(image).width,
+                    maxWidth: getComputedStyle(image).maxWidth,
+                    marginLeft: getComputedStyle(image).marginLeft,
+                    marginRight: getComputedStyle(image).marginRight,
+                  },
+                  matchingRules,
+                  stylesheetErrors,
+                };
+              });
+
+              const cssProbe = await page.evaluate(async (href) => {
+                const separator = href.includes('?') ? '&' : '?';
+                const url = `${href}${separator}browser_css_probe=${Date.now()}`;
+                const response = await fetch(url, { cache: 'no-store' });
+                return {
+                  url,
+                  status: response.status,
+                  contentType: response.headers.get('content-type') || '',
+                  text: await response.text(),
+                };
+              }, dom.stylesheet);
+
+              fs.writeFileSync('css-diagnostic/live-public.css', cssProbe.text);
+              const report = {
+                ...dom,
+                cssProbe: {
+                  url: cssProbe.url,
+                  status: cssProbe.status,
+                  contentType: cssProbe.contentType,
+                  byteLength: Buffer.byteLength(cssProbe.text),
+                  sha256: crypto.createHash('sha256').update(cssProbe.text).digest('hex'),
+                  containsVisitBaseRule: cssProbe.text.includes('.stc-visit-us'),
+                  containsCompactPrimaryRule: cssProbe.text.includes('.stc-visit-us-compact .stc-visit-primary'),
+                  containsCompactImageRule: cssProbe.text.includes('.stc-visit-us-compact .stc-visit-image'),
+                  containsAutoImageMargins: cssProbe.text.includes('margin-inline: auto'),
+                  containsVersionMarker032: cssProbe.text.includes('0.3.2'),
+                },
+              };
+              fs.writeFileSync('css-diagnostic/report.json', JSON.stringify(report, null, 2) + '\n');
+              console.log(JSON.stringify(report, null, 2));
+              await page.locator('.stc-visit-us-compact').screenshot({
+                path: 'css-diagnostic/homepage-component.png',
+              });
+            } finally {
+              await browser.close();
+            }
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          JS
+          node diagnose-live-css.cjs
+
+      - name: Upload CSS diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-live-css-diagnostic-${{ github.run_id }}
+          path: css-diagnostic
+          if-no-files-found: error
+          retention-days: 14
