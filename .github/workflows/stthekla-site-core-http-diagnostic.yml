@@ -1,0 +1,78 @@
+name: St. Thekla Site Core HTTP diagnostic
+
+on:
+  push:
+    branches:
+      - ops/stthekla-production-execution
+    paths:
+      - .github/workflows/stthekla-site-core-http-diagnostic.yml
+      - ops/wordpress-recovery/.site-core-http-diagnostic-trigger
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe public endpoints without changing production
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostic
+          python3 - <<'PY'
+          import json
+          import subprocess
+          import time
+          from pathlib import Path
+
+          stamp = str(time.time_ns())
+          urls = {
+              'homepage': f'https://www.sttheklachurch.org/?stc_diag={stamp}',
+              'contact': f'https://www.sttheklachurch.org/contact-us/?stc_diag={stamp}',
+              'public_api': f'https://www.sttheklachurch.org/wp-json/st-thekla/v1/public?stc_diag={stamp}',
+              'schedule_api': f'https://www.sttheklachurch.org/wp-json/st-thekla/v1/weekly-schedule?stc_diag={stamp}',
+              'directory_login': f'https://www.sttheklachurch.org/community/login/?stc_diag={stamp}',
+              'css_plain': 'https://www.sttheklachurch.org/wp-content/plugins/st-thekla-site-core/assets/css/public.css',
+              'css_030': f'https://www.sttheklachurch.org/wp-content/plugins/st-thekla-site-core/assets/css/public.css?ver=0.3.0&stc_diag={stamp}',
+              'css_031': f'https://www.sttheklachurch.org/wp-content/plugins/st-thekla-site-core/assets/css/public.css?ver=0.3.1&stc_diag={stamp}',
+          }
+          report = {}
+          for name, url in urls.items():
+              output = Path('diagnostic') / f'{name}.body'
+              command = [
+                  'curl', '-sS', '-L', '--max-time', '60',
+                  '-H', 'Cache-Control: no-cache, no-store, must-revalidate',
+                  '-H', 'Pragma: no-cache',
+                  '-H', 'User-Agent: StThekla-Site-Core-Diagnostic/1.0',
+                  '-o', str(output), '-w', '%{http_code}\t%{content_type}\t%{size_download}\t%{url_effective}',
+                  url,
+              ]
+              process = subprocess.run(command, text=True, capture_output=True)
+              fields = process.stdout.strip().split('\t')
+              body = output.read_text(encoding='utf-8', errors='replace') if output.exists() else ''
+              report[name] = {
+                  'curl_exit': process.returncode,
+                  'http_status': fields[0] if len(fields) > 0 else '',
+                  'content_type': fields[1] if len(fields) > 1 else '',
+                  'download_bytes': fields[2] if len(fields) > 2 else '',
+                  'effective_url': fields[3] if len(fields) > 3 else '',
+                  'stderr': process.stderr.strip(),
+                  'site_core_030_marker': 'ver=0.3.0' in body,
+                  'site_core_031_marker': 'ver=0.3.1' in body,
+                  'compact_component': 'stc-visit-us-compact' in body,
+                  'empty_tel_link': 'href="tel:"' in body,
+                  'centering_selector': '.stc-visit-us-compact .stc-visit-primary' in body,
+              }
+          Path('diagnostic/report.json').write_text(json.dumps(report, indent=2, sort_keys=True) + '\n', encoding='utf-8')
+          print(json.dumps(report, indent=2, sort_keys=True))
+          PY
+          rm -f diagnostic/*.body
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-site-core-http-diagnostic-${{ github.run_id }}
+          path: diagnostic/report.json
+          if-no-files-found: error
+          retention-days: 14
