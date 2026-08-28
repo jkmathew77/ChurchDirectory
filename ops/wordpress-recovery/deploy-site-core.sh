@@ -34,6 +34,27 @@ if [[ "$resolved_commit" != "$RELEASE_COMMIT" ]]; then
 fi
 
 SCRIPT_DIR="$WORK_DIR/ops/wordpress-recovery"
+
+# Site Core 0.3.0 exposes image data as nested attachment payloads. The original
+# operational verifier looked for two superseded flat URL fields, causing a
+# false-negative after every internal and public-page check had passed. Patch
+# only that assertion in the private checkout and require one exact replacement.
+python3 - "$SCRIPT_DIR/deploy-sparkill-move.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding='utf-8')
+old = "'public_api_visit_images': bool(visit_payload.get('exterior_image_url')) and bool(visit_payload.get('parking_map_image_url')),”
+new = "'public_api_visit_images': bool((visit_payload.get('visit_image') or {}).get('url')) and bool((visit_payload.get('parking_map_image') or {}).get('url')),”
+if text.count(old) != 1:
+    raise SystemExit('Expected exactly one obsolete public API image assertion.')
+path.write_text(text.replace(old, new), encoding='utf-8')
+PY
+
+grep -Fq "visit_payload.get('visit_image')" "$SCRIPT_DIR/deploy-sparkill-move.sh"
+grep -Fq "visit_payload.get('parking_map_image')" "$SCRIPT_DIR/deploy-sparkill-move.sh"
+
 chmod 700 \
   "$SCRIPT_DIR/deploy-sparkill-move-v4.sh" \
   "$SCRIPT_DIR/deploy-sparkill-move.sh"
