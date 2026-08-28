@@ -64,28 +64,32 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Validate Site Core 0.3.2 release metadata
+      - name: Validate Site Core 0.3.3 release metadata
         shell: bash
         run: |
           set -euo pipefail
-          grep -q 'Version:     0.3.2' plugin/st-thekla-site-core/st-thekla-site-core.php
-          grep -q "define( 'STC_VERSION', '0.3.2' )" plugin/st-thekla-site-core/st-thekla-site-core.php
+          grep -q 'Version:     0.3.3' plugin/st-thekla-site-core/st-thekla-site-core.php
+          grep -q "define( 'STC_VERSION', '0.3.3' )" plugin/st-thekla-site-core/st-thekla-site-core.php
           grep -q "define( 'STC_DATA_VERSION', '003' )" plugin/st-thekla-site-core/st-thekla-site-core.php
           test -f plugin/st-thekla-site-core/includes/class-stc-migrations.php
           test -f plugin/st-thekla-site-core/includes/class-stc-visit-us.php
-          grep -q 'stc-visit-us-compact .stc-visit-primary' plugin/st-thekla-site-core/assets/css/public.css
-          grep -q 'stc-visit-us-compact .stc-visit-image' plugin/st-thekla-site-core/assets/css/public.css
-          grep -q 'margin-inline: auto' plugin/st-thekla-site-core/assets/css/public.css
+          test -f plugin/st-thekla-site-core/includes/class-stc-critical-styles.php
+          grep -q "require_once STC_PLUGIN_DIR . 'includes/class-stc-critical-styles.php'" plugin/st-thekla-site-core/st-thekla-site-core.php
+          grep -q 'STC_Critical_Styles::init' plugin/st-thekla-site-core/st-thekla-site-core.php
+          grep -q 'stc-critical-inline-css' plugin/st-thekla-site-core/includes/class-stc-critical-styles.php
+          grep -q 'stc-visit-us-compact .stc-visit-image' plugin/st-thekla-site-core/includes/class-stc-critical-styles.php
+          grep -q 'margin-left: auto !important' plugin/st-thekla-site-core/includes/class-stc-critical-styles.php
+          grep -q 'margin-right: auto !important' plugin/st-thekla-site-core/includes/class-stc-critical-styles.php
 
       - name: Build plugin ZIP
         run: |
           cd plugin
-          zip -qr st-thekla-site-core-0.3.2.zip st-thekla-site-core
+          zip -qr st-thekla-site-core-0.3.3.zip st-thekla-site-core
 
       - name: Upload plugin ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: st-thekla-site-core-0.3.2
-          path: plugin/st-thekla-site-core-0.3.2.zip
+          name: st-thekla-site-core-0.3.3
+          path: plugin/st-thekla-site-core-0.3.3.zip
           if-no-files-found: error
           retention-days: 14
