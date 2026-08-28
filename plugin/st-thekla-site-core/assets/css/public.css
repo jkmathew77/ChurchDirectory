@@ -97,6 +97,12 @@
     line-height: 1.6;
 }
 
+/* Never expose a punctuation-only telephone setting as an empty app link. */
+.stc-location a[href="tel:"],
+.stc-location a[href="tel:+"] {
+    display: none;
+}
+
 .stc-button {
     display: inline-block;
     margin-top: 0.75rem;
@@ -209,6 +215,23 @@
     border: 1px solid rgba(0, 0, 0, 0.14);
     border-radius: 0.75rem;
     background: rgba(0, 0, 0, 0.025);
+}
+
+/* The homepage component occupies the existing content box. Center its image
+ * within that box instead of aligning it to the left-hand column of the full
+ * Visit Us layout. The full Visit Us page remains a two-column layout. */
+.stc-visit-us-compact .stc-visit-primary {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.stc-visit-us-compact .stc-visit-image-wrap {
+    width: min(100%, 36rem);
+    margin-inline: auto;
+    justify-self: center;
+}
+
+.stc-visit-us-compact .stc-visit-copy {
+    min-width: 0;
 }
 
 @media (max-width: 760px) {
