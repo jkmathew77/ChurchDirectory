@@ -13,7 +13,7 @@ Production uses normal WordPress plugin directories. Do **not** replace them wit
 | Plugin slug | Current production version |
 | --- | --- |
 | `community-directory` | `0.5.2` |
-| `st-thekla-site-core` | `0.2.0` |
+| `st-thekla-site-core` | `0.3.0` |
 
 GitHub Actions lints the complete repository on PHP 7.4, 8.2, and 8.4 and creates a ZIP artifact for each plugin.
 
@@ -38,6 +38,7 @@ Before writing production plugin files:
 5. Record the active plugin version and activation state.
 6. For Community Directory, record aggregate row counts for all `cd_*` tables.
 7. Preserve the existing plugin directory privately for immediate rollback.
+8. When page content or options will change, capture a private serialized snapshot before applying the migration.
 
 No deployment should continue if the backup is missing, older than the approved window, or fails checksum verification.
 
@@ -48,6 +49,7 @@ No deployment should continue if the backup is missing, older than the approved 
 - Run `php -l` against every PHP file under the staged plugin.
 - Confirm the plugin header version matches the intended release.
 - Apply normal WordPress permissions before the atomic directory swap.
+- Verify any media or binary payload by exact SHA-256 before it reaches production.
 
 ### 4. Deploy one plugin at a time
 
@@ -81,23 +83,37 @@ Every release must include tests appropriate to the changed plugin.
 #### Site Core minimum checks
 
 - Plugin reports the intended version and remains active.
-- Homepage renders the church-owned Sunday schedule.
+- Site Core data version is the expected value.
+- Homepage renders the intended church-owned content and schedule.
 - Raw legacy shortcodes are absent from the public response.
-- Weekly schedule API returns all expected rows.
-- Contact, location, leadership, announcement, donation, or livestream output affected by the release renders correctly.
+- Weekly schedule API returns the exact expected rows.
+- Public API returns the intended contact, visit, image and announcement values.
+- Contact, location, leadership, announcement, donation or livestream output affected by the release renders correctly.
+- When the release changes pages or navigation, verify those exact pages, menus and old-content removals.
 
 #### External public smoke checks
 
-Run cache-busted checks from outside Bluehost for the homepage, Contact Us page, donation page, Community Directory login, session endpoint, and Site Core schedule API.
+Run cache-busted checks from outside Bluehost for, at minimum:
+
+- homepage;
+- Contact Us;
+- Visit Us when location content is involved;
+- donation page;
+- Community Directory login;
+- directory session endpoint;
+- Site Core public API; and
+- Site Core schedule API.
 
 ### 6. Roll back on any failure
 
 - Deactivate the failed plugin build.
 - Restore the preserved prior plugin directory.
 - Restore its prior activation state.
+- Restore the private page-content and option snapshot when the release changed WordPress content.
+- Remove only media or posts created by the failed release.
 - Flush rewrite rules and caches.
 - Re-run the same verification suite.
-- Restore the database only when a reviewed migration changed data and file rollback is insufficient.
+- Restore the full database only when a reviewed migration changed data and targeted rollback is insufficient.
 
 Keep the private rollback directory and full backup until the release has completed its observation period.
 
@@ -105,10 +121,12 @@ Keep the private rollback directory and full backup until the release has comple
 
 After a successful deployment, update `Docs/PRODUCTION-BASELINE.md` with:
 
-- Deployment date
-- Plugin version
-- Merged commit SHA
-- Production validation completed
-- Temporary dependencies or known follow-up work
+- deployment date;
+- plugin and data versions;
+- exact merged commit SHA;
+- production and external validation completed;
+- content, navigation or media changes;
+- data-preservation result; and
+- temporary dependencies or known follow-up work.
 
-Do not record passwords, email addresses, tokens, private member data, or backup contents in the repository.
+Do not record passwords, email addresses, tokens, private member data, private server paths to backup contents, or backup files in the repository.
