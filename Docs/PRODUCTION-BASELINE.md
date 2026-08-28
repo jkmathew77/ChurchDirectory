@@ -1,52 +1,88 @@
 # Production Baseline
 
-**Baseline date:** August 21, 2026  
+**Baseline date:** August 28, 2026  
 **WordPress path:** `/home3/stthekla/public_html`  
 **Verified environment:** WordPress 7.1, PHP 8.3.33
 
 This document records the non-sensitive production state from which future enhancements should begin. It is not a substitute for a fresh pre-deployment audit.
 
-## Repository alignment
+## Repository and production alignment
 
-| Component | Production version | Deployed source | Synchronized `main` commit |
-| --- | --- | --- | --- |
-| Community Directory | `0.5.2` | `65f5da89a9128c6797d96bb5b6ce39b32f6bf115` | `d41f59b487b034dc874a4a0293d2cbad68c7a53b` |
-| St. Thekla Site Core | `0.2.0` | `1166ec7e9be7b5f141d4a4242297f83fa129d0ff` | `b52f5166275145b777974c0dbe8cb6edaff01660` |
+| Component | Production version | Exact deployed source |
+| --- | --- | --- |
+| Community Directory | `0.5.2` | `65f5da89a9128c6797d96bb5b6ce39b32f6bf115` |
+| St. Thekla Site Core | `0.3.0` | `a2ef358c9a2dca5eff4d0d7648c8197d7859f178` |
 
-The plugin source now present on `main` matches the production builds. Future product branches should start from `main`, not from the historical repair or recovery branches.
+Future product branches should start from the latest `main`, not from historical repair or production-execution branches.
 
-## Current ordinary active plugins
+## Sacred Heart Chapel release
+
+The location release completed at `2026-08-28T02:22:15Z` after a fresh full database and site-files backup passed SHA-256 verification.
+
+- Production deployment workflow run: `33135656681`
+- Independent external smoke-test run: `33135788238`
+- Site Core data version: `003`
+- Move effective date: August 23, 2026
+- Exterior image attachment: `4452`
+- Parking-map attachment: `4453`
+
+The deployment preserved a private copy of the prior Site Core plugin and a private snapshot of the changed WordPress options and page content for rollback. Private backup contents and paths are not committed to the repository.
+
+## Approved public location
+
+St. Thekla Malankara Orthodox Church now worships at:
+
+- Sacred Heart Chapel
+- 175 Route 340
+- Sparkill, NY 10976
+
+Map destination:
+
+`https://www.google.com/maps/search/?api=1&query=175+Route+340+Sparkill+NY+10976`
+
+## Recurring Sunday schedule
+
+| Time | Service or activity |
+| --- | --- |
+| 8:00 AM | Lilyo |
+| 8:30 AM | Morning Prayer |
+| 9:00 AM | Holy Qurbana |
+| 10:10 AM | Dismissal |
+| 10:30 AM | Refreshments / Fellowship |
+| 10:45 AM | Tree of Life |
+| 11:30 AM | End of Tree of Life |
+
+## Current public-site state
+
+- The homepage displays the Sacred Heart Chapel move announcement, exterior image, new address, directions links and the exact seven-row schedule.
+- `/visit-us/` is published with the exterior image, full parking map, parking restrictions, chapel entrance guidance, and St. Martin Hall/restroom information.
+- The Contact Us page displays the centralized Sparkill location and weekly schedule while preserving WPForms form `4424`.
+- The primary navigation contains a Visit Us item.
+- The important announcement **St. Thekla Has a New Home** is published with the exterior image.
+- The weekly schedule endpoint is `/wp-json/st-thekla/v1/weekly-schedule`.
+- Public contact, visit, image and schedule data are available from `/wp-json/st-thekla/v1/public`.
+- Current published pages contain none of the known West Nyack or Nyack location values.
+- The homepage does not expose a raw Ninja Tables shortcode.
+- The donation page continues to render its QuickPay and PayPal information.
+- The Community Directory login page and unauthenticated session endpoint remain available.
+
+Bluehost-side cache-busted validation and an independent GitHub-hosted external test passed all of these checks.
+
+## Active services observed during the release preflight
 
 - Community Directory `0.5.2`
-- St. Thekla Site Core `0.2.0`
-- WPForms Lite `2.0.0.5`
+- St. Thekla Site Core `0.3.0` after deployment
+- WPForms Lite `2.0.1.1`
 - WP Mail SMTP `4.9.0`
-- Shortcodes Ultimate `7.8.4` — temporary dependency for the existing donation-page lightbox markup
+- Jetpack `16.1.2`
 
-Bluehost/Newfold cache and SSO must-use plugins remain hosting-managed.
+Bluehost/Newfold cache and SSO must-use plugins remain hosting-managed. Jetpack remains an item for a separate dependency review; it was not modified as part of the location release.
 
-## Retired or inactive dependencies
+## Community Directory data preservation
 
-- Ninja Tables is inactive. Its historical table and six schedule rows remain preserved, while Site Core renders the live homepage schedule.
-- The legacy Jetpack contact-form shortcode was replaced by WPForms.
-- Risky or duplicate inactive plugin directories identified during recovery were moved outside the public web root rather than deleted.
+The Sparkill release compared every Community Directory custom-table aggregate count immediately before and after the public-site changes. All counts were unchanged. The Community Directory plugin version and member-application source were not modified.
 
-## Public-site state
-
-- The homepage uses the Site Core Sunday schedule renderer.
-- The recurring schedule contains Morning Prayers, Holy Liturgy, Dismissal, Refreshments, Tree of Life, and End of Tree of Life.
-- The weekly schedule endpoint is `/wp-json/st-thekla/v1/weekly-schedule`.
-- The Community Directory login page is `/community/login/`.
-- The unauthenticated session endpoint is `/wp-json/community-directory/v1/auth/session-check`.
-- The Contact Us page renders WPForms and displays `2 Old Ox Road, Nyack, NY 10960`.
-- The former West Nyack address and raw Jetpack contact shortcode are absent.
-- The donation page renders QuickPay and PayPal instructions without exposing raw Shortcodes Ultimate tags.
-
-A Bluehost-side cache-busted verification and a separate external GitHub-hosted smoke test passed all of these public checks.
-
-## Community Directory data-preservation baseline
-
-Aggregate counts recorded before and after the production 0.5.2 deployment were identical:
+The previously recorded named baseline remains:
 
 | Table area | Rows |
 | --- | ---: |
@@ -60,42 +96,30 @@ Aggregate counts recorded before and after the production 0.5.2 deployment were 
 | Officers | 9 |
 | WhatsApp groups | 2 |
 
-The database schema remained at version `007`.
-
-These counts are a dated reference only. A future deployment must collect fresh counts and explain any intentional difference.
+The directory database schema remains at version `007`.
 
 ## WordPress-user audit baseline
+
+The latest completed user-classification baseline remains:
 
 - Total WordPress users: 676
 - Directory members linked to WordPress users: 33
 - Directory member records without a WordPress user ID: 36, consistent with managed household-member records
 - Subscriber accounts not linked to Community Directory: 636
 
-No user was deleted, disabled, or modified during the recovery. The unlinked subscribers require classification before any cleanup action.
+No user was deleted, disabled or modified during the location release. The unlinked subscribers require classification before any cleanup action.
 
-## Validation still required for relevant enhancements
+## Remaining manual and follow-up work
 
-Public health checks do not replace authenticated functional testing. Changes touching these areas must be tested with authorized accounts:
-
-- Email/password login
-- Google OAuth
-- Directory search and profile viewing
-- Member and household editing
-- Member, avatar, and household-photo uploads
-- Officer administration and application workflows
-- PWA installation, service-worker updates, and offline behavior
-- Email notifications and Google Contacts synchronization
-
-## Known follow-up work
-
-1. Replace the remaining Shortcodes Ultimate donation markup with Site Core functionality, then deactivate the plugin.
-2. Replace the legacy PDF Embedder shortcode on the historical Palm Sunday event.
-3. Classify the 636 unlinked subscriber accounts before any deletion decision.
-4. Review obsolete inactive themes separately.
-5. Continue authenticated Community Directory regression testing.
+1. Submit one Contact Us message and confirm actual receipt in the church inbox.
+2. Continue real-member testing of email/password login, Google OAuth, directory search, profiles, households, photo uploads, officer administration and PWA behavior.
+3. Review whether Jetpack is still required after confirming every remaining dependency.
+4. Classify the unlinked subscriber accounts before any deletion decision.
+5. Review obsolete inactive themes and plugins as a separate, backup-gated cleanup.
+6. Update off-site profiles such as Google Business, Facebook and Instagram if they still list a prior location.
 
 ## Operational branches
 
 The production-recovery execution branch and its draft pull request are operational records only. They contain backup-gated diagnostic and recovery controls and must **not** be merged into `main`.
 
-Private SSH credentials, WordPress configuration, backups, member reconciliation exports, email addresses, and detailed production logs are intentionally excluded from this baseline.
+Private SSH credentials, WordPress configuration, backups, member reconciliation exports, email addresses and detailed production logs are intentionally excluded from this baseline.
