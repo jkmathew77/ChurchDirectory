@@ -122,6 +122,22 @@ sed \
   -e 's/st-thekla-sacred-heart-chapel-new-home\.jpg/st-thekla-sacred-heart-chapel-new-home.webp/g' \
   -e 's/st-thekla-sacred-heart-chapel-parking-map\.jpg/st-thekla-sacred-heart-chapel-parking-map.webp/g' \
   "$SCRIPT_DIR/deploy-sparkill-move.sh" > "$PATCHED_DEPLOY"
+
+# Site Core 0.3.0 returns nested image objects in the public payload:
+# visit.visit_image.url and visit.parking_map_image.url. Correct the stale
+# verifier written against the earlier proposed flat field names.
+python3 - "$PATCHED_DEPLOY" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text(encoding='utf-8')
+old = "bool(visit_payload.get('exterior_image_url')) and bool(visit_payload.get('parking_map_image_url'))"
+new = "bool((visit_payload.get('visit_image') or {}).get('url')) and bool((visit_payload.get('parking_map_image') or {}).get('url'))"
+if old not in text:
+    raise SystemExit('Expected stale public API image verifier was not found.')
+path.write_text(text.replace(old, new, 1), encoding='utf-8')
+PY
 chmod 700 "$PATCHED_DEPLOY"
 
 exec bash "$PATCHED_DEPLOY" "$@"
