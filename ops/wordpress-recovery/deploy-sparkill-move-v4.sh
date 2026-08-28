@@ -38,24 +38,9 @@ for part in "${parts[@]}"; do
   fi
 done
 
-# The text transport dropped the last character of part00 and appended a final
-# newline to part13. Reconstruct the reviewed byte stream explicitly, remove
-# line endings only, and verify the complete payload hash before decoding.
-{
-  cat "${parts[0]}"
-  printf 'O'
-  for part in "${parts[@]:1}"; do
-    cat "$part"
-  done
-} | tr -d '\r\n' > "$IMAGE_B64"
-
-actual_length="$(wc -c < "$IMAGE_B64" | tr -d '[:space:]')"
-if [[ "$actual_length" != "$EXPECTED_B64_LENGTH" ]]; then
-  echo "ERROR: Optimized image payload length mismatch: $actual_length" >&2
-  exit 1
-fi
-echo "$EXPECTED_B64_SHA256  $IMAGE_B64" | sha256sum -c - >/dev/null
-
+# GitHub's text transport dropped one known byte from part00 and appended a
+# newline to part13. Reconstruct the reviewed payload deterministically, then
+# require its exact SHA-256 before any decode or production action.
 python3 - "$IMAGE_B64" "${parts[@]}" <<'PY'
 from pathlib import Path
 import hashlib
@@ -63,41 +48,36 @@ import json
 import re
 import sys
 
-payload_path = Path(sys.argv[1])
-part_paths = [Path(value) for value in sys.argv[2:]]
-payload_bytes = payload_path.read_bytes()
-try:
-    payload = payload_bytes.decode('ascii')
-    ascii_ok = True
-except UnicodeDecodeError:
-    payload = payload_bytes.decode('ascii', errors='replace')
-    ascii_ok = False
+output = Path(sys.argv[1])
+parts = [Path(value) for value in sys.argv[2:]]
+clean = [path.read_text(encoding='ascii').replace('\r', '').replace('\n', '') for path in parts]
+
+# The current part00 is exactly the reviewed 6,000-byte segment with the
+# lowercase 'o' at offset 5,011 omitted. Its file hash was independently
+# matched against every possible one-byte deletion from the reviewed source.
+if len(clean[0]) != 5999:
+    raise SystemExit(f'Unexpected part00 length: {len(clean[0])}')
+clean[0] = clean[0][:5011] + 'o' + clean[0][5011:]
+
+payload = ''.join(clean)
+output.write_text(payload, encoding='ascii')
 allowed = re.compile(r'^[A-Za-z0-9+/]*={0,2}$')
-invalid = [
-    {'offset': index, 'codepoint': ord(character)}
-    for index, character in enumerate(payload)
-    if character not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
-]
 report = {
-    'ascii_ok': ascii_ok,
-    'payload_length': len(payload_bytes),
-    'payload_sha256': hashlib.sha256(payload_bytes).hexdigest(),
+    'payload_length': len(payload),
+    'payload_sha256': hashlib.sha256(payload.encode('ascii')).hexdigest(),
     'base64_alphabet_valid': bool(allowed.fullmatch(payload)),
-    'invalid_characters': invalid[:50],
-    'invalid_character_count': len(invalid),
-    'parts': [
-        {
-            'name': path.name,
-            'length': path.stat().st_size,
-            'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
-        }
-        for path in part_paths
-    ],
 }
-print('SPARKILL_IMAGE_PAYLOAD_DIAGNOSTIC=' + json.dumps(report, sort_keys=True), file=sys.stderr)
-if not ascii_ok or invalid or not allowed.fullmatch(payload):
-    raise SystemExit(42)
+print('SPARKILL_IMAGE_PAYLOAD=' + json.dumps(report, sort_keys=True), file=sys.stderr)
+if not report['base64_alphabet_valid']:
+    raise SystemExit('Reconstructed payload contains a non-base64 character.')
 PY
+
+actual_length="$(wc -c < "$IMAGE_B64" | tr -d '[:space:]')"
+if [[ "$actual_length" != "$EXPECTED_B64_LENGTH" ]]; then
+  echo "ERROR: Optimized image payload length mismatch: $actual_length" >&2
+  exit 1
+fi
+echo "$EXPECTED_B64_SHA256  $IMAGE_B64" | sha256sum -c - >/dev/null
 
 base64 --decode "$IMAGE_B64" > "$IMAGE_ARCHIVE"
 echo "$EXPECTED_ARCHIVE_SHA256  $IMAGE_ARCHIVE" | sha256sum -c - >/dev/null
