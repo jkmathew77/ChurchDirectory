@@ -45,8 +45,8 @@ import sys
 
 path = Path(sys.argv[1])
 text = path.read_text(encoding='utf-8')
-old = "'public_api_visit_images': bool(visit_payload.get('exterior_image_url')) and bool(visit_payload.get('parking_map_image_url')),”
-new = "'public_api_visit_images': bool((visit_payload.get('visit_image') or {}).get('url')) and bool((visit_payload.get('parking_map_image') or {}).get('url')),”
+old = "bool(visit_payload.get('exterior_image_url')) and bool(visit_payload.get('parking_map_image_url'))"
+new = "bool((visit_payload.get('visit_image') or {}).get('url')) and bool((visit_payload.get('parking_map_image') or {}).get('url'))"
 if text.count(old) != 1:
     raise SystemExit('Expected exactly one obsolete public API image assertion.')
 path.write_text(text.replace(old, new), encoding='utf-8')
