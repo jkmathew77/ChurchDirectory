@@ -78,8 +78,15 @@ for old, new in replacements:
         raise SystemExit(f'Expected one deployment verifier fragment, found {count}: {old[:90]!r}')
     source = source.replace(old, new)
 
-if 'public.css' in source or 'css_report' in source or 'css_checks' in source:
-    raise SystemExit('Direct CSS probe references remained after patching.')
+for forbidden in (
+    '$OUTPUT_DIR/public.css',
+    'public-css-curl-stderr',
+    "css = read('public.css')",
+    'css_report',
+    'css_checks',
+):
+    if forbidden in source:
+        raise SystemExit(f'Direct CSS probe reference remained after patching: {forbidden}')
 if "'versioned_css_requested'" not in source:
     raise SystemExit('Homepage versioned stylesheet reference check is missing.')
 if 'compact_single_column_css' not in source or 'compact_center_css' not in source:
