@@ -27,6 +27,26 @@ jobs:
             | sort -z \
             | xargs -0 -n1 bash -n
 
+      - name: Validate Site Core deployment patch generation
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_dir="$RUNNER_TEMP/site-core-0.3.3-patch-test"
+          STC_PATCH_ONLY=1 bash ops/wordpress-recovery/deploy-site-core.sh \
+            "$RUNNER_TEMP/not-a-wordpress-site" \
+            "$output_dir"
+          patched="$output_dir/private/deploy-site-core-patched.sh"
+          test -s "$patched"
+          bash -n "$patched"
+          grep -Fq 'EXPECTED_VERSION="0.3.3"' "$patched"
+          grep -Fq '3e2692c9df6744a3f176483e9fe87c83659d71be' "$patched"
+          grep -Fq 'class-stc-critical-styles.php' "$patched"
+          grep -Fq 'id="stc-critical-inline-css"' "$patched"
+          grep -Fq 'margin-left: auto !important;' "$patched"
+          grep -Fq 'margin-right: auto !important;' "$patched"
+          ! grep -Fq '$OUTPUT_DIR/public.css' "$patched"
+          ! grep -Fq 'public-css-curl-stderr' "$patched"
+
       - name: Validate all recovery PHP scripts
         shell: bash
         run: |
