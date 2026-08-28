@@ -84,6 +84,22 @@ if source.count(homepage_curl) != 1:
     raise SystemExit('Expected one public homepage curl verification step.')
 source = source.replace(homepage_curl, homepage_inline_checks)
 
+# The 0.3.3 inline safeguard intentionally contains a CSS selector with
+# href="tel:". Verify actual empty anchor elements instead of scanning all raw
+# HTML, which would incorrectly treat that selector as a broken telephone link.
+old_empty_tel_check = (
+    "    'empty_tel_link_absent': 'href=\"tel:\"' not in home and "
+    "'href=\"tel:\"' not in contact,\n"
+)
+new_empty_tel_check = (
+    "    'empty_tel_link_absent': "
+    "re.search(r'<a\\b[^>]*\\bhref=\"tel:\\+?\"', home, flags=re.I) is None "
+    "and re.search(r'<a\\b[^>]*\\bhref=\"tel:\\+?\"', contact, flags=re.I) is None,\n"
+)
+if source.count(old_empty_tel_check) != 1:
+    raise SystemExit('Expected one raw empty telephone-link public check.')
+source = source.replace(old_empty_tel_check, new_empty_tel_check)
+
 replacements = [
     (
         'curl "${curl_common[@]}" "https://www.sttheklachurch.org/wp-content/plugins/st-thekla-site-core/assets/css/public.css?ver=${EXPECTED_VERSION}&site_core_patch=${stamp}" > "$OUTPUT_DIR/public.css" 2> "$OUTPUT_DIR/public-css-curl-stderr.txt"\n',
@@ -125,9 +141,10 @@ for forbidden in (
     "css = read('public.css')",
     'css_report',
     'css_checks',
+    "'href=\"tel:\"' not in home",
 ):
     if forbidden in source:
-        raise SystemExit(f'Direct CSS probe reference remained after patching: {forbidden}')
+        raise SystemExit(f'Obsolete deployment verifier reference remained after patching: {forbidden}')
 
 required = (
     release_commit,
@@ -138,6 +155,7 @@ required = (
     'id=\"stc-critical-inline-css\"',
     "grep -Fq 'margin-left: auto !important;'",
     "grep -Fq 'margin-right: auto !important;'",
+    "re.search(r'<a\\b",
     "'versioned_css_requested'",
     'compact_single_column_css',
     'compact_center_css',
