@@ -1,0 +1,292 @@
+name: St. Thekla current live verification v2
+
+on:
+  push:
+    branches:
+      - ops/live-status-20260828
+    paths:
+      - .github/workflows/stthekla-current-live-verification-v2.yml
+      - ops/live-status-v2-trigger.txt
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Read-only live release verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      SSH_HOST: 162.241.24.113
+      SSH_PORT: '22'
+      SSH_USER: stthekla
+      WP_PATH: /home3/stthekla/public_html
+    steps:
+      - name: Check out verification branch
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        shell: bash
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.STTHEKLA_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "${SSH_PRIVATE_KEY:-}"
+          mkdir -p "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > "$HOME/.ssh/id_rsa_stthekla"
+          chmod 600 "$HOME/.ssh/id_rsa_stthekla"
+          ssh-keygen -y -f "$HOME/.ssh/id_rsa_stthekla" >/dev/null
+          ssh-keyscan -T 20 -p "$SSH_PORT" -t rsa,ecdsa,ed25519 "$SSH_HOST" > "$HOME/.ssh/known_hosts"
+          test -s "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Collect read-only WordPress state
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p verification-results
+          ssh \
+            -i "$HOME/.ssh/id_rsa_stthekla" \
+            -p "$SSH_PORT" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=30 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$SSH_USER@$SSH_HOST" \
+            bash -s -- "$WP_PATH" > verification-results/server-state.json <<'REMOTE'
+          set -euo pipefail
+          wp_path="$1"
+          wp --path="$wp_path" eval '
+          include_once ABSPATH . "wp-admin/includes/plugin.php";
+          $site_core_file = WP_PLUGIN_DIR . "/st-thekla-site-core/st-thekla-site-core.php";
+          $directory_file = WP_PLUGIN_DIR . "/community-directory/community-directory.php";
+          $site_core_data = file_exists($site_core_file) ? get_plugin_data($site_core_file, false, false) : array();
+          $directory_data = file_exists($directory_file) ? get_plugin_data($directory_file, false, false) : array();
+          $settings = get_option("stc_settings", array());
+          $visit = get_option("stc_visit_settings", array());
+          $schedule = get_option("stc_weekly_schedule", array());
+          $visit_page = get_page_by_path("visit-us");
+          $front_id = (int) get_option("page_on_front", 0);
+          $front = $front_id ? get_post($front_id) : null;
+          $contact_page = get_page_by_path("contact-us");
+          $report = array(
+            "generated_at_utc" => gmdate("c"),
+            "wordpress_version" => get_bloginfo("version"),
+            "site_core" => array(
+              "active" => is_plugin_active("st-thekla-site-core/st-thekla-site-core.php"),
+              "version" => isset($site_core_data["Version"]) ? $site_core_data["Version"] : null,
+              "data_version" => (string) get_option("stc_data_version", ""),
+            ),
+            "community_directory" => array(
+              "active" => is_plugin_active("community-directory/community-directory.php"),
+              "version" => isset($directory_data["Version"]) ? $directory_data["Version"] : null,
+              "db_version" => (string) get_option("cd_db_version", ""),
+            ),
+            "location" => array(
+              "church_name" => isset($settings["church_name"]) ? $settings["church_name"] : "",
+              "address_line_1" => isset($settings["address_line_1"]) ? $settings["address_line_1"] : "",
+              "address_line_2" => isset($settings["address_line_2"]) ? $settings["address_line_2"] : "",
+              "city" => isset($settings["city"]) ? $settings["city"] : "",
+              "state" => isset($settings["state"]) ? $settings["state"] : "",
+              "zip" => isset($settings["zip"]) ? $settings["zip"] : "",
+              "map_url" => isset($settings["map_url"]) ? $settings["map_url"] : "",
+            ),
+            "visit" => array(
+              "move_effective_date" => isset($visit["move_effective_date"]) ? $visit["move_effective_date"] : "",
+              "move_announcement_enabled" => isset($visit["move_announcement_enabled"]) ? (string) $visit["move_announcement_enabled"] : "",
+              "visit_image_id" => isset($visit["visit_image_id"]) ? (int) $visit["visit_image_id"] : 0,
+              "parking_map_image_id" => isset($visit["parking_map_image_id"]) ? (int) $visit["parking_map_image_id"] : 0,
+              "visit_page_url" => isset($visit["visit_page_url"]) ? $visit["visit_page_url"] : "",
+            ),
+            "schedule" => is_array($schedule) ? array_values($schedule) : array(),
+            "pages" => array(
+              "front_page_id" => $front_id,
+              "front_page_has_visit_shortcode" => $front instanceof WP_Post && false !== strpos($front->post_content, "[st_visit_us"),
+              "contact_has_location_shortcode" => $contact_page instanceof WP_Post && false !== strpos($contact_page->post_content, "[st_church_location"),
+              "contact_has_wpforms_shortcode" => $contact_page instanceof WP_Post && false !== strpos($contact_page->post_content, "[wpforms"),
+              "visit_page_exists" => $visit_page instanceof WP_Post,
+              "visit_page_status" => $visit_page instanceof WP_Post ? $visit_page->post_status : null,
+              "visit_page_has_shortcode" => $visit_page instanceof WP_Post && false !== strpos($visit_page->post_content, "[st_visit_us"),
+            ),
+          );
+          echo wp_json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+          '
+          REMOTE
+          python3 -m json.tool verification-results/server-state.json >/dev/null
+
+      - name: Verify public pages and APIs externally
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/live"
+          common=(
+            -sS -L --max-time 60
+            -H 'Cache-Control: no-cache, no-store, must-revalidate'
+            -H 'Pragma: no-cache'
+            -H 'User-Agent: StThekla-Live-Verification-v2/1.0'
+          )
+          stamp="${GITHUB_RUN_ID}-$(date +%s%N)"
+          fetch() {
+            local name="$1" url="$2" separator='?'
+            [[ "$url" == *\?* ]] && separator='&'
+            curl "${common[@]}" -o "$RUNNER_TEMP/live/$name.body" -w '%{http_code}' "${url}${separator}live_verify=$stamp" > "$RUNNER_TEMP/live/$name.status"
+          }
+          fetch home 'https://www.sttheklachurch.org/'
+          fetch contact 'https://www.sttheklachurch.org/contact-us/'
+          fetch visit 'https://www.sttheklachurch.org/visit-us/'
+          fetch directory 'https://www.sttheklachurch.org/community/login/'
+          fetch public_api 'https://www.sttheklachurch.org/wp-json/st-thekla/v1/public'
+          fetch schedule_api 'https://www.sttheklachurch.org/wp-json/st-thekla/v1/weekly-schedule'
+
+          python3 - "$RUNNER_TEMP/live" > verification-results/public-state.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          def body(name):
+              return (root / f'{name}.body').read_text(encoding='utf-8', errors='replace')
+          def status(name):
+              return int((root / f'{name}.status').read_text().strip() or 0)
+
+          home = body('home')
+          contact = body('contact')
+          visit = body('visit')
+          directory = body('directory')
+          try:
+              public = json.loads(body('public_api'))
+          except Exception:
+              public = None
+          try:
+              schedule = json.loads(body('schedule_api'))
+          except Exception:
+              schedule = None
+
+          expected = [
+              ('8:00 AM', 'Lilyo'),
+              ('8:30 AM', 'Morning Prayer'),
+              ('9:00 AM', 'Holy Qurbana'),
+              ('10:10 AM', 'Dismissal'),
+              ('10:30 AM', 'Refreshments / Fellowship'),
+              ('10:45 AM', 'Tree of Life'),
+              ('11:30 AM', 'End of Tree of Life'),
+          ]
+          actual = []
+          if isinstance(schedule, dict):
+              actual = [(str(item.get('time', '')), str(item.get('description', ''))) for item in schedule.get('items', []) if isinstance(item, dict)]
+          old = [
+              '107 strawtown road', 'west nyack', '2 old ox road',
+              'st. thomas lutheran church', 'st thomas lutheran church',
+              'nyack, ny 10960', 'nyack, new york 10960'
+          ]
+          current = ['Sacred Heart Chapel', '175 Route 340', 'Sparkill', '10976']
+          visit_payload = public.get('visit', {}) if isinstance(public, dict) else {}
+          contact_payload = public.get('contact', {}) if isinstance(public, dict) else {}
+          visit_image = visit_payload.get('visit_image') or {}
+          parking_image = visit_payload.get('parking_map_image') or {}
+
+          checks = {
+              'home_http_200': status('home') == 200,
+              'contact_http_200': status('contact') == 200,
+              'visit_http_200': status('visit') == 200,
+              'directory_http_200': status('directory') == 200,
+              'public_api_http_200': status('public_api') == 200,
+              'schedule_api_http_200': status('schedule_api') == 200,
+              'home_new_location': all(value in home for value in current),
+              'home_schedule_complete': all(time in home and label in home for time, label in expected),
+              'home_exterior_image': 'stc-visit-image' in home,
+              'home_no_old_location': not any(value in home.lower() for value in old),
+              'contact_new_location': all(value in contact for value in current),
+              'contact_wpforms': 'wpforms-form-' in contact,
+              'contact_no_old_location': not any(value in contact.lower() for value in old),
+              'visit_component': 'stc-visit-us-full' in visit,
+              'visit_parking_map': 'stc-parking-map' in visit,
+              'visit_new_location': all(value in visit for value in current),
+              'visit_no_old_location': not any(value in visit.lower() for value in old),
+              'directory_login': 'cd-wrap cd-login' in directory and 'Member Login' in directory,
+              'public_api_json': isinstance(public, dict),
+              'public_api_location': 'Sacred Heart Chapel' in str(contact_payload.get('address', '')) and '175 Route 340' in str(contact_payload.get('address', '')),
+              'public_api_move_date': str(visit_payload.get('move_effective_date', '')) == '2026-08-23',
+              'public_api_visit_image': bool(visit_image.get('url')),
+              'public_api_parking_image': bool(parking_image.get('url')),
+              'schedule_exact': actual == expected,
+          }
+          failed = [name for name, passed in checks.items() if not passed]
+          print(json.dumps({
+              'generated_at_utc': __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat(),
+              'checks': checks,
+              'failed': failed,
+              'all_public_checks_passed': not failed,
+              'http_status': {name: status(name) for name in ['home','contact','visit','directory','public_api','schedule_api']},
+              'schedule': actual,
+          }, indent=2, sort_keys=True))
+          PY
+          python3 -m json.tool verification-results/public-state.json >/dev/null
+
+      - name: Build final live-status report
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - verification-results/server-state.json verification-results/public-state.json > verification-results/live-status.json <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          server = json.loads(Path(sys.argv[1]).read_text())
+          public = json.loads(Path(sys.argv[2]).read_text())
+          expected = [
+              {'time':'8:00 AM','description':'Lilyo'},
+              {'time':'8:30 AM','description':'Morning Prayer'},
+              {'time':'9:00 AM','description':'Holy Qurbana'},
+              {'time':'10:10 AM','description':'Dismissal'},
+              {'time':'10:30 AM','description':'Refreshments / Fellowship'},
+              {'time':'10:45 AM','description':'Tree of Life'},
+              {'time':'11:30 AM','description':'End of Tree of Life'},
+          ]
+          server_checks = {
+              'site_core_active_0_3_0': server.get('site_core', {}).get('active') is True and server.get('site_core', {}).get('version') == '0.3.0',
+              'data_version_003': server.get('site_core', {}).get('data_version') == '003',
+              'community_directory_active_0_5_2': server.get('community_directory', {}).get('active') is True and server.get('community_directory', {}).get('version') == '0.5.2',
+              'location_current': server.get('location', {}).get('address_line_1') == 'Sacred Heart Chapel' and server.get('location', {}).get('address_line_2') == '175 Route 340' and server.get('location', {}).get('city') == 'Sparkill' and server.get('location', {}).get('zip') == '10976',
+              'move_date_current': server.get('visit', {}).get('move_effective_date') == '2026-08-23',
+              'images_configured': int(server.get('visit', {}).get('visit_image_id') or 0) > 0 and int(server.get('visit', {}).get('parking_map_image_id') or 0) > 0,
+              'visit_page_published': server.get('pages', {}).get('visit_page_exists') is True and server.get('pages', {}).get('visit_page_status') == 'publish' and server.get('pages', {}).get('visit_page_has_shortcode') is True,
+              'homepage_updated': server.get('pages', {}).get('front_page_has_visit_shortcode') is True,
+              'contact_updated': server.get('pages', {}).get('contact_has_location_shortcode') is True and server.get('pages', {}).get('contact_has_wpforms_shortcode') is True,
+              'schedule_exact': server.get('schedule') == expected,
+          }
+          server_failed = [name for name, passed in server_checks.items() if not passed]
+          all_live = not server_failed and public.get('all_public_checks_passed') is True
+          print(json.dumps({
+              'all_updates_live': all_live,
+              'server_checks': server_checks,
+              'server_failed': server_failed,
+              'public_checks': public.get('checks', {}),
+              'public_failed': public.get('failed', []),
+              'server_state': server,
+              'public_state': public,
+          }, indent=2, sort_keys=True))
+          PY
+          python3 -m json.tool verification-results/live-status.json >/dev/null
+          cat verification-results/live-status.json
+
+      - name: Upload verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stthekla-current-live-status-v2-${{ github.run_id }}
+          path: verification-results
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Require all live checks
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          report = json.loads(Path('verification-results/live-status.json').read_text())
+          if not report.get('all_updates_live'):
+              raise SystemExit('The Sparkill move release is not fully live.')
+          PY
