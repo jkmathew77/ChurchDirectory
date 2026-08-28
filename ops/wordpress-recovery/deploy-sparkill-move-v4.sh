@@ -44,6 +44,51 @@ if [[ "$actual_length" != "$EXPECTED_B64_LENGTH" ]]; then
   exit 1
 fi
 
+# Print only non-sensitive integrity metadata so a damaged text chunk can be
+# corrected without exposing the image payload itself in workflow logs.
+python3 - "$IMAGE_B64" "${parts[@]}" <<'PY'
+from pathlib import Path
+import hashlib
+import json
+import re
+import sys
+
+payload_path = Path(sys.argv[1])
+part_paths = [Path(value) for value in sys.argv[2:]]
+payload_bytes = payload_path.read_bytes()
+try:
+    payload = payload_bytes.decode('ascii')
+    ascii_ok = True
+except UnicodeDecodeError:
+    payload = payload_bytes.decode('ascii', errors='replace')
+    ascii_ok = False
+allowed = re.compile(r'^[A-Za-z0-9+/]*={0,2}$')
+invalid = [
+    {'offset': index, 'codepoint': ord(character)}
+    for index, character in enumerate(payload)
+    if character not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/='
+]
+report = {
+    'ascii_ok': ascii_ok,
+    'payload_length': len(payload_bytes),
+    'payload_sha256': hashlib.sha256(payload_bytes).hexdigest(),
+    'base64_alphabet_valid': bool(allowed.fullmatch(payload)),
+    'invalid_characters': invalid[:50],
+    'invalid_character_count': len(invalid),
+    'parts': [
+        {
+            'name': path.name,
+            'length': path.stat().st_size,
+            'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for path in part_paths
+    ],
+}
+print('SPARKILL_IMAGE_PAYLOAD_DIAGNOSTIC=' + json.dumps(report, sort_keys=True), file=sys.stderr)
+if not ascii_ok or invalid or not allowed.fullmatch(payload):
+    raise SystemExit(42)
+PY
+
 base64 --decode "$IMAGE_B64" > "$IMAGE_ARCHIVE"
 echo "$EXPECTED_ARCHIVE_SHA256  $IMAGE_ARCHIVE" | sha256sum -c - >/dev/null
 
